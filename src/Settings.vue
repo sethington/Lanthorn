@@ -251,7 +251,7 @@ const providerOf = (id: string) => settings.value?.providers.find((p) => p.id ==
 
     <section>
       <h2>Picture judge</h2>
-      <p class="note">While you read, a small model looks at the picture now and then and checks it suits the text. It widens shots that are too tight and drops effects that keep failing. It uses the "Picture judge" model above and stops at the limit you set for each book.</p>
+      <p class="note">While you read, a small model looks at the picture now and then and checks it suits the text. It widens shots that are too tight and drops effects that keep failing. It uses the "Picture judge" model above and stops at the limit you set for each book ($2 by default; 0 means no limit, for a model that costs you nothing).</p>
       <div class="sound">
         <label class="field"><span>Check pictures while reading</span>
           <select :value="judgeSettings.on ? 'on' : 'off'" @change="(e) => { judgeSettings.on = (e.target as HTMLSelectElement).value === 'on'; saveJudgeSettings(); }">
@@ -259,8 +259,8 @@ const providerOf = (id: string) => settings.value?.providers.find((p) => p.id ==
             <option value="off">Off</option>
           </select>
         </label>
-        <label class="field"><span>Most to spend per book (US$)</span>
-          <input type="number" min="0.05" step="0.05" :value="judgeSettings.cap" @change="(e) => { const v = Number((e.target as HTMLInputElement).value); if (v > 0) { judgeSettings.cap = v; saveJudgeSettings(); } }" />
+        <label class="field"><span>Most to spend per book (US$, 0 = no limit)</span>
+          <input type="number" min="0" step="0.25" :value="judgeSettings.cap" @change="(e) => { const v = Number((e.target as HTMLInputElement).value); if (v >= 0) { judgeSettings.cap = v; saveJudgeSettings(); } }" />
         </label>
       </div>
     </section>

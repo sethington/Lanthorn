@@ -4,17 +4,18 @@
 import { reactive } from "vue";
 import { usage } from "./usage";
 
-export type JudgeSettings = { on: boolean; cap: number }; // cap: dollars per book (tokens at a rough price when the model reports no cost)
+export type JudgeSettings = { on: boolean; cap: number }; // cap: dollars per book (tokens at a rough price when the model reports no cost); 0 = no limit
 const SKEY = "lanthorn:judge-settings";
 function loadSettings(): JudgeSettings {
-  try { const j = JSON.parse(localStorage.getItem(SKEY) ?? "null"); if (j) return { on: j.on !== false, cap: Number(j.cap) > 0 ? Number(j.cap) : 0.5 }; } catch { /* default */ }
-  return { on: true, cap: 0.5 };
+  try { const j = JSON.parse(localStorage.getItem(SKEY) ?? "null"); if (j) return { on: j.on !== false, cap: Number(j.cap) >= 0 ? Number(j.cap) : 2 }; } catch { /* default */ }
+  return { on: true, cap: 2 };
 }
 export const judgeSettings = reactive<JudgeSettings>(loadSettings());
 export function saveJudgeSettings() { try { localStorage.setItem(SKEY, JSON.stringify(judgeSettings)); } catch { /* optional */ } }
 
 /** Has this book's judge budget run out? */
 export function budgetLeft(): boolean {
+  if (judgeSettings.cap === 0) return true;
   const t = usage.data.byJob["judge"];
   if (!t) return true;
   const spent = t.cost > 0 ? t.cost : (t.input + t.output + t.cacheWrite + t.cacheRead * 0.1) * 4e-6;
