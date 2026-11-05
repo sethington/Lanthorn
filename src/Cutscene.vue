@@ -3,7 +3,7 @@
 // and no playback: the reading position (sentence and how far through it) is mapped through the director's timeline to a scene,
 // a shot and a time of day, and the world is told. Scroll back and it winds back. Click the picture to take the camera (Esc gives
 // it back).
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { api } from "./lib/api";
 import { Player, buildTimeline, type Frame, type Timeline } from "./lib/director";
 import { assetsNeeded, resolveScene, sceneKey, type Resolved } from "./lib/resolve";
@@ -12,7 +12,7 @@ import type { PackageAsset } from "./lib/book";
 import type { Sentence } from "./lib/text";
 
 // `sid` is the sentence under the reading line, `frac` how far through it (0..1). The picture sits in the element matched by `host`.
-const props = defineProps<{ sentences: Sentence[]; scenes: Scene[]; bible: Bible; pkg?: PackageAsset[]; host: string; sid: number; frac: number; style?: string }>();
+const props = defineProps<{ sentences: Sentence[]; scenes: Scene[]; bible: Bible; pkg?: PackageAsset[]; host: string; sid: number; frac: number; styleFor?: (s: Scene) => string | undefined; styleVer?: number }>();
 
 // The picture's shape follows the panel it lives in (portrait panel, portrait picture), so it fills the panel instead of floating
 // small in it. Fixed for the life of this film: scenes are built at this size.
@@ -26,9 +26,9 @@ function panelSize(): [number, number] {
 const SIZE: [number, number] = panelSize();
 const ASPECT = SIZE[0] / SIZE[1];
 
-const tl: Timeline = buildTimeline(props.sentences, props.scenes);
-const player = new Player(tl); // only used as a pure lookup: what the director says at a given time
-const beatOf = new Map(tl.beats.map((b) => [b.sentence, b]));
+let tl: Timeline = buildTimeline([], []);
+let player = new Player(tl); // only used as a pure lookup: what the director says at a given time
+let beatOf = new Map<number, Timeline["beats"][number]>();
 
 /** The reading position as a time on the director's timeline. */
 function targetTime(): number {
@@ -36,35 +36,52 @@ function targetTime(): number {
   if (!b) return 0;
   return b.t0 + Math.min(1, Math.max(0, props.frac)) * (b.t1 - b.t0);
 }
-let tNow = targetTime(); // eased toward the target so the camera glides when the reader scrolls
+let tNow = 0; // eased toward the target so the camera glides when the reader scrolls
 
 // Consecutive scenes in the same place share one world: only a change of place loads a new one, so scrolling between them is
-// camera moves, not a reload. A scene with no picture of its own stays in the world before it.
-type Group = { id: number; scenes: number[]; t0: number; t1: number };
+// camera moves, not a reload. A scene with no picture of its own stays in the world before it. A new chapter always starts a new group.
+// The book is one endless text: scenes arrive chapter by chapter as they are analysed, so all of this is rebuilt when they do.
+type Group = { id: number; scenes: number[]; t0: number; t1: number; ch: number };
 const norm = (x: string) => (x ?? "").trim().toLowerCase();
 const sameWorld = (a: Scene, b: Scene) => norm(a.location) === norm(b.location) && !!a.interior === !!b.interior && norm(a.weather) === norm(b.weather);
-const groups: Group[] = [];
-const groupOfScene = new Map<number, number>();
-{
+let groups: Group[] = [];
+let groupOfScene = new Map<number, number>();
+let localShot = new Map<object, number>();
+// a group's identity: where it starts and ends in the text (stable while other chapters come and go)
+const sig = (g: Group) => `${props.scenes[g.scenes[0]].from}:${props.scenes[g.scenes[g.scenes.length - 1]].to}`;
+// a group's shots, in the group's own list: the index the world's camera rigs use
+const groupShots = (g: Group) => tl.shots.filter((x) => g.scenes.includes(x.scene));
+let loadedSig = ""; // the group whose world is on screen
+let loadedG: Group | null = null;
+function build() {
+  tl = buildTimeline(props.sentences, props.scenes);
+  player = new Player(tl);
+  beatOf = new Map(tl.beats.map((b) => [b.sentence, b]));
+  const gs: Group[] = [];
+  const gos = new Map<number, number>();
   let cur: Group | null = null;
   props.scenes.forEach((sc, i) => {
     const span = tl.scenes.find((x) => x.index === i);
     if (!span) return;
     const rep = cur ? props.scenes[cur.scenes.find((k) => props.scenes[k].visual) ?? cur.scenes[0]] : null;
-    if (cur && (!sc.visual || !rep || !rep.visual || sameWorld(rep, sc))) {
+    if (cur && cur.ch === (sc.ch ?? 0) && (!sc.visual || !rep || !rep.visual || sameWorld(rep, sc))) {
       cur.scenes.push(i);
       cur.t1 = span.t1;
     } else {
-      cur = { id: groups.length, scenes: [i], t0: span.t0, t1: span.t1 };
-      groups.push(cur);
+      cur = { id: gs.length, scenes: [i], t0: span.t0, t1: span.t1, ch: sc.ch ?? 0 };
+      gs.push(cur);
     }
-    groupOfScene.set(i, cur.id);
+    gos.set(i, cur.id);
   });
+  groups = gs;
+  groupOfScene = gos;
+  localShot = new Map();
+  groups.forEach((g) => groupShots(g).forEach((sh, n) => localShot.set(sh, n)));
+  loadedG = loadedSig ? groups.find((g) => sig(g) === loadedSig) ?? null : null;
+  if (loadedSig && !loadedG) loadedSig = ""; // that place changed under us: it is loaded again
+  tNow = targetTime();
 }
-// a group's shots, in the group's own list: the index the world's camera rigs use
-const groupShots = (g: Group) => tl.shots.filter((x) => g.scenes.includes(x.scene));
-const localShot = new Map<object, number>();
-groups.forEach((g) => groupShots(g).forEach((sh, n) => localShot.set(sh, n)));
+build();
 
 const hole = reactive({ x: 0, y: 0, w: 0, h: 0 });
 const ui = reactive({ busy: false, up: false, t: 0, beat: -1, fade: 1, controlling: false, status: "Preparing the world…", error: "" });
@@ -97,12 +114,14 @@ function onResize() {
 
 // ---- a group of scenes becomes one world bundle, prepared on demand
 type Prep = { bundle: string; dir: string };
-const preps = new Map<number, Promise<Prep>>();
+const preps = new Map<string, Promise<Prep>>();
 const repOf = (g: Group) => g.scenes.find((i) => props.scenes[i].visual);
 function prepare(gi: number): Promise<Prep> {
-  let p = preps.get(gi);
+  const g0 = groups[gi];
+  const key0 = sig(g0);
+  let p = preps.get(key0);
   if (!p) {
-    const g = groups[gi];
+    const g = g0;
     const rep = props.scenes[repOf(g)!];
     const last = props.scenes[g.scenes[g.scenes.length - 1]];
     // one scene standing for the whole group: the first picture's look, running on to where the last one ends
@@ -126,29 +145,30 @@ function prepare(gi: number): Promise<Prep> {
         return { act, p0: (t0 - g.t0) / span, p1: (t1 - g.t0) / span };
       });
     });
-    const r: Resolved = resolveScene(whole, props.bible, { pkg: props.pkg, size: SIZE, shots, stage, acting, style: props.style });
+    const r: Resolved = resolveScene(whole, props.bible, { pkg: props.pkg, size: SIZE, shots, stage, acting, style: props.styleFor?.(rep) });
     r.live = true;
     r.t0 = 0;
     p = api.sceneWorld(`${sceneKey(r)}-cut`, JSON.stringify(r), assetsNeeded(r));
-    p.catch(() => preps.delete(gi)); // a failed prepare may be retried
-    preps.set(gi, p);
+    p.catch(() => preps.delete(key0)); // a failed prepare may be retried
+    preps.set(key0, p);
   }
   return p;
 }
 
 /** The group whose world should be showing for group gi: one with no picture holds the world before it. */
-const failedGroups = new Map<number, number>(); // group -> failed attempts; after two, the reader makes do with a neighbour
-const usable = (k: number) => repOf(groups[k]) !== undefined && (failedGroups.get(k) ?? 0) < 2;
+const failedGroups = new Map<string, number>(); // group -> failed attempts; after two, the reader makes do with a neighbour
+const usable = (k: number) => repOf(groups[k]) !== undefined && (failedGroups.get(sig(groups[k])) ?? 0) < 2;
 function worldGroup(gi: number): number {
   for (let k = gi; k >= 0; k--) if (usable(k)) return k;
   for (let k = gi + 1; k < groups.length; k++) if (usable(k)) return k;
   return -1;
 }
 
-let loaded = -1;
 let loading = false;
 async function loadWorld(i: number) {
   loading = true;
+  const gOld = groups[i];
+  const s = sig(gOld);
   try {
     const p = await prepare(i);
     await api.worldCmd({ cmd: "load", bundle: p.bundle, dir: p.dir, w: SIZE[0], h: SIZE[1] });
@@ -161,20 +181,23 @@ async function loadWorld(i: number) {
       await new Promise((r) => setTimeout(r, 50));
     }
     await new Promise((r) => setTimeout(r, 250)); // let the first frames reach the screen
-    loaded = i;
+    loadedSig = s;
+    loadedG = groups.find((g) => sig(g) === s) ?? null;
     ui.up = true;
     ui.status = "";
     ui.error = "";
   } catch (e) {
     ui.error = String(e);
-    failedGroups.set(i, (failedGroups.get(i) ?? 0) + 1);
-    loaded = -1; // the loop tries again, or (after two failures) moves on without this place
+    failedGroups.set(s, (failedGroups.get(s) ?? 0) + 1); // the loop tries again, or (after two failures) moves on without this place
   } finally {
     loading = false;
   }
   // get the next place's bundle ready while this one is on screen
-  const next = worldGroup(i + 1 < groups.length ? i + 1 : i);
-  if (next >= 0 && next !== i) prepare(next).catch(() => {});
+  const gi = groups.findIndex((g) => sig(g) === s);
+  if (gi >= 0) {
+    const next = worldGroup(gi + 1 < groups.length ? gi + 1 : gi);
+    if (next >= 0 && next !== gi) prepare(next).catch(() => {});
+  }
 }
 
 // ---- input from the viewer
@@ -221,28 +244,29 @@ function step(now: number) {
   const f = player.at(tNow);
   const gi = groupOfScene.get(f.scene) ?? -1;
   const want = gi >= 0 ? worldGroup(gi) : -1;
-  const needLoad = want >= 0 && want !== loaded;
+  const needLoad = want >= 0 && sig(groups[want]) !== loadedSig;
   if (needLoad && !loading) loadWorld(want);
   if (needLoad && ui.controlling) release(); // the reader moved to another place: the camera goes back to following the text
   frame.value = f;
+  const loaded = loadedG ? groups.indexOf(loadedG) : -1;
   if (import.meta.env.DEV) (window as any).__lw = { loaded, loading, want, t: tNow, target };
   ui.t = f.t;
   ui.beat = f.beatIndex;
   // Black only until the first world is up (never the desktop through the pane). After that nothing fades: shots are camera
   // moves, and a change of place holds the last picture until the next world is ready.
-  ui.fade = loaded < 0 ? 1 : 0;
+  ui.fade = ui.up ? 0 : 1;
   ui.busy = needLoad;
 
-  if (!needLoad && loaded >= 0 && now - lastSent > 30) {
+  if (!needLoad && loadedG && now - lastSent > 30) {
     lastSent = now;
     const sh = f.shot ? (localShot.get(f.shot) ?? -1) : -1;
-    const narr = groups[loaded] ? Math.min(1, Math.max(0, (tNow - groups[loaded].t0) / Math.max(0.001, groups[loaded].t1 - groups[loaded].t0))) : f.sceneProgress;
-    if (import.meta.env.DEV) (window as any).__lwN = { narr, shot: sh, shotp: f.shotProgress, gi: loaded, g0: groups[loaded]?.t0, g1: groups[loaded]?.t1 };
+    const narr = loadedG ? Math.min(1, Math.max(0, (tNow - loadedG.t0) / Math.max(0.001, loadedG.t1 - loadedG.t0))) : f.sceneProgress;
+    if (import.meta.env.DEV) (window as any).__lwN = { narr, shot: sh, shotp: f.shotProgress, gi: loaded, g0: loadedG?.t0, g1: loadedG?.t1 };
     api.worldCmd({
       cmd: "input",
       keys: [...keys],
       pointer: pointer ?? undefined,
-      narrative: groups[loaded] ? Math.min(1, Math.max(0, (tNow - groups[loaded].t0) / Math.max(0.001, groups[loaded].t1 - groups[loaded].t0))) : f.sceneProgress,
+      narrative: loadedG ? Math.min(1, Math.max(0, (tNow - loadedG.t0) / Math.max(0.001, loadedG.t1 - loadedG.t0))) : f.sceneProgress,
       shot: ui.controlling ? undefined : sh,
       shotp: f.shotProgress,
       control: ui.controlling,
@@ -253,6 +277,15 @@ function step(now: number) {
 // ---- what's on screen
 const beat = computed(() => (frame.value && frame.value.beatIndex >= 0 ? tl.beats[frame.value.beatIndex] : null));
 const speaker = computed(() => (beat.value && beat.value.kind !== "narration" ? beat.value.speaker : ""));
+
+watch(() => props.scenes, build);
+watch(() => props.styleVer, () => {
+  // the look changed: every world is made again; the old picture stays up until the new one is ready
+  preps.clear();
+  failedGroups.clear();
+  loadedSig = "";
+  loadedG = null;
+});
 
 onMounted(async () => {
   document.documentElement.classList.add("world");
@@ -305,7 +338,7 @@ onMounted(() => {
   if (!import.meta.env.DEV) return;
   beatTimer = window.setInterval(async () => {
     const st = await api.worldCmd({ cmd: "status" }).catch((e) => String(e));
-    fetch("/__debug", { method: "POST", body: JSON.stringify({ kind: "cut", data: { t: +ui.t.toFixed(1), sid: props.sid, frac: +props.frac.toFixed(2), scene: frame.value?.scene, shot: frame.value?.shotIndex, beat: ui.beat, fade: +ui.fade.toFixed(2), loaded, loading, controlling: ui.controlling, n: (window as any).__lwN, hole: { ...hole }, size: SIZE, loops, loopErr, vis: document.visibilityState, status: ui.status, error: ui.error, world: st } }) }).catch(() => {});
+    fetch("/__debug", { method: "POST", body: JSON.stringify({ kind: "cut", data: { t: +ui.t.toFixed(1), sid: props.sid, frac: +props.frac.toFixed(2), scene: frame.value?.scene, shot: frame.value?.shotIndex, beat: ui.beat, fade: +ui.fade.toFixed(2), loaded: loadedG ? groups.indexOf(loadedG) : -1, loading, controlling: ui.controlling, n: (window as any).__lwN, hole: { ...hole }, size: SIZE, loops, loopErr, vis: document.visibilityState, status: ui.status, error: ui.error, world: st } }) }).catch(() => {});
   }, 2000);
 });
 onBeforeUnmount(() => clearInterval(beatTimer));

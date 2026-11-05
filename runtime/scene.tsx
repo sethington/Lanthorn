@@ -1139,6 +1139,8 @@ function Scene() {
     for (const c of on("dim")) if ((c.how ?? "").includes("eclipse")) skyW = Math.max(skyW, ramp(c));
     for (const c of on("creature")) wide = Math.max(wide, ramp(c));
     for (const c of on("moon")) skyW = Math.max(skyW, ramp(c));
+    // a creature crossing wins over a sky event that is still running: it is the newest thing to look at
+    for (const c of on("creature")) skyW *= 1 - 0.9 * ramp(c);
     if (wide > 0.001 || skyW > 0.001) {
       const w = Math.max(wide, 0.6 * skyW);
       const back = vsub(camS, lookS);

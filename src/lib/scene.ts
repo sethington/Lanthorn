@@ -32,6 +32,8 @@ export type Scene = {
   acting?: Act[];
   /** stage cues: things the text makes the world DO (a moon cycling its phases, trees sprouting, speed streaks, strobing sky, camera stunts) */
   stage?: Cue[];
+  /** which chapter of the book this scene is in (set when chapters are joined into one text) */
+  ch?: number;
   place?: { asset: string; x?: number; y?: number; z?: number; height?: number; rotY?: number }[];
 };
 

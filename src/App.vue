@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, triggerRef, watch } from "vue";
 import Library from "./Library.vue";
 import Settings from "./Settings.vue";
 import Cutscene from "./Cutscene.vue";
@@ -12,6 +12,7 @@ import type { Book } from "./lib/book";
 import { importFile, importHtml, importText } from "./lib/import";
 import { RUNTIME_VERSION } from "./lib/resolve";
 import { hashStr, splitSentences, type Sentence } from "./lib/text";
+import { shiftScene } from "./lib/offset";
 import { DEFAULT_STYLE, STYLES, STYLE_SYSTEM, defaultStyle, effectiveStyle, getChapterOverride, getOverride, heuristicStyle, isStyle, parseStyle, setChapterOverride, setOverride, styleLabel, styleUser, type StyleId, type StyleSource } from "./lib/style";
 
 // --- the open book: any imported book, one chapter at a time ---
@@ -21,18 +22,50 @@ let renderGen = 0; // bumped on every chapter change: work started for the previ
 const LAST_KEY = "lanthorn:last";
 const posKey = (id: string) => `lanthorn:pos:${id}`;
 
-const paragraphs = ref<string[]>([]);
-const sentences = ref<Sentence[]>([]);
+// The whole book is one endless text. Sentence ids run through all of it; a chapter keeps the number of its first sentence (`base`).
+// Only the chapters around the reading position are in the page (`winFrom`..`winTo`); the rest are spacers of the same height.
+type Chap = {
+  idx: number; base: number; nsent: number; key: string; chars: number; paras: Sentence[][];
+  scenes: LlmScene[]; bible: Bible; state: "idle" | "running" | "done" | "error"; checked: boolean;
+  done: number; total: number; cached: number; err: string;
+};
+const chaps = shallowRef<Chap[]>([]);
+const touch = () => triggerRef(chaps);
+const sentences = shallowRef<Sentence[]>([]);
+const winCenter = ref(0);
+const WIN_BEHIND = 1;
+const WIN_AHEAD = 2;
+const winFrom = computed(() => Math.max(0, winCenter.value - WIN_BEHIND));
+const winTo = computed(() => Math.min(chaps.value.length - 1, winCenter.value + WIN_AHEAD));
+const heights = reactive<Record<number, number>>({});
+const secEls: Record<number, HTMLElement> = {};
+let ppc = 0.6; // pixels of height per character of text: estimates the height of chapters not in the page, until they have been seen
+const estH = (c: Chap) => Math.round(c.chars * ppc + 260);
+function setSec(el: unknown, i: number) { if (el) secEls[i] = el as HTMLElement; else delete secEls[i]; }
+function measureAll() {
+  let px = 0, ch = 0;
+  for (let i = winFrom.value; i <= winTo.value; i++) {
+    const el = secEls[i];
+    const c = chaps.value[i];
+    if (!el || !c) continue;
+    heights[i] = el.offsetHeight;
+    if (c.chars > 500) { px += el.offsetHeight; ch += c.chars; }
+  }
+  if (ch > 4000) ppc = px / ch;
+}
+function chapOf(sid: number): number {
+  const cs = chaps.value;
+  let lo = 0, hi = cs.length - 1;
+  while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (cs[mid].base <= sid) lo = mid; else hi = mid - 1; }
+  return lo;
+}
 const sentenceEls = ref<HTMLElement[]>([]);
 const scroller = ref<HTMLElement | null>(null);
 const lineFrac = 0.42; // reading line height within the viewport
-const opacities = ref<number[]>([]);
-const status = ref("loading");
+const opacities = shallowRef<number[]>([]);
 const chapterKey = ref(""); // hash of the chapter text: identity for cached analysis
 const meta = reactive({ title: "", author: "" });
 const chapter = reactive({ num: "", title: "" });
-const titleBlock = ref<HTMLElement | null>(null);
-const chapterHead = ref<HTMLElement | null>(null);
 const crumbVisible = ref(false);
 
 const activeIdx = ref(-1); // scene the reading line is in
@@ -50,11 +83,33 @@ function flushPos() {
 }
 function savePos(sid: number) {
   if (!book.value || sid < 0 || restoring) return;
-  pendingPos = { id: book.value.id, chapter: chapterIdx.value, sid };
+  const ci = chapOf(sid);
+  pendingPos = { id: book.value.id, chapter: ci, sid: sid - (chaps.value[ci]?.base ?? 0) }; // the place is kept as chapter + sentence in it
   clearTimeout(posTimer);
   posTimer = window.setTimeout(flushPos, 400);
 }
 window.addEventListener("beforeunload", flushPos);
+
+function buildChaps(b: Book) {
+  let base = 0;
+  const all: Sentence[] = [];
+  chaps.value = b.chapters.map((ch, idx) => {
+    const sents = splitSentences(ch.paragraphs).map((s) => ({ ...s, id: s.id + base }));
+    const paras: Sentence[][] = ch.paragraphs.map(() => []);
+    sents.forEach((s) => paras[s.para].push(s));
+    all.push(...sents);
+    const c: Chap = { idx, base, nsent: sents.length, key: hashStr(ch.text), chars: ch.text.length, paras, scenes: [], bible: { characters: [], locations: [] }, state: "idle", checked: false, done: 0, total: 0, cached: 0, err: "" };
+    base += sents.length;
+    return c;
+  });
+  sentences.value = all;
+  opacities.value = all.map(() => 0.15);
+  sentenceEls.value = [];
+  for (const k of Object.keys(heights)) delete heights[Number(k)];
+  llmScenes.value = [];
+  bible.value = { characters: [], locations: [] };
+  activeIdx.value = -1;
+}
 
 async function openBook(id: string, startChapter?: number) {
   flushPos(); // keep the place in the book we're leaving
@@ -64,6 +119,9 @@ async function openBook(id: string, startChapter?: number) {
     b = raw ? (JSON.parse(raw) as Book) : null;
   } catch { b = null; }
   if (!b || !b.chapters?.length) { view.value = "library"; return; }
+  renderGen++; // work for the book we're leaving is abandoned
+  filmReady.value = false;
+  restoring = true;
   book.value = b;
   loadStyle(b);
   meta.title = b.title;
@@ -77,75 +135,91 @@ async function openBook(id: string, startChapter?: number) {
       if (p) { idx = Math.min(Math.max(0, p.chapter ?? 0), b.chapters.length - 1); sid = p.sid ?? -1; }
     } catch { /* no saved place */ }
   }
+  buildChaps(b);
+  const gen = renderGen;
+  chapterIdx.value = idx;
+  winCenter.value = idx;
+  applyChapter(idx);
   view.value = "reader";
   await nextTick();
-  await openChapter(idx, sid);
+  if (scroller.value) scroller.value.scrollTop = 0;
+  await loadCached(chaps.value[idx]); // the chapter we start in comes first: the world needs its scenes
+  publish();
+  await nextTick();
+  if (sid >= 0) await jumpTo(chaps.value[idx].base + Math.min(sid, chaps.value[idx].nsent - 1));
+  else if (idx > 0) await scrollToChapter(idx);
+  restoring = false;
+  update(); // record the place we landed on
+  scroller.value?.focus({ preventScroll: true });
+  filmReady.value = true; // the world starts at the reader's place
+  // the other chapters' saved analyses, then the model for whatever is still missing around the reader, in the background
+  for (const c of chaps.value.slice().sort((x, y) => Math.abs(x.idx - idx) - Math.abs(y.idx - idx))) {
+    if (gen !== renderGen) return;
+    if (!c.checked) { await loadCached(c); publish(); }
+  }
+  pump();
 }
 
+/** Jump to the start of a chapter (the chapter menu, the dev bridge). */
 async function openChapter(idx: number, restoreSid = -1) {
-  const b = book.value;
-  if (!b || idx < 0 || idx >= b.chapters.length) return;
-  flushPos();
-  filmReady.value = false;
-  restoring = true;
-  try { await openChapterInner(b, idx, restoreSid); } finally { restoring = false; }
-  update(); // record the place we landed on
-  await nextTick();
-  filmReady.value = true; // the world starts at the reader's place
+  if (!book.value || idx < 0 || idx >= chaps.value.length) return;
+  if (restoreSid >= 0) await jumpTo(chaps.value[idx].base + restoreSid);
+  else await scrollToChapter(idx);
 }
-async function openChapterInner(b: Book, idx: number, restoreSid: number) {
-  renderGen++; // abandon renders and analysis still running for the previous chapter
-  analysis.running = false;
-  analysis.error = "";
-  chapterIdx.value = idx;
-  loadChapterStyle();
-  const ch = b.chapters[idx];
+async function scrollToChapter(idx: number) {
+  const sc = scroller.value;
+  if (!sc) return;
+  if (idx < winFrom.value || idx > winTo.value) { winCenter.value = idx; await nextTick(); await nextTick(); }
+  const el = secEls[idx];
+  if (el) sc.scrollTop += el.getBoundingClientRect().top - sc.getBoundingClientRect().top - 24;
+  update();
+}
+/** What follows from being in chapter idx: its title, its look, its place in the cache. */
+function applyChapter(idx: number) {
+  const b = book.value;
+  const ch = b?.chapters[idx];
+  if (!b || !ch) return;
   chapter.num = ch.num ?? "";
   chapter.title = ch.title;
-  chapterKey.value = hashStr(ch.text); // same key as before for the same text, so earlier analyses and renders still apply
-  paragraphs.value = ch.paragraphs;
-  sentences.value = splitSentences(ch.paragraphs);
-  opacities.value = sentences.value.map(() => 0.15);
-  sentenceEls.value = [];
-  llmScenes.value = [];
-  bible.value = { characters: [], locations: [] };
-  activeIdx.value = -1;
-  await nextTick();
-  status.value = "ready";
-  if (scroller.value) scroller.value.scrollTop = 0;
-  await restoreAnalysis();
-  if (restoreSid >= 0) { await nextTick(); jumpTo(restoreSid); }
-  update();
-  scroller.value?.focus({ preventScroll: true });
+  chapterKey.value = chaps.value[idx]?.key ?? hashStr(ch.text);
+  loadChapterStyle();
 }
 
 // reading position: which sentence the reading line is in, and how far through it
 function update() {
   const el = scroller.value;
-  if (!el || !sentenceEls.value.length) return;
+  const cs = chaps.value;
+  if (!el || !cs.length || !sentences.value.length) return;
   const box = el.getBoundingClientRect();
   const y = box.top + box.height * lineFrac;
-  let sid = sentences.value.length - 1;
-  let sfrac = 1;
-  let found = false;
-  const ops: number[] = [];
-  sentenceEls.value.forEach((node, i) => {
-    if (!node) return;
+  const lo = cs[winFrom.value].base;
+  const hi = cs[winTo.value].base + cs[winTo.value].nsent;
+  let sid = -1;
+  let sfrac = 0;
+  let last = -1;
+  const ops = opacities.value.slice();
+  for (let i = lo; i < hi; i++) {
+    const node = sentenceEls.value[i];
+    if (!node) continue;
     const r = node.getBoundingClientRect();
     const dist = y < r.top ? r.top - y : y > r.bottom ? y - r.bottom : 0;
     // inside the band: full; fades out above and below
     const band = box.height * 0.03;
     const fade = box.height * 0.32;
-    ops.push(dist <= band ? 1 : Math.max(0.1, 1 - (dist - band) / fade));
-    if (!found && r.bottom >= y) {
+    ops[i] = dist <= band ? 1 : Math.max(0.1, 1 - (dist - band) / fade);
+    last = i;
+    if (sid < 0 && r.bottom >= y) {
       sid = i;
       sfrac = r.height > 0 ? Math.min(1, Math.max(0, (y - r.top) / r.height)) : 0;
-      found = true;
     }
-  });
+  }
+  if (sid < 0) { sid = last >= 0 ? last : curSid.value; sfrac = last >= 0 ? 1 : 0; }
   opacities.value = ops;
-  const tb = titleBlock.value ?? chapterHead.value;
-  crumbVisible.value = !!tb && el.scrollTop > tb.offsetTop + tb.offsetHeight - 24;
+  const ci = chapOf(sid);
+  if (ci !== chapterIdx.value) { chapterIdx.value = ci; applyChapter(ci); }
+  if (ci !== winCenter.value) winCenter.value = ci;
+  const head = secEls[ci]?.querySelector(".chapterhead") as HTMLElement | null;
+  crumbVisible.value = !!head && head.getBoundingClientRect().bottom < box.top + 24;
   savePos(sid);
   curSid.value = sid;
   curFrac.value = sfrac;
@@ -159,7 +233,21 @@ function update() {
   engine.onPosition(idx >= 0 ? llmScenes.value[idx] : null, sid, sceneProgress.value);
 }
 
-const visualCount = computed(() => llmScenes.value.filter((s) => s.visual).length);
+// chapters come and go from the page as the reader moves: keep what they are reading where it is
+watch([winFrom, winTo], async () => {
+  const sc = scroller.value;
+  if (!sc) return;
+  measureAll(); // chapters about to leave the page are measured first, so their spacers are exactly as tall
+  const a = secEls[chapterIdx.value];
+  const top0 = a?.getBoundingClientRect().top;
+  await nextTick();
+  const a2 = secEls[chapterIdx.value];
+  if (a && a2 === a && top0 !== undefined) sc.scrollTop += a.getBoundingClientRect().top - top0;
+  measureAll();
+  update();
+}, { flush: "pre" });
+
+const visualCount = computed(() => curScenes.value.filter((s) => s.visual).length);
 
 const maskStyle = computed(() => {
   const line = lineFrac * 100;
@@ -194,10 +282,17 @@ function describeCue(c: { k: string; what?: string; how?: string }): string {
 async function critic() {
   const out: unknown[] = [];
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-  for (const sc of llmScenes.value) {
+  for (const sc of curScenes.value) {
     for (const cue of sc.stage ?? []) {
-      const mid = Math.round((cue.at + cue.to) / 2);
-      jumpTo(mid);
+      // sample where the fewest other cues overlap (nearest the middle), and a little way into the sentence
+      const others = (llmScenes.value.flatMap((s) => s.stage ?? []) as typeof cue[]).filter((o) => o !== cue);
+      let mid = Math.round((cue.at + cue.to) / 2), best = 1e9;
+      for (let i = cue.at; i <= cue.to; i++) {
+        const n = others.filter((o) => i >= o.at && i <= o.to).length * 100 + Math.abs(i - (cue.at + cue.to) / 2);
+        if (n < best) { best = n; mid = i; }
+      }
+      await jumpTo(mid);
+      { const el = sentenceEls.value[mid]; const sc = scroller.value; if (el && sc) sc.scrollTop += Math.min(140, el.getBoundingClientRect().height * 0.6); }
       await sleep(1500);
       for (let i = 0; i < 60; i++) { const w = (window as any).__lw; if (w && !w.loading && w.loaded === w.want && w.want >= 0 && Math.abs(w.t - w.target) < 0.4) break; await sleep(1000); }
       await sleep(2500); // let the camera finish gliding
@@ -224,6 +319,15 @@ const styleOver = ref<StyleId | null>(null); // the reader's choice for this boo
 const styleChapterOver = ref<StyleId | null>(null); // ...and for this chapter
 const styleNow = computed(() => effectiveStyle({ chapter: styleChapterOver.value, book: styleOver.value, def: defaultStyle.value, pkgChapter: book.value?.chapters[chapterIdx.value]?.style, pkgBook: book.value?.package?.style, picked: styleAuto.value.id }));
 const style = computed<StyleId>(() => styleNow.value.id);
+// every chapter has its own look (the reader's choice for it, the package's, else the book's): scenes are drawn in their chapter's
+const styleVer = ref(0); // bumped when any look choice changes: the worlds are then made again
+watch([defaultStyle], () => styleVer.value++);
+function styleFor(s: LlmScene): StyleId {
+  const ci = s.ch ?? 0;
+  const ch = book.value?.chapters[ci];
+  const over = ci === chapterIdx.value ? styleChapterOver.value : book.value ? getChapterOverride(book.value.id, ch?.id ?? "") : null;
+  return effectiveStyle({ chapter: over, book: styleOver.value, def: defaultStyle.value, pkgChapter: ch?.style, pkgBook: book.value?.package?.style, picked: styleAuto.value.id }).id;
+}
 const SOURCE_TEXT: Record<StyleSource, string> = { chapter: "your choice for this chapter", book: "your choice for this book", default: "your default look", "package-chapter": "the package's look for this chapter", package: "the package's look", picked: "" };
 function loadChapterStyle() {
   styleChapterOver.value = book.value ? getChapterOverride(book.value.id, book.value.chapters[chapterIdx.value]?.id ?? "") : null;
@@ -235,7 +339,7 @@ async function loadStyle(b: Book) {
     const raw = await api.cacheGet("style", b.id);
     if (raw) {
       const o = JSON.parse(raw);
-      if (isStyle(o.id)) { styleAuto.value = { id: o.id, reason: String(o.reason ?? ""), by: "model" }; return; }
+      if (isStyle(o.id)) { styleAuto.value = { id: o.id, reason: String(o.reason ?? ""), by: "model" }; styleVer.value++; return; }
     }
   } catch { /* not cached */ }
   // ask the book-scan model once per book (and once per session if it fails): its pick is cached
@@ -246,6 +350,7 @@ async function loadStyle(b: Book) {
     const p = parseStyle(c.text);
     if (p && book.value?.id === b.id) {
       styleAuto.value = { ...p, by: "model" };
+      styleVer.value++;
       api.cachePut("style", b.id, JSON.stringify(p)).catch(() => {});
     }
   } catch { /* no model set up, or it failed: the keyword pick stands */ }
@@ -254,11 +359,13 @@ function chooseStyle(v: string) {
   const id = isStyle(v) ? v : null;
   styleOver.value = id;
   if (book.value) setOverride(book.value.id, id);
+  styleVer.value++;
 }
 function chooseChapterStyle(v: string) {
   const id = isStyle(v) ? v : null;
   styleChapterOver.value = id;
   if (book.value) setChapterOverride(book.value.id, book.value.chapters[chapterIdx.value]?.id ?? "", id);
+  styleVer.value++;
 }
 
 const showDetails = ref((() => { try { return localStorage.getItem("lanthorn:details") === "1"; } catch { return false; } })());
@@ -266,13 +373,35 @@ function toggleDetails() {
   showDetails.value = !showDetails.value;
   try { localStorage.setItem("lanthorn:details", showDetails.value ? "1" : "0"); } catch { /* optional */ }
 }
-const llmScenes = ref<LlmScene[]>([]);
+const llmScenes = ref<LlmScene[]>([]); // every analysed chapter's scenes, joined, in the text's own sentence numbers
 const bible = ref<Bible>({ characters: [], locations: [] });
-const analysis = reactive({ running: false, done: 0, total: 0, error: "", ms: 0, cached: 0 });
 const CHUNK = 40;
-const cacheKey = () => `lanthorn:scenes:${chapterKey.value}`;
+const AHEAD = 2; // chapters analysed ahead of the reader
 
-const bookKey = () => `${chapterKey.value}-${PROMPT_VERSION}`;
+const curChap = computed(() => chaps.value[chapterIdx.value] ?? null);
+/** the chapter's progress, for the panel and the drawer */
+const analysis = computed(() => {
+  const c = curChap.value;
+  return { running: c?.state === "running", done: c?.done ?? 0, total: c?.total ?? 0, error: c?.state === "error" ? c.err : "", cached: c?.cached ?? 0, ready: !!c?.scenes.length };
+});
+const curScenes = computed(() => curChap.value?.scenes ?? []);
+
+/** Join the chapters' scenes (and characters and places) into the book's. */
+function publish() {
+  const cs = chaps.value;
+  llmScenes.value = cs.flatMap((c) => c.scenes);
+  const chars = new Map<string, Bible["characters"][number]>();
+  const locs = new Map<string, Bible["locations"][number]>();
+  for (const c of cs) {
+    for (const x of c.bible.characters) if (!chars.has(x.id)) chars.set(x.id, x);
+    for (const x of c.bible.locations) if (!locs.has(x.id)) locs.set(x.id, x);
+  }
+  bible.value = { characters: [...chars.values()], locations: [...locs.values()] };
+  touch();
+}
+
+const bookKeyOf = (c: Chap) => `${c.key}-${PROMPT_VERSION}`;
+const localSentences = (c: Chap) => c.paras.flat().map((s) => ({ ...s, id: s.id - c.base })); // a chapter is analysed in its own numbering
 
 async function cacheRead(key: string): Promise<string | null> {
   try {
@@ -281,21 +410,65 @@ async function cacheRead(key: string): Promise<string | null> {
   } catch { return null; }
 }
 
-/** force = ignore cached model replies (still refreshes them). */
-async function analyze(force = false) {
-  if (analysis.running || !sentences.value.length) return;
+/** A chapter's saved analysis (shipped in a package, or from an earlier run): no model call. */
+async function loadCached(c: Chap | undefined) {
+  if (!c || c.checked) return;
+  c.checked = true;
+  const b = book.value;
+  if (!b) return;
+  const chap = b.chapters[c.idx];
+  const take = (scenes: LlmScene[], bb: Bible) => {
+    c.scenes = scenes.map((s) => shiftScene(s, c.base, c.idx));
+    c.bible = bb;
+    c.state = "done";
+  };
+  // scenes shipped inside a package come first: no analysis needed
+  const shipped = chap?.scenes as { scenes?: unknown[]; bible?: Bible } | undefined;
+  if (shipped?.scenes?.length && c.nsent) {
+    try {
+      const chunk = validateChunk(shipped, 0, c.nsent - 1, { characters: [], locations: [] });
+      take(chunk.scenes, chunk.bible);
+      return;
+    } catch (e) {
+      debugLog("package-scenes-invalid", String(e instanceof Error ? e.message : e)); // fall through to cached/LLM analysis
+    }
+  }
+  let raw: string | null = null;
+  try { raw = await api.cacheGet("book", bookKeyOf(c)); } catch { /* not in the app */ }
+  // an analysis made under an older prompt still plays (the director fills in what it lacks)
+  for (const v of LEGACY_PROMPT_VERSIONS) {
+    if (raw) break;
+    try { raw = await api.cacheGet("book", `${c.key}-${v}`); } catch { /* none */ }
+  }
+  if (!raw) { try { raw = localStorage.getItem(`lanthorn:scenes:${c.key}`); } catch { /* ignore */ } }
+  if (!raw && b.title === "The Time Machine" && chap?.num === "IV") {
+    // one-time carry-over from before analyses were keyed by chapter text
+    try { raw = localStorage.getItem("lanthorn:scenes:/books/time-machine.txt:iv:v0.2"); } catch { /* ignore */ }
+    if (raw) api.cachePut("book", bookKeyOf(c), raw).catch(() => {});
+  }
+  if (!raw) return;
+  try {
+    const j = JSON.parse(raw);
+    take(j.scenes, j.bible);
+  } catch { /* corrupt entry: ignore, analysis can be redone */ }
+}
+
+/** Analyse one chapter with the model. Scenes appear in the book as each part of the chapter comes back. force = ignore saved replies. */
+async function analyzeChapter(c: Chap, force = false) {
+  if (c.state === "running" || !c.nsent) return;
   const gen = renderGen;
-  analysis.running = true;
-  analysis.error = "";
-  analysis.ms = 0;
-  analysis.cached = 0;
-  llmScenes.value = [];
-  const all = sentences.value;
+  c.state = "running";
+  c.err = "";
+  c.cached = 0;
+  c.done = 0;
+  const all = localSentences(c);
   const chunks = Math.ceil(all.length / CHUNK);
-  analysis.total = chunks;
-  analysis.done = 0;
+  c.total = chunks;
+  touch();
   let b: Bible = { characters: [], locations: [] };
   let prevEnd: string | null = null;
+  const local: LlmScene[] = [];
+  const t0 = Date.now();
   try {
     for (let i = 0; i < chunks; i++) {
       const slice = all.slice(i * CHUNK, (i + 1) * CHUNK);
@@ -304,14 +477,13 @@ async function analyze(force = false) {
         try {
           // the prompt carries the bible and previous scene, so an unchanged chunk in an unchanged context hits the cache
           const user = buildUser(b, prevEnd, slice);
-          const ckey = `${chapterKey.value}-${PROMPT_VERSION}-${hashStr(user)}`;
+          const ckey = `${c.key}-${PROMPT_VERSION}-${hashStr(user)}`;
           let text = force || attempt > 0 ? null : await cacheRead(ckey);
-          if (text) analysis.cached++;
+          if (text) c.cached++;
           else {
-            const c = await api.llmComplete("scene", SYSTEM, user);
-            lastModel.value = c.model;
-            analysis.ms += c.ms;
-            text = c.text;
+            const r = await api.llmComplete("scene", SYSTEM, user);
+            lastModel.value = r.model;
+            text = r.text;
           }
           chunk = validateChunk(extractJson(text), slice[0].id, slice[slice.length - 1].id, b);
           api.cachePut("analysis", ckey, JSON.stringify({ text })).catch(() => {}); // only valid replies are kept
@@ -321,68 +493,70 @@ async function analyze(force = false) {
           if (attempt >= 1 || !/JSON|scene|range/.test(String(e))) throw e;
         }
       }
-      if (gen !== renderGen) return; // chapter changed while the model was working
+      if (gen !== renderGen) return; // another book was opened while the model was working
       b = chunk.bible;
-      bible.value = b;
-      chunk.scenes.forEach((sc, k) => (sc.id = `s${llmScenes.value.length + k + 1}`));
-      llmScenes.value = [...llmScenes.value, ...chunk.scenes];
+      chunk.scenes.forEach((sc, k) => (sc.id = `s${local.length + k + 1}`));
+      local.push(...chunk.scenes);
       prevEnd = endState(chunk.scenes[chunk.scenes.length - 1]);
-      analysis.done = i + 1;
-      debugLog("analyze", { chunk: i + 1, of: chunks, scenes: chunk.scenes.length });
+      c.scenes = local.map((s) => shiftScene(s, c.base, c.idx));
+      c.bible = b;
+      c.done = i + 1;
+      publish();
+      debugLog("analyze", { chapter: c.idx, chunk: i + 1, of: chunks, scenes: chunk.scenes.length });
     }
-    const result = JSON.stringify({ scenes: llmScenes.value, bible: bible.value });
-    api.cachePut("book", bookKey(), result).catch(() => {});
-    try { localStorage.setItem(cacheKey(), result); } catch { /* browser fallback */ }
+    const result = JSON.stringify({ scenes: local, bible: b });
+    api.cachePut("book", bookKeyOf(c), result).catch(() => {});
+    try { localStorage.setItem(`lanthorn:scenes:${c.key}`, result); } catch { /* browser fallback */ }
+    c.state = "done";
+    debugLog("analyzed", { chapter: c.idx, ms: Date.now() - t0 });
   } catch (e) {
     if (gen === renderGen) {
-      analysis.error = String(e);
-      debugLog("analyze-error", String(e));
+      c.state = "error";
+      c.err = String(e);
+      debugLog("analyze-error", { chapter: c.idx, err: String(e) });
     }
   } finally {
-    if (gen === renderGen) analysis.running = false;
+    if (gen === renderGen && c.state === "running") c.state = "idle";
+    touch();
   }
 }
 
-function jumpTo(sentenceId: number) {
-  const el = sentenceEls.value[sentenceId];
-  const sc = scroller.value;
-  if (!el || !sc) return;
-  sc.scrollTop += el.getBoundingClientRect().top - sc.getBoundingClientRect().top - sc.clientHeight * lineFrac;
-}
-
-// dev only: poll for commands dropped in by the debug bridge (lets an agent drive the native window)
-async function restoreAnalysis() {
-  // scenes shipped inside a package come first: no analysis needed
-  const shipped = book.value?.chapters[chapterIdx.value]?.scenes as { scenes?: unknown[]; bible?: Bible } | undefined;
-  if (shipped?.scenes?.length && sentences.value.length) {
-    try {
-      const chunk = validateChunk(shipped, 0, sentences.value.length - 1, { characters: [], locations: [] });
-      llmScenes.value = chunk.scenes;
-      bible.value = chunk.bible;
-      return;
-    } catch (e) {
-      debugLog("package-scenes-invalid", String(e instanceof Error ? e.message : e)); // fall through to cached/LLM analysis
-    }
-  }
-  let raw: string | null = null;
-  try { raw = await api.cacheGet("book", bookKey()); } catch { /* not in the app */ }
-  // an analysis made under an older prompt still plays (the director fills in what it lacks)
-  for (const v of LEGACY_PROMPT_VERSIONS) {
-    if (raw) break;
-    try { raw = await api.cacheGet("book", `${chapterKey.value}-${v}`); } catch { /* none */ }
-  }
-  if (!raw) { try { raw = localStorage.getItem(cacheKey()); } catch { /* ignore */ } }
-  if (!raw && book.value?.title === "The Time Machine" && chapter.num === "IV") {
-    // one-time carry-over from before analyses were keyed by chapter text
-    try { raw = localStorage.getItem("lanthorn:scenes:/books/time-machine.txt:iv:v0.2"); } catch { /* ignore */ }
-    if (raw) api.cachePut("book", bookKey(), raw).catch(() => {});
-  }
-  if (!raw) return;
+/** Read ahead: the model works through the chapter the reader is in and the ones just after it (and the one just before), one at a time. */
+let pumping = false;
+async function pump() {
+  if (pumping) return;
+  pumping = true;
+  const gen = renderGen;
   try {
-    const j = JSON.parse(raw);
-    llmScenes.value = j.scenes;
-    bible.value = j.bible;
-  } catch { /* corrupt entry: ignore, analysis can be redone */ }
+    for (;;) {
+      if (gen !== renderGen) return;
+      const ci = chapterIdx.value;
+      const order = [0, ...Array.from({ length: AHEAD }, (_, k) => k + 1), -1];
+      const next = order.map((d) => chaps.value[ci + d]).find((c) => c && c.checked && c.state === "idle");
+      if (!next) return;
+      await analyzeChapter(next);
+    }
+  } finally {
+    pumping = false;
+  }
+}
+watch(chapterIdx, () => pump());
+function retryChapter(c: Chap | null) {
+  if (!c) return;
+  c.state = "idle";
+  touch();
+  pump();
+}
+
+async function jumpTo(sentenceId: number) {
+  const sc = scroller.value;
+  if (!sc || sentenceId < 0 || sentenceId >= sentences.value.length) return;
+  const ci = chapOf(sentenceId);
+  if (ci < winFrom.value || ci > winTo.value) { winCenter.value = ci; await nextTick(); await nextTick(); }
+  const el = sentenceEls.value[sentenceId];
+  if (!el) return;
+  sc.scrollTop += el.getBoundingClientRect().top - sc.getBoundingClientRect().top - sc.clientHeight * lineFrac;
+  update();
 }
 
 // dev only: import from the bridge so importers can be tested on real files and pages without driving the UI
@@ -417,7 +591,7 @@ function pollCommands() {
     try {
       const cmd = (await (await fetch("/__debug/cmd")).text()).trim();
       if (!cmd) return;
-      if (cmd === "analyze") analyze(false);
+      if (cmd === "analyze") { if (curChap.value) analyzeChapter(curChap.value, true); }
       else if (cmd.startsWith("eval:")) { try { debugLog("eval", new Function(`return (${cmd.slice(5)})`)()); } catch (e) { debugLog("eval", "ERR " + e); } }
       else if (cmd.startsWith("world:cmd:")) api.worldCmd(JSON.parse(cmd.slice(10))).then((r) => debugLog("world-cmd", r)).catch((e) => debugLog("world-error", String(e)));
       else if (cmd.startsWith("world:input:")) api.worldCmd({ cmd: "input", ...JSON.parse(cmd.slice(12)) }).catch((e) => debugLog("world-error", String(e)));
@@ -508,6 +682,7 @@ onBeforeUnmount(() => {
 
 function setEl(el: unknown, i: number) {
   if (el) sentenceEls.value[i] = el as HTMLElement;
+  else delete sentenceEls.value[i];
 }
 </script>
 
@@ -527,26 +702,19 @@ function setEl(el: unknown, i: number) {
     <section class="reader" :style="maskStyle">
       <div ref="scroller" class="scroll" tabindex="0" @scroll.passive="update">
         <div class="pad top" />
-        <header v-if="chapterIdx === 0" ref="titleBlock" class="booktitle">
-          <h1>{{ meta.title }}</h1>
-          <p v-if="meta.author" class="author">{{ meta.author }}</p>
-        </header>
-        <h2 ref="chapterHead" class="chapterhead"><span v-if="chapter.num">{{ chapter.num }}</span>{{ chapter.title }}</h2>
-        <p v-for="(_, pi) in paragraphs" :key="pi">
-          <template v-for="(s, si) in sentences" :key="s.id">
-            <span
-              v-if="s.para === pi"
-              :ref="(el) => setEl(el, si)"
-              class="sent"
-              :style="{ opacity: opacities[si] ?? 0.15 }"
-              >{{ s.text }}</span
-            >
-          </template>
-        </p>
-        <nav v-if="book && book.chapters.length > 1" class="chapnav">
-          <button v-if="chapterIdx > 0" @click="openChapter(chapterIdx - 1)">← {{ book.chapters[chapterIdx - 1].title }}</button>
-          <button v-if="chapterIdx < book.chapters.length - 1" @click="openChapter(chapterIdx + 1)">{{ book.chapters[chapterIdx + 1].title }} →</button>
-        </nav>
+        <template v-for="c in chaps" :key="c.idx">
+          <section v-if="c.idx >= winFrom && c.idx <= winTo" :ref="(el) => setSec(el, c.idx)" class="chap">
+            <header v-if="c.idx === 0" class="booktitle">
+              <h1>{{ meta.title }}</h1>
+              <p v-if="meta.author" class="author">{{ meta.author }}</p>
+            </header>
+            <h2 class="chapterhead"><span v-if="book?.chapters[c.idx].num">{{ book?.chapters[c.idx].num }}</span>{{ book?.chapters[c.idx].title }}</h2>
+            <p v-for="(ps, pi) in c.paras" :key="pi">
+              <span v-for="s in ps" :key="s.id" :ref="(el) => setEl(el, s.id)" class="sent" :style="{ opacity: opacities[s.id] ?? 0.15 }">{{ s.text }}</span>
+            </p>
+          </section>
+          <div v-else class="chapspace" :style="{ height: (heights[c.idx] ?? estH(c)) + 'px' }" />
+        </template>
         <div class="pad" />
       </div>
     </section>
@@ -555,21 +723,26 @@ function setEl(el: unknown, i: number) {
       <div class="stagebox">
         <Cutscene
           v-if="book && filmReady && llmScenes.length && view === 'reader'"
-          :key="chapterKey + ':' + llmScenes.length + ':' + style"
+          :key="book.id"
           :sentences="sentences"
           :scenes="llmScenes"
           :bible="bible"
           :pkg="book?.package?.assets"
           :sid="curSid"
           :frac="curFrac"
-          :style="style"
+          :style-for="styleFor"
+          :style-ver="styleVer"
           host=".stagebox"
         />
         <div v-else class="placeholder">
-          <p>Generate scenes for this chapter</p>
-          <button :disabled="analysis.running" @click="analyze(false)">{{ analysis.running ? `Analyzing ${analysis.done}/${analysis.total}…` : "Analyze chapter" }}</button>
-          <p v-if="analysis.error" class="llmerr">{{ analysis.error }}</p>
+          <template v-if="analysis.error">
+            <p>This part of the book couldn't be turned into scenes.</p>
+            <p class="llmerr">{{ analysis.error }}</p>
+            <button @click="retryChapter(curChap)">Try again</button>
+          </template>
+          <p v-else>Setting the scene… <template v-if="analysis.running">{{ analysis.done }}/{{ analysis.total }}</template></p>
         </div>
+        <div v-if="llmScenes.length && !analysis.ready && !analysis.error" class="aheadpill">{{ analysis.running ? `Reading ahead ${analysis.done}/${analysis.total}…` : "Reading ahead…" }}</div>
       </div>
 
       <aside v-if="showDetails" class="drawer">
@@ -591,14 +764,14 @@ function setEl(el: unknown, i: number) {
           </select>
         </label>
         <div class="llmbar">
-          <button :disabled="analysis.running" @click="analyze(llmScenes.length > 0)">
-            {{ analysis.running ? `Analyzing ${analysis.done}/${analysis.total}…` : llmScenes.length ? "Re-analyze chapter" : "Analyze chapter" }}
+          <button :disabled="analysis.running" @click="curChap && analyzeChapter(curChap, true)">
+            {{ analysis.running ? `Analyzing ${analysis.done}/${analysis.total}…` : "Re-analyze this chapter" }}
           </button>
         </div>
-        <p v-if="llmScenes.length && !analysis.running" class="dim stats">{{ llmScenes.length }} scenes · {{ bible.characters.length }} characters · {{ bible.locations.length }} places · {{ visualCount }} with a picture<template v-if="analysis.cached"> · {{ analysis.cached }}/{{ analysis.total }} chunks from cache</template></p>
+        <p v-if="curScenes.length && !analysis.running" class="dim stats">{{ curScenes.length }} scenes · {{ bible.characters.length }} characters · {{ bible.locations.length }} places · {{ visualCount }} with a picture<template v-if="analysis.cached"> · {{ analysis.cached }}/{{ analysis.total }} chunks from cache</template></p>
         <p v-if="analysis.error" class="llmerr">{{ analysis.error }}</p>
-        <ul v-if="llmScenes.length" class="scenelist">
-          <li v-for="(sc, si) in llmScenes" :key="sc.id + sc.from" :class="{ hidden: !sc.visual, current: si === activeIdx }" @click="jumpTo(sc.from)">
+        <ul v-if="curScenes.length" class="scenelist">
+          <li v-for="sc in curScenes" :key="sc.id + sc.from" :class="{ hidden: !sc.visual, current: sc === llmScenes[activeIdx] }" @click="jumpTo(sc.from)">
             <span class="rng">{{ sc.from }}–{{ sc.to }}</span>
             <span class="kind">{{ sc.visual ? sc.kind : "no visual" }}</span>
             <span class="what">{{ sc.location }}<template v-if="sc.visual"> · {{ sc.time.start }}<template v-if="sc.time.end !== sc.time.start">→{{ sc.time.end }}</template> · {{ sc.mood }}</template></span>
@@ -630,9 +803,9 @@ html, body, #app { height: 100%; margin: 0; background: var(--bg); }
 .chapterhead span { font-style: normal; font-size: 14px; letter-spacing: 0.2em; color: #6d7280; margin-right: 14px; }
 .crumb { position: fixed; top: 9px; left: 16px; z-index: 20; display: flex; gap: 10px; align-items: baseline; font: 11px ui-monospace, Menlo, monospace; color: #8b8f99; opacity: 0; transform: translateY(-4px); transition: opacity 0.25s, transform 0.25s; pointer-events: none; max-width: calc(100% - 420px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .crumb.show { opacity: 1; transform: none; }
-.chapnav { max-width: 34em; margin: 4vh auto 0; display: flex; gap: 10px; justify-content: space-between; }
-.chapnav button { background: transparent; color: #b8bcc6; border: 1px solid #2b2f38; border-radius: 10px; padding: 10px 14px; font: 13px system-ui, sans-serif; cursor: pointer; max-width: 48%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chapnav button:hover { border-color: #5a4a22; color: var(--ink); }
+.chap { display: flow-root; padding-bottom: 16vh; }
+.chapspace { flex: none; }
+.aheadpill { position: absolute; right: 24px; bottom: 24px; z-index: 2; background: rgba(0, 0, 0, 0.5); border-radius: 99px; padding: 3px 12px; font: 11px ui-monospace, Menlo, monospace; color: #b8bcc6; pointer-events: none; }
 .chapsel { display: grid; gap: 4px; margin-bottom: 12px; color: #8b8f99; font: 12px system-ui, sans-serif; }
 .chapsel select { background: #0f1115; color: var(--ink); border: 1px solid #2b2f38; border-radius: 8px; padding: 7px 10px; font: 13px system-ui, sans-serif; width: 100%; }
 .crumb strong { color: #b8bcc6; font-weight: 600; }

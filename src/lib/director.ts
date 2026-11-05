@@ -99,7 +99,7 @@ export function buildTimeline(sentences: Sentence[], scenes: Scene[], cfg: Confi
       // a new scene: the change between them takes time
       const sc = scenes[si];
       if (curScene >= 0) tl.scenes[tl.scenes.length - 1].t1 = t;
-      if (sc && curScene !== -2) {
+      if (sc && curScene >= 0) {
         const kind = sceneTransition(scenes[curScene], sc);
         if (kind === "fade") { tl.transitions.push({ t: t + cfg.fade / 2, kind: "fade", d: cfg.fade, sceneChange: true }); t += cfg.fade; }
         else if (kind === "dissolve") { tl.transitions.push({ t, kind: "dissolve", d: cfg.dissolve, sceneChange: true }); t += cfg.dissolve * 0.5; }
