@@ -165,8 +165,11 @@ function worldGroup(gi: number): number {
 }
 
 let loading = false;
+const stats = { loads: 0, fails: 0, ms: [] as number[], hitchMax: 0 }; // dev: how loading went (read by the soak test)
+if (import.meta.env.DEV) (window as any).__lwStats = stats;
 async function loadWorld(i: number) {
   loading = true;
+  const tStart = performance.now();
   const gOld = groups[i];
   const s = sig(gOld);
   try {
@@ -182,12 +185,15 @@ async function loadWorld(i: number) {
     }
     await new Promise((r) => setTimeout(r, 250)); // let the first frames reach the screen
     loadedSig = s;
+    stats.loads++;
+    stats.ms.push(Math.round(performance.now() - tStart));
     loadedG = groups.find((g) => sig(g) === s) ?? null;
     ui.up = true;
     ui.status = "";
     ui.error = "";
   } catch (e) {
     ui.error = String(e);
+    stats.fails++;
     failedGroups.set(s, (failedGroups.get(s) ?? 0) + 1); // the loop tries again, or (after two failures) moves on without this place
   } finally {
     loading = false;
@@ -230,8 +236,11 @@ let raf = 0;
 let last = 0;
 let loops = 0;
 let loopErr = "";
+let lastTick = 0;
 function loop(now: number) {
   loops++;
+  if (lastTick) stats.hitchMax = Math.max(stats.hitchMax, now - lastTick);
+  lastTick = now;
   try { step(now); } catch (e) { loopErr = String(e); }
 }
 function step(now: number) {

@@ -281,6 +281,30 @@ function describeCue(c: { k: string; what?: string; how?: string }): string {
     default: return c.k;
   }
 }
+// dev: soak test. Scrolls the text at a reading pace and logs what the world does (loads, failures, hitches), once every 2 s.
+async function soak(pxPerSec: number, seconds: number) {
+  const sc = scroller.value;
+  if (!sc) return;
+  const w = window as any;
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const t0 = performance.now();
+  let lastLog = 0;
+  let prev = performance.now();
+  debugLog("soak-start", { pxPerSec, seconds, sid: curSid.value, ch: chapterIdx.value });
+  while (performance.now() - t0 < seconds * 1000) {
+    await sleep(33);
+    const now = performance.now();
+    sc.scrollTop += (pxPerSec * (now - prev)) / 1000;
+    prev = now;
+    if (now - lastLog > 2000) {
+      lastLog = now;
+      const st = w.__lwStats ?? {};
+      debugLog("soak", { t: Math.round((now - t0) / 1000), sid: curSid.value, ch: chapterIdx.value, top: Math.round(sc.scrollTop), lw: w.__lw, loads: st.loads, fails: st.fails, ms: st.ms, hitch: Math.round(st.hitchMax ?? 0), mem: Math.round(((performance as any).memory?.usedJSHeapSize ?? 0) / 1e6), secs: document.querySelectorAll(".chap").length });
+      if (st.hitchMax) st.hitchMax = 0;
+    }
+  }
+  debugLog("soak-done", { sid: curSid.value, ch: chapterIdx.value });
+}
 async function critic() {
   const out: unknown[] = [];
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -619,6 +643,7 @@ function pollCommands() {
       else if (cmd === "reader") view.value = "reader";
       else if (cmd.startsWith("jump:")) jumpTo(Number(cmd.slice(5)));
       else if (cmd === "critic") critic();
+      else if (cmd.startsWith("soak:")) { const [px, s] = cmd.slice(5).split(",").map(Number); soak(px, s); }
       else if (cmd === "dump") debugLog("dump", { scenes: llmScenes.value, bible: bible.value });
       debugLog("cmd", cmd);
     } catch { /* bridge not running */ }

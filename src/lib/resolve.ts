@@ -354,6 +354,12 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
 
   // ---- directed shots: each becomes a camera rig. Framing sets lens and distance, angle sets height, focus sets the target.
   const FRAMING = { wide: { fov: 52, frame: Math.max(3.2, heroH * 1.7), fstop: 5.6 }, medium: { fov: 40, frame: 1.7, fstop: 3.2 }, close: { fov: 34, frame: 0.75, fstop: 2.4 }, extreme_close: { fov: 28, frame: 0.34, fstop: 1.8 } } as const;
+  // what a focus word points at that the world can actually show (a person, the machine, a placed model); anything else is only atmosphere
+  const knownFocus = (focus: string): boolean => {
+    const f = focus.toLowerCase();
+    if (f === "scene" || !f) return false;
+    return figures.some((g) => g.ref.toLowerCase() === f || f.includes(g.ref.toLowerCase()) || g.ref.toLowerCase().includes(f)) || /lever|dial|machine|rod|quartz/.test(f) || assets.some((a) => f.includes(a.label.toLowerCase()) || a.label.toLowerCase().includes(f));
+  };
   const focusPoint = (focus: string, framing: Shot["framing"]): [number, number, number] => {
     const f = focus.toLowerCase();
     const level = framing === "extreme_close" || framing === "close" ? 1.5 : framing === "medium" ? 1.15 : 0.95;
@@ -368,7 +374,12 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
     return [lookX, heroH * 0.5, 0];
   };
   const rigShot = (sh: Shot, p0: number, p1: number, i: number): CamShot => {
-    const fr = FRAMING[sh.framing] ?? FRAMING.medium;
+    // never close in on something the world cannot show (a sea swell, a mood): step back to a medium shot of the scene
+    let framing: Shot["framing"] = sh.framing;
+    if (!knownFocus(sh.focus) && (framing === "close" || framing === "extreme_close")) framing = "medium";
+    // and a lens held a few hand-spans from a thing shows only a blur: keep a readable distance
+    const fr0 = FRAMING[framing] ?? FRAMING.medium;
+    const fr = framing === "extreme_close" ? { ...fr0, frame: 0.7 } : framing === "close" ? { ...fr0, frame: 1.05 } : fr0;
     const tgt = focusPoint(sh.focus, sh.framing);
     const d0 = Math.min(kind === "interior" ? 5.2 : 45, fr.frame / (2 * Math.tan((fr.fov * Math.PI) / 360)));
     // alternate the side the camera sits on, so a cut changes the view instead of repeating it
@@ -439,7 +450,10 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
         items = Array.from({ length: n }, () => ({ id: "tower", file: "", ...place(), scale: 1, tower: { h: 10 + sr() * 18, w: 3 + sr() * 3.5 } }));
       } else {
         const ok = (m: Model) => !/dead|trunk|stump|log|rock|boulder/.test(m.id) && height(m) > 0.6;
-        const m = matchModel(w, ok) ?? matchModel("tree", ok);
+        // green growth of any kind is plants, never a fuzzy match to some object (a red buoy once stood in for "vegetation")
+        const plantish = /veget|plant|moss|lichen|alga|slime|grass|green|weed|fern|shrub|bush|flower|growth/.test(w);
+        const okPlant = (m: Model) => ok(m) && /plant|bush|fern|shrub|grass|flower|leaf|moss|clover|weed|nettle|bloom|bramble|ivy/.test(m.id);
+        const m = plantish ? matchModel(w, okPlant) ?? matchModel("plant", okPlant) ?? matchModel("tree", ok) : matchModel(w, ok) ?? matchModel("tree", ok);
         if (!m) return;
         const target = /tree|pine|oak|palm|forest|birch|sapling/.test(w) ? 9 : /flower|plant|bush|fern|shrub|grass|weed/.test(w) ? 1.1 : 4;
         items = Array.from({ length: n }, () => ({ id: m.id, file: mainFile(m.id), ...place(), scale: Math.min(4, (target * (0.7 + sr() * 0.6)) / height(m)) }));
@@ -499,7 +513,7 @@ export function assetsNeeded(r: Resolved): { kind: string; id: string; res: stri
 }
 
 /** Bump when runtime/scene.tsx changes in a way that alters frames, so cached renders are redone. */
-export const RUNTIME_VERSION = "rt35";
+export const RUNTIME_VERSION = "rt36";
 
 /** Cache key: changes whenever the resolved plan or the runtime does. */
 export function sceneKey(r: Resolved): string {

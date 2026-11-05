@@ -843,10 +843,12 @@ function RedSun({ c, p, cam, f }: { c: any; p: number; cam: V3; f: number }) {
   const pulse = 1 + 0.06 * Math.sin(f * 0.07);
   return (
     <>
-      <Mesh3d shadow={false} transform={at(...pt)}>
-        <Sphere radius={r * 1.55} />
-        <StandardMaterial base_color={Srgba.hex("#ff6a3a").with_alpha(0.18)} alpha_mode="Blend" unlit emissive={glow("#ff5a2a", 1.2 * pulse)} />
-      </Mesh3d>
+      {[2.4, 1.95, 1.6, 1.3].map((k, i) => (
+        <Mesh3d key={i} shadow={false} transform={at(...pt)}>
+          <Sphere radius={r * k} />
+          <StandardMaterial base_color={Srgba.hex("#ff6a3a").with_alpha(0.05 + 0.035 * i)} alpha_mode="Blend" unlit emissive={glow("#ff5a2a", 0.5 * pulse)} />
+        </Mesh3d>
+      ))}
       <Mesh3d shadow={false} transform={at(...pt)}>
         <Sphere radius={r} />
         <StandardMaterial base_color="#d9442a" unlit emissive={glow("#e8502a", 3.2 * pulse)} />
@@ -1202,6 +1204,20 @@ function Scene() {
     for (const c of on("quake")) shakeS += 0.22 * (c.amount ?? 0.6) * bell(cueQ(c, p));
   }
   let dimOv = 0; // a dark veil over the picture: the painted looks' flat sky ignores the lights, so the dimming is drawn on top
+  let veil = "#04050c";
+  for (const c of on("sun")) {
+    if (!isRedSun(c)) continue;
+    // a huge red sun means a dying, reddened day: the whole picture sinks into a deep red dusk
+    const q = cueQ(c, p);
+    const hold = smooth(0, 0.2, q) * (1 - smooth(0.8, 1, q));
+    if (hold * 0.55 > dimOv) { dimOv = hold * 0.55; veil = "#3a0a06"; }
+  }
+  for (const c of on("moon")) {
+    // the moon wants a night sky around it, not a flat grey one
+    const q = cueQ(c, p);
+    const hold = smooth(0, 0.2, q) * (1 - smooth(0.8, 1, q));
+    if (hold * 0.62 > dimOv) { dimOv = hold * 0.62; veil = "#070a1c"; }
+  }
   for (const c of on("dim")) {
     const q = cueQ(c, p);
     const hold = smooth(0, 0.25, q) * (1 - smooth(0.75, 1, q));
@@ -1304,7 +1320,7 @@ function Scene() {
         return null;
       })}
 
-      {dimOv > 0.004 ? <div style={{ position: "absolute", left: 0, top: 0, right: 0, bottom: 0, background: "#04050c", opacity: dimOv }} /> : null}
+      {dimOv > 0.004 ? <div style={{ position: "absolute", left: 0, top: 0, right: 0, bottom: 0, background: veil, opacity: dimOv }} /> : null}
       {live && world.fade > 0.002 ? <div style={{ position: "absolute", left: 0, top: 0, right: 0, bottom: 0, background: "#000", opacity: world.fade }} /> : null}
 
       {R.lights.map((l: any, i: number) => (
