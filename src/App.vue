@@ -176,6 +176,21 @@ const curFrac = ref(0); // how far through that sentence
 
 // --- dev: the critic. Visits each stage cue of this chapter, takes a picture of the world there and asks a vision model whether it
 // shows what the text describes. Findings go to the debug log (and the cache), to tune the cue prompt and the cue code with.
+function describeCue(c: { k: string; what?: string; how?: string }): string {
+  const w = c.what ?? "";
+  switch (c.k) {
+    case "moon": return `the moon changing phase (${c.how ?? "new to full"})`;
+    case "sun": return /red|halt|huge|giant|set|dying|low/.test(c.how ?? "") ? "a huge dull-red sun low on the horizon" : "the sun racing across the sky as a streak of light with a trail";
+    case "creature": return `a ${w || "creature"} ${c.how === "circle" ? "circling" : "walking or flying across the view"}`;
+    case "grow": return `${w || "things"} springing up around the scene`;
+    case "streak": return "white speed lines rushing past the camera";
+    case "flash": return `the light flickering (${c.how ?? "strobe"})`;
+    case "dim": return c.how === "eclipse" ? "an eclipse: a black disc with a bright ring in a darkened sky" : "the light failing, the scene growing dark";
+    case "cam": return `a camera move (${c.how ?? ""})`;
+    case "quake": return "the ground shaking";
+    default: return c.k;
+  }
+}
 async function critic() {
   const out: unknown[] = [];
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -193,7 +208,7 @@ async function critic() {
       await sleep(1500);
       const text = sentences.value.filter((s) => s.id >= cue.at && s.id <= cue.to).map((s) => s.text.trim()).join(" ");
       try {
-        const c = await api.llmVision("scan", 'You judge one frame from a 3D illustration that follows a book. Judge ONLY whether the directed element is visible and recognisable in this frame. A still cannot show motion, flicker or change over time, and the frame may be at any point in the change (a moon half-lit is fine for new-to-full): accept any point. Ignore details of the text that are not the directed element. Reply with one JSON object only: {"shows":bool,"sees":"<=15 words of what is visible","fix":"<=15 words: what would make the element clearer, or empty"}', `Text being read: "${text}"\nThe world was directed to show: ${cue.k}${cue.what ? " (" + cue.what + ")" : ""}${cue.how ? ", " + cue.how : ""}.\nDoes the picture clearly show what that text describes?`, path);
+        const c = await api.llmVision("scan", 'You judge one frame from a 3D illustration that follows a book. Judge ONLY whether the directed element is visible and recognisable in this frame. A still cannot show motion, flicker or change over time, and the frame may be at any point in the change (a moon half-lit is fine for new-to-full): accept any point. Ignore details of the text that are not the directed element. Reply with one JSON object only: {"shows":bool,"sees":"<=15 words of what is visible","fix":"<=15 words: what would make the element clearer, or empty"}', `Text being read: "${text}"\nThe world was directed to show: ${describeCue(cue)}.\nDoes the picture clearly show what that text describes?`, path);
         const v = extractJson(c.text) as Record<string, unknown>;
         out.push({ cue: `${cue.k}:${cue.what ?? ""}:${cue.how ?? ""}`, at: cue.at, ...v });
         debugLog("critic", { cue: `${cue.k} ${cue.what ?? ""} ${cue.how ?? ""}`, at: cue.at, ...v });

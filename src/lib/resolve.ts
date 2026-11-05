@@ -416,7 +416,8 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
   (opts.stage ?? []).forEach(({ cue, p0, p1 }, ci) => {
     const sr = rng(hash(`${scene.id}:stage:${ci}:${cue.k}`));
     const how = (cue.how ?? "").toLowerCase();
-    const base: StageR = { k: cue.k, p0, p1: Math.max(p1, p0 + 0.01), how, amount: cue.amount ?? 0.6 };
+    const base: StageR = { k: cue.k, p0, p1: Math.max(p1, p0 + 0.05), how, // at least a few seconds on screen, whatever the model's span
+      amount: cue.amount ?? 0.6 };
     if (cue.k === "moon") {
       const [a, b] = how.split(/>|→|-| to /).map((x) => x.trim());
       stage.push({ ...base, az: fwdAz + 0.5, el: 34, ph: [phaseOf(a, 0), phaseOf(b ?? a, b === undefined ? phaseOf(a, 1) : 1)] });
@@ -498,7 +499,7 @@ export function assetsNeeded(r: Resolved): { kind: string; id: string; res: stri
 }
 
 /** Bump when runtime/scene.tsx changes in a way that alters frames, so cached renders are redone. */
-export const RUNTIME_VERSION = "rt33";
+export const RUNTIME_VERSION = "rt34";
 
 /** Cache key: changes whenever the resolved plan or the runtime does. */
 export function sceneKey(r: Resolved): string {
