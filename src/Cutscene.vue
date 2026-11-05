@@ -1,0 +1,344 @@
+<script setup lang="ts">
+// The picture in the reader's right-hand panel: a live raea world that follows where the reader is in the text. There is no clock
+// and no playback: the reading position (sentence and how far through it) is mapped through the director's timeline to a scene,
+// a shot and a time of day, and the world is told. Scroll back and it winds back. Click the picture to take the camera (Esc gives
+// it back).
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
+import { api } from "./lib/api";
+import { Player, buildTimeline, type Frame, type Timeline } from "./lib/director";
+import { assetsNeeded, resolveScene, sceneKey, type Resolved } from "./lib/resolve";
+import type { Bible, Scene } from "./lib/scene";
+import type { PackageAsset } from "./lib/book";
+import type { Sentence } from "./lib/text";
+
+// `sid` is the sentence under the reading line, `frac` how far through it (0..1). The picture sits in the element matched by `host`.
+const props = defineProps<{ sentences: Sentence[]; scenes: Scene[]; bible: Bible; pkg?: PackageAsset[]; host: string; sid: number; frac: number; style?: string }>();
+
+// The picture's shape follows the panel it lives in (portrait panel, portrait picture), so it fills the panel instead of floating
+// small in it. Fixed for the life of this film: scenes are built at this size.
+function panelSize(): [number, number] {
+  const el = document.querySelector(props.host) as HTMLElement | null;
+  const r = el?.getBoundingClientRect();
+  const a = r && r.height > 50 ? Math.min(1.78, Math.max(0.7, (r.width - 16) / (r.height - 16))) : 1.78;
+  const long = 1280;
+  return a >= 1 ? [long, Math.round(long / a / 2) * 2] : [Math.round((long * a) / 2) * 2, long];
+}
+const SIZE: [number, number] = panelSize();
+const ASPECT = SIZE[0] / SIZE[1];
+
+const tl: Timeline = buildTimeline(props.sentences, props.scenes);
+const player = new Player(tl); // only used as a pure lookup: what the director says at a given time
+const beatOf = new Map(tl.beats.map((b) => [b.sentence, b]));
+
+/** The reading position as a time on the director's timeline. */
+function targetTime(): number {
+  const b = beatOf.get(props.sid) ?? tl.beats.find((x) => x.sentence > props.sid) ?? tl.beats[tl.beats.length - 1];
+  if (!b) return 0;
+  return b.t0 + Math.min(1, Math.max(0, props.frac)) * (b.t1 - b.t0);
+}
+let tNow = targetTime(); // eased toward the target so the camera glides when the reader scrolls
+
+// Consecutive scenes in the same place share one world: only a change of place loads a new one, so scrolling between them is
+// camera moves, not a reload. A scene with no picture of its own stays in the world before it.
+type Group = { id: number; scenes: number[]; t0: number; t1: number };
+const norm = (x: string) => (x ?? "").trim().toLowerCase();
+const sameWorld = (a: Scene, b: Scene) => norm(a.location) === norm(b.location) && !!a.interior === !!b.interior && norm(a.weather) === norm(b.weather);
+const groups: Group[] = [];
+const groupOfScene = new Map<number, number>();
+{
+  let cur: Group | null = null;
+  props.scenes.forEach((sc, i) => {
+    const span = tl.scenes.find((x) => x.index === i);
+    if (!span) return;
+    const rep = cur ? props.scenes[cur.scenes.find((k) => props.scenes[k].visual) ?? cur.scenes[0]] : null;
+    if (cur && (!sc.visual || !rep || !rep.visual || sameWorld(rep, sc))) {
+      cur.scenes.push(i);
+      cur.t1 = span.t1;
+    } else {
+      cur = { id: groups.length, scenes: [i], t0: span.t0, t1: span.t1 };
+      groups.push(cur);
+    }
+    groupOfScene.set(i, cur.id);
+  });
+}
+// a group's shots, in the group's own list: the index the world's camera rigs use
+const groupShots = (g: Group) => tl.shots.filter((x) => g.scenes.includes(x.scene));
+const localShot = new Map<object, number>();
+groups.forEach((g) => groupShots(g).forEach((sh, n) => localShot.set(sh, n)));
+
+const hole = reactive({ x: 0, y: 0, w: 0, h: 0 });
+const ui = reactive({ busy: false, up: false, t: 0, beat: -1, fade: 1, controlling: false, status: "Preparing the world…", error: "" });
+const frame = ref<Frame | null>(null);
+
+// ---- fit the world's frame inside the host element (the stage panel)
+function fit() {
+  const el = document.querySelector(props.host) as HTMLElement | null;
+  if (!el) return { x: 0, y: 0, w: 0, h: 0 };
+  const r = el.getBoundingClientRect();
+  let w = r.width - 16;
+  let h = w / ASPECT;
+  if (h > r.height - 16) { h = r.height - 16; w = h * ASPECT; }
+  return { x: r.left + (r.width - w) / 2, y: r.top + (r.height - h) / 2, w, h };
+}
+let ro: ResizeObserver | null = null;
+let settleTimer = 0;
+function placeWorld() {
+  const r = fit();
+  if (r.w < 2) return;
+  Object.assign(hole, r);
+  api.worldCmd({ cmd: "rect", x: r.x, y: r.y, w: r.w, h: r.h }).catch(() => {});
+}
+function onResize() {
+  placeWorld();
+  // the page's layout settles a beat after the window stops moving: place the picture once more then
+  clearTimeout(settleTimer);
+  settleTimer = window.setTimeout(placeWorld, 180);
+}
+
+// ---- a group of scenes becomes one world bundle, prepared on demand
+type Prep = { bundle: string; dir: string };
+const preps = new Map<number, Promise<Prep>>();
+const repOf = (g: Group) => g.scenes.find((i) => props.scenes[i].visual);
+function prepare(gi: number): Promise<Prep> {
+  let p = preps.get(gi);
+  if (!p) {
+    const g = groups[gi];
+    const rep = props.scenes[repOf(g)!];
+    const last = props.scenes[g.scenes[g.scenes.length - 1]];
+    // one scene standing for the whole group: the first picture's look, running on to where the last one ends
+    const whole: Scene = { ...rep, to: last.to, time: { ...rep.time, end: last.time.end } };
+    const span = Math.max(0.001, g.t1 - g.t0);
+    const shots = groupShots(g).map((x) => ({ shot: { from: x.from, framing: x.framing, angle: x.angle, focus: x.focus, move: x.move, into: x.into }, p0: (x.t0 - g.t0) / span, p1: (x.t1 - g.t0) / span }));
+    // stage cues of every scene in the group, placed on the group's 0..1 progress by where their sentences fall in time
+    const stage = g.scenes.flatMap((i) => (props.scenes[i].stage ?? []).map((cue) => {
+      const b0 = beatOf.get(cue.at);
+      const b1 = beatOf.get(cue.to) ?? b0;
+      return { cue, p0: ((b0?.t0 ?? g.t0) - g.t0) / span, p1: ((b1?.t1 ?? g.t1) - g.t0) / span };
+    }));
+    // acting: each move runs from its sentence to that character's next move (or the end of its scene)
+    const acting = g.scenes.flatMap((i) => {
+      const list = (props.scenes[i].acting ?? []).slice().sort((a, b) => a.at - b.at);
+      const sceneEnd = tl.scenes.find((x) => x.index === i)?.t1 ?? g.t1;
+      return list.map((act, k) => {
+        const next = list.slice(k + 1).find((n) => n.who === act.who);
+        const t0 = beatOf.get(act.at)?.t0 ?? g.t0;
+        const t1 = next ? (beatOf.get(next.at)?.t0 ?? sceneEnd) : sceneEnd;
+        return { act, p0: (t0 - g.t0) / span, p1: (t1 - g.t0) / span };
+      });
+    });
+    const r: Resolved = resolveScene(whole, props.bible, { pkg: props.pkg, size: SIZE, shots, stage, acting, style: props.style });
+    r.live = true;
+    r.t0 = 0;
+    p = api.sceneWorld(`${sceneKey(r)}-cut`, JSON.stringify(r), assetsNeeded(r));
+    p.catch(() => preps.delete(gi)); // a failed prepare may be retried
+    preps.set(gi, p);
+  }
+  return p;
+}
+
+/** The group whose world should be showing for group gi: one with no picture holds the world before it. */
+const failedGroups = new Map<number, number>(); // group -> failed attempts; after two, the reader makes do with a neighbour
+const usable = (k: number) => repOf(groups[k]) !== undefined && (failedGroups.get(k) ?? 0) < 2;
+function worldGroup(gi: number): number {
+  for (let k = gi; k >= 0; k--) if (usable(k)) return k;
+  for (let k = gi + 1; k < groups.length; k++) if (usable(k)) return k;
+  return -1;
+}
+
+let loaded = -1;
+let loading = false;
+async function loadWorld(i: number) {
+  loading = true;
+  try {
+    const p = await prepare(i);
+    await api.worldCmd({ cmd: "load", bundle: p.bundle, dir: p.dir, w: SIZE[0], h: SIZE[1] });
+    // wait until the engine says that load is done (it can take a second or two)
+    const st0 = (await api.worldCmd({ cmd: "status" })) as { sent: number; failed: number };
+    for (let n = 0; n < 600; n++) {
+      const st = (await api.worldCmd({ cmd: "status" })) as { done: number; failed: number };
+      if (st.failed > st0.failed) throw new Error("the world couldn't load this place (see the app log)");
+      if (st.done >= st0.sent) break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    await new Promise((r) => setTimeout(r, 250)); // let the first frames reach the screen
+    loaded = i;
+    ui.up = true;
+    ui.status = "";
+    ui.error = "";
+  } catch (e) {
+    ui.error = String(e);
+    failedGroups.set(i, (failedGroups.get(i) ?? 0) + 1);
+    loaded = -1; // the loop tries again, or (after two failures) moves on without this place
+  } finally {
+    loading = false;
+  }
+  // get the next place's bundle ready while this one is on screen
+  const next = worldGroup(i + 1 < groups.length ? i + 1 : i);
+  if (next >= 0 && next !== i) prepare(next).catch(() => {});
+}
+
+// ---- input from the viewer
+const keys = new Set<string>();
+let pointer: [number, number, boolean] | null = null; // normalised x, y, and whether the button is down
+let lastSent = 0;
+function release() { ui.controlling = false; pointer = null; keys.clear(); }
+function toNorm(e: MouseEvent): [number, number] {
+  return [Math.min(1, Math.max(0, (e.clientX - hole.x) / hole.w)), Math.min(1, Math.max(0, (e.clientY - hole.y) / hole.h))];
+}
+function onDown(e: MouseEvent) { ui.controlling = true; const [x, y] = toNorm(e); pointer = [x, y, true]; }
+function onMove(e: MouseEvent) {
+  if (ui.controlling && pointer) { const [x, y] = toNorm(e); pointer = [x, y, pointer[2]]; }
+}
+function closeWorldNow() { api.worldCmd({ cmd: "close" }).catch(() => {}); }
+// letting go outside the picture still ends the drag
+function onUpAnywhere() { if (ui.controlling && pointer) pointer = [pointer[0], pointer[1], false]; }
+function onUp(e: MouseEvent) { if (ui.controlling) { const [x, y] = toNorm(e); pointer = [x, y, false]; } }
+const WORLD_KEYS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "a", "d", "w", "s"]);
+function onKeyDown(e: KeyboardEvent) {
+  const tag = (e.target as HTMLElement | null)?.tagName;
+  if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
+  if (e.key === "Escape") { if (ui.controlling) { release(); e.preventDefault(); } return; }
+  if (ui.controlling) { const k = e.key.length === 1 ? e.key.toLowerCase() : e.key; if (WORLD_KEYS.has(k)) { keys.add(k); e.preventDefault(); } }
+}
+function onKeyUp(e: KeyboardEvent) { keys.delete(e.key.length === 1 ? e.key.toLowerCase() : e.key); }
+
+// ---- the loop
+let raf = 0;
+let last = 0;
+let loops = 0;
+let loopErr = "";
+function loop(now: number) {
+  loops++;
+  try { step(now); } catch (e) { loopErr = String(e); }
+}
+function step(now: number) {
+  const dt = last ? Math.min(1, (now - last) / 1000) : 0;
+  last = now;
+  // ease toward the reading position; a long jump (a scene list click, a chapter seek) is taken at once
+  const target = targetTime();
+  const gap = target - tNow;
+  tNow = Math.abs(gap) > 25 ? target : tNow + gap * Math.min(1, dt * 5);
+  const f = player.at(tNow);
+  const gi = groupOfScene.get(f.scene) ?? -1;
+  const want = gi >= 0 ? worldGroup(gi) : -1;
+  const needLoad = want >= 0 && want !== loaded;
+  if (needLoad && !loading) loadWorld(want);
+  if (needLoad && ui.controlling) release(); // the reader moved to another place: the camera goes back to following the text
+  frame.value = f;
+  if (import.meta.env.DEV) (window as any).__lw = { loaded, loading, want, t: tNow, target };
+  ui.t = f.t;
+  ui.beat = f.beatIndex;
+  // Black only until the first world is up (never the desktop through the pane). After that nothing fades: shots are camera
+  // moves, and a change of place holds the last picture until the next world is ready.
+  ui.fade = loaded < 0 ? 1 : 0;
+  ui.busy = needLoad;
+
+  if (!needLoad && loaded >= 0 && now - lastSent > 30) {
+    lastSent = now;
+    const sh = f.shot ? (localShot.get(f.shot) ?? -1) : -1;
+    const narr = groups[loaded] ? Math.min(1, Math.max(0, (tNow - groups[loaded].t0) / Math.max(0.001, groups[loaded].t1 - groups[loaded].t0))) : f.sceneProgress;
+    if (import.meta.env.DEV) (window as any).__lwN = { narr, shot: sh, shotp: f.shotProgress, gi: loaded, g0: groups[loaded]?.t0, g1: groups[loaded]?.t1 };
+    api.worldCmd({
+      cmd: "input",
+      keys: [...keys],
+      pointer: pointer ?? undefined,
+      narrative: groups[loaded] ? Math.min(1, Math.max(0, (tNow - groups[loaded].t0) / Math.max(0.001, groups[loaded].t1 - groups[loaded].t0))) : f.sceneProgress,
+      shot: ui.controlling ? undefined : sh,
+      shotp: f.shotProgress,
+      control: ui.controlling,
+    }).catch(() => {});
+  }
+}
+
+// ---- what's on screen
+const beat = computed(() => (frame.value && frame.value.beatIndex >= 0 ? tl.beats[frame.value.beatIndex] : null));
+const speaker = computed(() => (beat.value && beat.value.kind !== "narration" ? beat.value.speaker : ""));
+
+onMounted(async () => {
+  document.documentElement.classList.add("world");
+  window.addEventListener("resize", onResize);
+  const hostEl = document.querySelector(props.host);
+  if (hostEl) { ro = new ResizeObserver(onResize); ro.observe(hostEl); }
+  window.addEventListener("keydown", onKeyDown);
+  window.addEventListener("keyup", onKeyUp);
+  window.addEventListener("mouseup", onUpAnywhere);
+  window.addEventListener("beforeunload", closeWorldNow);
+  Object.assign(hole, fit());
+  const dbg = (m: unknown) => { if (import.meta.env.DEV) fetch("/__debug", { method: "POST", body: JSON.stringify({ kind: "cut-mount", data: m }) }).catch(() => {}); };
+  dbg({ opening: { ...hole } });
+  try {
+    let o;
+    try {
+      o = await api.worldOpen(hole.x, hole.y, hole.w, hole.h, SIZE[0], SIZE[1]);
+    } catch (e) {
+      // a page reload leaves the native view behind: close it and open our own
+      if (!String(e).includes("already open")) throw e;
+      await api.worldCmd({ cmd: "close" }).catch(() => {});
+      o = await api.worldOpen(hole.x, hole.y, hole.w, hole.h, SIZE[0], SIZE[1]);
+    }
+    dbg({ opened: o });
+  } catch (e) {
+    dbg({ openFailed: String(e) });
+    ui.error = `The live world isn't available: ${e}`;
+    return;
+  }
+  // a timer, not requestAnimationFrame: the world keeps following the text even when the window is covered (the page is then 'hidden')
+  raf = window.setInterval(() => loop(performance.now()), 16);
+});
+onBeforeUnmount(() => {
+  clearInterval(raf);
+  ro?.disconnect();
+  window.removeEventListener("resize", onResize);
+  window.removeEventListener("keydown", onKeyDown);
+  window.removeEventListener("keyup", onKeyUp);
+  window.removeEventListener("mouseup", onUpAnywhere);
+  window.removeEventListener("beforeunload", closeWorldNow);
+  api.worldCmd({ cmd: "close" }).catch(() => {});
+  document.documentElement.classList.remove("world");
+});
+
+defineExpose({ ui });
+
+// dev only: a heartbeat for the debug bridge (what the director says, and what the world reports)
+let beatTimer = 0;
+onMounted(() => {
+  if (!import.meta.env.DEV) return;
+  beatTimer = window.setInterval(async () => {
+    const st = await api.worldCmd({ cmd: "status" }).catch((e) => String(e));
+    fetch("/__debug", { method: "POST", body: JSON.stringify({ kind: "cut", data: { t: +ui.t.toFixed(1), sid: props.sid, frac: +props.frac.toFixed(2), scene: frame.value?.scene, shot: frame.value?.shotIndex, beat: ui.beat, fade: +ui.fade.toFixed(2), loaded, loading, controlling: ui.controlling, n: (window as any).__lwN, hole: { ...hole }, size: SIZE, loops, loopErr, vis: document.visibilityState, status: ui.status, error: ui.error, world: st } }) }).catch(() => {});
+  }, 2000);
+});
+onBeforeUnmount(() => clearInterval(beatTimer));
+</script>
+
+<template>
+  <div class="cut">
+    <!-- the world shows through this hole; the rest of the page is painted around it -->
+    <div class="cuthole" :style="{ left: hole.x + 'px', top: hole.y + 'px', width: hole.w + 'px', height: hole.h + 'px' }" />
+    <div class="frame" :style="{ left: hole.x + 'px', top: hole.y + 'px', width: hole.w + 'px', height: hole.h + 'px' }" @mousemove="onMove" @mouseup="onUp">
+      <!-- clicks in the picture take the camera -->
+      <div class="pick" :class="{ taking: ui.controlling }" @mousedown="onDown" />
+      <div class="dim" :style="{ opacity: ui.fade }" />
+      <div v-if="ui.status || ui.error" class="loading">
+        <template v-if="ui.error">{{ ui.error }}</template>
+        <template v-else>{{ ui.status }}</template>
+      </div>
+      <div v-if="ui.busy && ui.up" class="busy">moving on…</div>
+      <div v-if="ui.controlling" class="hint">You have the camera · drag to look · W/S zoom · A/D slide · Esc to follow the text again</div>
+      <div v-if="speaker && !ui.controlling" class="who">{{ speaker }}</div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.cut { display: contents; }
+.cuthole { position: fixed; z-index: -1; border-radius: 10px; background: transparent; box-shadow: 0 0 0 200vmax var(--bg); pointer-events: none; }
+.frame { position: fixed; border-radius: 10px; overflow: hidden; user-select: none; font-family: system-ui, sans-serif; color: #f2eee4; }
+.pick { position: absolute; inset: 0; cursor: grab; }
+.pick.taking { cursor: grabbing; }
+.dim { position: absolute; inset: 0; background: #000; pointer-events: none; transition: opacity 0.12s linear; }
+.loading { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; padding: 20px; color: #8b8f99; font: 12px ui-monospace, Menlo, monospace; pointer-events: none; word-break: break-word; }
+.busy { position: absolute; right: 10px; bottom: 10px; background: rgba(0, 0, 0, 0.5); border-radius: 99px; padding: 3px 10px; font: 11px ui-monospace, Menlo, monospace; color: #b8bcc6; pointer-events: none; }
+.hint { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); background: rgba(0, 0, 0, 0.55); border-radius: 99px; padding: 5px 12px; font: 11px ui-monospace, Menlo, monospace; color: #c9c4b6; pointer-events: none; white-space: nowrap; }
+.who { position: absolute; left: 14px; top: 12px; font: 600 10px/1 system-ui, sans-serif; letter-spacing: 0.22em; text-transform: uppercase; color: #d8b45a; text-shadow: 0 1px 4px #000; pointer-events: none; }
+</style>
