@@ -5,6 +5,7 @@ import ModelSelect from "./ModelSelect.vue";
 import { engine, setSound, setVolume, soundLevel, soundOn, soundVolume } from "./lib/audio";
 import { reloadSettings, saveSettings, settings } from "./lib/state";
 import { STYLES, defaultStyle, isStyle, setDefaultStyle } from "./lib/style";
+import { judgeSettings, saveJudgeSettings } from "./lib/judge";
 
 const emit = defineEmits<{ (e: "close"): void }>();
 
@@ -245,6 +246,22 @@ const providerOf = (id: string) => settings.value?.providers.find((p) => p.id ==
           <option v-for="p in settings.providers" :key="p.id" :value="p.id">{{ p.name }}</option>
         </select>
         <ModelSelect v-model="route(j.id).model" :options="optionsFor(providerOf(route(j.id).provider))" default-label="Provider default" @change="persist" />
+      </div>
+    </section>
+
+    <section>
+      <h2>Picture judge</h2>
+      <p class="note">While you read, a small model looks at the picture now and then and checks it suits the text. It widens shots that are too tight and drops effects that keep failing. It uses the "Picture judge" model above and stops at the limit you set for each book.</p>
+      <div class="sound">
+        <label class="field"><span>Check pictures while reading</span>
+          <select :value="judgeSettings.on ? 'on' : 'off'" @change="(e) => { judgeSettings.on = (e.target as HTMLSelectElement).value === 'on'; saveJudgeSettings(); }">
+            <option value="on">On</option>
+            <option value="off">Off</option>
+          </select>
+        </label>
+        <label class="field"><span>Most to spend per book (US$)</span>
+          <input type="number" min="0.05" step="0.05" :value="judgeSettings.cap" @change="(e) => { const v = Number((e.target as HTMLInputElement).value); if (v > 0) { judgeSettings.cap = v; saveJudgeSettings(); } }" />
+        </label>
       </div>
     </section>
 

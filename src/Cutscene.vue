@@ -10,6 +10,7 @@ import { assetsNeeded, resolveScene, sceneKey, type Resolved } from "./lib/resol
 import type { Bible, Scene } from "./lib/scene";
 import type { PackageAsset } from "./lib/book";
 import type { Sentence } from "./lib/text";
+import { alreadyJudged, applyVerdict, budgetLeft, describeCue, isDropped, judgeSettings, parseVerdict, RUBRIC, widenFor } from "./lib/judge";
 
 // `sid` is the sentence under the reading line, `frac` how far through it (0..1). The picture sits in the element matched by `host`.
 const props = defineProps<{ sentences: Sentence[]; scenes: Scene[]; bible: Bible; pkg?: PackageAsset[]; host: string; sid: number; frac: number; styleFor?: (s: Scene) => string | undefined; styleVer?: number }>();
@@ -49,6 +50,7 @@ let groupOfScene = new Map<number, number>();
 let localShot = new Map<object, number>();
 // a group's identity: where it starts and ends in the text (stable while other chapters come and go)
 const sig = (g: Group) => `${props.scenes[g.scenes[0]].from}:${props.scenes[g.scenes[g.scenes.length - 1]].to}`;
+const cueKey = (g: Group, cue: { k: string; at: number }) => `${sig(g)}|c:${cue.k}:${cue.at}`;
 // a group's shots, in the group's own list: the index the world's camera rigs use
 const groupShots = (g: Group) => tl.shots.filter((x) => g.scenes.includes(x.scene));
 let loadedSig = ""; // the group whose world is on screen
@@ -129,7 +131,7 @@ function prepare(gi: number): Promise<Prep> {
     const span = Math.max(0.001, g.t1 - g.t0);
     const shots = groupShots(g).map((x) => ({ shot: { from: x.from, framing: x.framing, angle: x.angle, focus: x.focus, move: x.move, into: x.into }, p0: (x.t0 - g.t0) / span, p1: (x.t1 - g.t0) / span }));
     // stage cues of every scene in the group, placed on the group's 0..1 progress by where their sentences fall in time
-    const stage = g.scenes.flatMap((i) => (props.scenes[i].stage ?? []).map((cue) => {
+    const stage = g.scenes.flatMap((i) => (props.scenes[i].stage ?? []).filter((cue) => !isDropped(cueKey(g, cue))).map((cue) => {
       const b0 = beatOf.get(cue.at);
       const b1 = beatOf.get(cue.to) ?? b0;
       return { cue, p0: ((b0?.t0 ?? g.t0) - g.t0) / span, p1: ((b1?.t1 ?? g.t1) - g.t0) / span };
@@ -165,7 +167,7 @@ function worldGroup(gi: number): number {
 }
 
 let loading = false;
-const stats = { loads: 0, fails: 0, ms: [] as number[], hitchMax: 0 }; // dev: how loading went (read by the soak test)
+const stats = { loads: 0, fails: 0, ms: [] as number[], hitchMax: 0, judged: 0 }; // dev: how loading went (read by the soak test)
 if (import.meta.env.DEV) (window as any).__lwStats = stats;
 async function loadWorld(i: number) {
   loading = true;
@@ -271,9 +273,16 @@ function step(now: number) {
     const sh = f.shot ? (localShot.get(f.shot) ?? -1) : -1;
     const narr = loadedG ? Math.min(1, Math.max(0, (tNow - loadedG.t0) / Math.max(0.001, loadedG.t1 - loadedG.t0))) : f.sceneProgress;
     if (import.meta.env.DEV) (window as any).__lwN = { narr, shot: sh, shotp: f.shotProgress, gi: loaded, g0: loadedG?.t0, g1: loadedG?.t1 };
+    // the judge's corrections for what is on screen now: a shot that was too tight, a cue that needed more room
+    let widen = 0;
+    if (!ui.controlling) {
+      const si = f.shot ? localShot.get(f.shot) : undefined;
+      if (si !== undefined) widen = widenFor(`${sig(loadedG)}|s${si}`);
+      for (const i of loadedG.scenes) for (const cue of props.scenes[i].stage ?? []) if (props.sid >= cue.at && props.sid <= cue.to) widen = Math.max(widen, widenFor(cueKey(loadedG, cue)));
+    }
     api.worldCmd({
       cmd: "input",
-      keys: [...keys],
+      keys: [...keys, ...(widen > 0.01 ? [`Widen:${widen.toFixed(2)}`] : [])],
       pointer: pointer ?? undefined,
       narrative: loadedG ? Math.min(1, Math.max(0, (tNow - loadedG.t0) / Math.max(0.001, loadedG.t1 - loadedG.t0))) : f.sceneProgress,
       shot: ui.controlling ? undefined : sh,
@@ -286,6 +295,66 @@ function step(now: number) {
 // ---- what's on screen
 const beat = computed(() => (frame.value && frame.value.beatIndex >= 0 ? tl.beats[frame.value.beatIndex] : null));
 const speaker = computed(() => (beat.value && beat.value.kind !== "narration" ? beat.value.speaker : ""));
+
+// ---- the picture judge (see lib/judge.ts): looks at what is on screen now and corrects it when it does not suit the text
+let judging = false;
+let judgeBroken = false;
+let movedAt = performance.now();
+let lastKey = "";
+async function judgeTick() {
+  if (judging || judgeBroken || !judgeSettings.on || !budgetLeft() || ui.controlling || loading || !loadedG || !ui.up || document.visibilityState !== "visible") return;
+  const f = frame.value;
+  const g = loadedG;
+  const sid = props.sid;
+  if (!f) return;
+  let key = "";
+  let kind = "shot";
+  let what = "the scene the text describes";
+  for (const i of g.scenes) {
+    for (const cue of props.scenes[i].stage ?? []) {
+      if (sid < cue.at || sid > cue.to) continue;
+      // effects a still cannot show (flicker, a slow dimming, a shake, a camera move) are not judged: the judge would only guess
+      if (cue.k === "flash" || cue.k === "quake" || cue.k === "cam" || (cue.k === "dim" && !(cue.how ?? "").includes("eclipse"))) continue;
+      const k = cueKey(g, cue);
+      if (isDropped(k) || alreadyJudged(k)) continue;
+      key = k; kind = cue.k; what = describeCue(cue);
+      break;
+    }
+    if (key) break;
+  }
+  if (!key) {
+    const si = f.shot ? localShot.get(f.shot) : undefined;
+    if (si === undefined) return;
+    const k = `${sig(g)}|s${si}`;
+    if (alreadyJudged(k)) return;
+    key = k;
+  }
+  if (key !== lastKey) { lastKey = key; movedAt = performance.now(); }
+  if (performance.now() - movedAt < 3500 || Math.abs(targetTime() - tNow) > 0.5) return; // the camera is still gliding: look once it has settled
+  judging = true;
+  try {
+    const dir = await api.cacheDir();
+    const path = `${dir}/judge-frame.png`;
+    await api.worldCmd({ cmd: "snapshot", path });
+    await new Promise((r) => setTimeout(r, 1200));
+    const text = props.sentences.slice(Math.max(0, sid - 1), sid + 2).map((s) => s.text.trim()).join(" ");
+    const c = await api.llmVision("judge", RUBRIC, `Text being read: "${text}"\nThe world was directed to show: ${what}.\nDoes the picture suit it?`, path);
+    const v = parseVerdict(c.text);
+    if (v) {
+      applyVerdict(key, kind, v);
+      stats.judged++;
+      if (import.meta.env.DEV) fetch("/__debug", { method: "POST", body: JSON.stringify({ kind: "judge", data: { key, kind, ...v } }) }).catch(() => {});
+    }
+  } catch (e) {
+    judgeBroken = true; // no vision model, or it failed: stop for this session rather than loop
+    if (import.meta.env.DEV) fetch("/__debug", { method: "POST", body: JSON.stringify({ kind: "judge-error", data: String(e) }) }).catch(() => {});
+  } finally {
+    judging = false;
+  }
+}
+let judgeTimer = 0;
+onMounted(() => { judgeTimer = window.setInterval(judgeTick, 4000); });
+onBeforeUnmount(() => clearInterval(judgeTimer));
 
 watch(() => props.scenes, build);
 watch(() => props.styleVer, () => {

@@ -13,6 +13,7 @@ import { importFile, importHtml, importText } from "./lib/import";
 import { RUNTIME_VERSION } from "./lib/resolve";
 import { hashStr, splitSentences, type Sentence } from "./lib/text";
 import { shiftScene } from "./lib/offset";
+import { describeCue, judgeSpent, judgeUseBook, judgeSettings, memory as judgeMemory } from "./lib/judge";
 import { fmtTokens, recordChapterUsage, tokensOf, usage, useBook } from "./lib/usage";
 import { DEFAULT_STYLE, STYLES, STYLE_SYSTEM, defaultStyle, effectiveStyle, getChapterOverride, getOverride, heuristicStyle, isStyle, parseStyle, setChapterOverride, setOverride, styleLabel, styleUser, type StyleId, type StyleSource } from "./lib/style";
 
@@ -122,6 +123,7 @@ async function openBook(id: string, startChapter?: number) {
   if (!b || !b.chapters?.length) { view.value = "library"; return; }
   renderGen++; // work for the book we're leaving is abandoned
   useBook(b.id);
+  judgeUseBook(b.id);
   filmReady.value = false;
   restoring = true;
   book.value = b;
@@ -266,21 +268,6 @@ const curFrac = ref(0); // how far through that sentence
 
 // --- dev: the critic. Visits each stage cue of this chapter, takes a picture of the world there and asks a vision model whether it
 // shows what the text describes. Findings go to the debug log (and the cache), to tune the cue prompt and the cue code with.
-function describeCue(c: { k: string; what?: string; how?: string }): string {
-  const w = c.what ?? "";
-  switch (c.k) {
-    case "moon": return `the moon changing phase (${c.how ?? "new to full"})`;
-    case "sun": return /red|halt|huge|giant|set|dying|low/.test(c.how ?? "") ? "a huge dull-red sun low on the horizon" : "the sun racing across the sky as a streak of light with a trail";
-    case "creature": return `a ${w || "creature"} ${c.how === "circle" ? "circling" : "walking or flying across the view"}`;
-    case "grow": return `${w || "things"} springing up around the scene`;
-    case "streak": return "white speed lines rushing past the camera";
-    case "flash": return `the light flickering (${c.how ?? "strobe"})`;
-    case "dim": return c.how === "eclipse" ? "an eclipse: a black disc with a bright ring in a darkened sky" : "the light failing, the scene growing dark";
-    case "cam": return `a camera move (${c.how ?? ""})`;
-    case "quake": return "the ground shaking";
-    default: return c.k;
-  }
-}
 // dev: soak test. Scrolls the text at a reading pace and logs what the world does (loads, failures, hitches), once every 2 s.
 async function soak(pxPerSec: number, seconds: number) {
   const sc = scroller.value;
@@ -299,7 +286,7 @@ async function soak(pxPerSec: number, seconds: number) {
     if (now - lastLog > 2000) {
       lastLog = now;
       const st = w.__lwStats ?? {};
-      debugLog("soak", { t: Math.round((now - t0) / 1000), sid: curSid.value, ch: chapterIdx.value, top: Math.round(sc.scrollTop), lw: w.__lw, loads: st.loads, fails: st.fails, ms: st.ms, hitch: Math.round(st.hitchMax ?? 0), mem: Math.round(((performance as any).memory?.usedJSHeapSize ?? 0) / 1e6), secs: document.querySelectorAll(".chap").length });
+      debugLog("soak", { t: Math.round((now - t0) / 1000), sid: curSid.value, ch: chapterIdx.value, top: Math.round(sc.scrollTop), lw: w.__lw, loads: st.loads, fails: st.fails, ms: st.ms, hitch: Math.round(st.hitchMax ?? 0), judge: st.judged });
       if (st.hitchMax) st.hitchMax = 0;
     }
   }
@@ -800,6 +787,7 @@ function setEl(el: unknown, i: number) {
           <div class="tokhead">Tokens used</div>
           <div class="tokrow"><span>This chapter</span><span>{{ fmtTokens(tokensOf(usage.data.byChapter[curChap?.key ?? ""])) }}<template v-if="usage.data.byChapter[curChap?.key ?? '']"> · {{ fmtTokens(usage.data.byChapter[curChap?.key ?? ""].output) }} out</template><template v-else> · none (saved)</template></span></div>
           <div class="tokrow"><span>This book</span><span>{{ fmtTokens(tokensOf(usage.data.total)) }} · {{ fmtTokens(usage.data.total.output) }} out · {{ usage.data.total.calls }} calls<template v-if="usage.data.total.cost"> · ${{ usage.data.total.cost.toFixed(2) }}</template></span></div>
+          <div v-if="judgeSettings.on" class="tokrow sub"><span>judge budget</span><span>${{ judgeSpent().toFixed(2) }} of ${{ judgeSettings.cap.toFixed(2) }} · {{ Object.values(judgeMemory.m.stats).reduce((n, s) => n + s.ok + s.bad, 0) }} checked · {{ Object.keys(judgeMemory.m.widen).length }} widened · {{ judgeMemory.m.drop.length }} dropped</span></div>
           <div v-for="(t, job) in usage.data.byJob" :key="job" class="tokrow sub"><span>{{ job }}</span><span>{{ fmtTokens(tokensOf(t)) }} · {{ t.calls }} calls</span></div>
         </div>
         <p v-if="curScenes.length && !analysis.running" class="dim stats">{{ curScenes.length }} scenes · {{ bible.characters.length }} characters · {{ bible.locations.length }} places · {{ visualCount }} with a picture<template v-if="analysis.cached"> · {{ analysis.cached }}/{{ analysis.total }} chunks from cache</template></p>

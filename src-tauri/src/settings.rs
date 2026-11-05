@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
 
-pub const JOBS: [&str; 3] = ["scan", "bible", "scene"];
+pub const JOBS: [&str; 4] = ["scan", "bible", "scene", "judge"];
 const KEY_SERVICE: &str = "ai.lanthorn.app";
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -97,9 +97,11 @@ fn defaults_routing(providers: &[Provider]) -> HashMap<String, Route> {
     let mut m = HashMap::new();
     if let Some(p) = pick {
         // cheap by default: these jobs are structured extraction, not deep reasoning
-        let model = if p.cli.as_deref() == Some("claude") { Some("sonnet".to_string()) } else { None };
+        let claude = p.cli.as_deref() == Some("claude");
         for j in JOBS {
-            m.insert(j.to_string(), Route { provider: p.id.clone(), model: model.clone() });
+            // the judge looks at many small pictures: the smallest model is enough
+            let model = if !claude { None } else if j == "judge" { Some("haiku".to_string()) } else { Some("sonnet".to_string()) };
+            m.insert(j.to_string(), Route { provider: p.id.clone(), model });
         }
     }
     m

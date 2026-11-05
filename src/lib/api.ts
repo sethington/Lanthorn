@@ -35,6 +35,7 @@ export const JOBS = [
   { id: "scan", label: "Book scan", hint: "genre, tone, style profile" },
   { id: "bible", label: "Story bible", hint: "characters, places" },
   { id: "scene", label: "Scenes", hint: "text to scene JSON" },
+  { id: "judge", label: "Picture judge", hint: "checks the world matches the text (small model)" },
 ] as const;
 
 function need<T>(f: () => Promise<T>): Promise<T> {

@@ -86,6 +86,7 @@ function stepWorld(s: World, input: FrameInput, _frame: number): World {
   } else drag = false;
   const num = (prefix: string, d: number) => { const k = input.keys.find((x) => x.startsWith(prefix)); return k ? parseFloat(k.slice(prefix.length)) : d; };
   const shot = num("Shot:", -1);
+  widenS += (num("Widen:", 0) - widenS) * 0.06; // the picture judge asks for a wider view when a shot is too tight
   const shotP = num("ShotP:", -1);
   const fade = clamp(num("Fade:", 0));
   const space = has(" ");
@@ -778,6 +779,7 @@ function Room() {
 type V3 = [number, number, number];
 const cueQ = (c: any, p: number) => clamp((p - c.p0) / Math.max(1e-4, c.p1 - c.p0));
 const bell = (q: number) => Math.sin(Math.PI * clamp(q));
+let widenS = 0; // how much extra room the camera is asked to give (0..1.5), eased
 const vsub = (a: V3, b: V3): V3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const vnorm = (a: V3): V3 => { const n = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / n, a[1] / n, a[2] / n]; };
 const vcross = (a: V3, b: V3): V3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
@@ -1199,6 +1201,26 @@ function Scene() {
         const fwd = vnorm(vsub(lookS, camS));
         camS = [camS[0] - fwd[0] * b * 7 * a, camS[1] - fwd[1] * b * 7 * a, camS[2] - fwd[2] * b * 7 * a];
         fovS = fovS * (1 - 0.42 * b * a);
+      }
+    }
+    // the judge's request: a shot that was too tight is pulled back
+    if (widenS > 0.01) {
+      const back = vsub(camS, lookS);
+      const k = 1 + 1.1 * widenS;
+      camS = [lookS[0] + back[0] * k, lookS[1] + back[1] * k + 0.4 * widenS, lookS[2] + back[2] * k];
+      fovS += 7 * widenS;
+    }
+    // the camera never sits inside or against a placed thing: unless it is looking at that thing, keep clear of it
+    for (const a of R.assets as any[]) {
+      const dx = camS[0] - a.pos[0];
+      const dz = camS[2] - a.pos[2];
+      const d = Math.hypot(dx, dz);
+      const focused = Math.hypot(lookS[0] - a.pos[0], lookS[2] - a.pos[2]) < 1.6;
+      const need = focused ? 1.3 : 2.2;
+      if (d < need && camS[1] < 3.5) {
+        const ux = d > 1e-3 ? dx / d : 0;
+        const uz = d > 1e-3 ? dz / d : 1;
+        camS = [a.pos[0] + ux * need, camS[1], a.pos[2] + uz * need];
       }
     }
     for (const c of on("quake")) shakeS += 0.22 * (c.amount ?? 0.6) * bell(cueQ(c, p));

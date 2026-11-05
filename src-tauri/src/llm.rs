@@ -1,4 +1,4 @@
-use crate::settings::{self, Provider, Settings};
+use crate::settings::{self, Provider, Route, Settings};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::time::{Duration, Instant};
@@ -52,9 +52,12 @@ pub struct TestResult {
 }
 
 pub fn resolve<'a>(s: &'a Settings, job: &str) -> Result<(&'a Provider, Option<String>), String> {
+    // an install from before the judge existed has no route for it: use the book-scan one, on the smallest model
+    let fallback = if job == "judge" && !s.routing.contains_key("judge") { s.routing.get("scan").map(|r| Route { provider: r.provider.clone(), model: Some("haiku".into()) }) } else { None };
     let route = s
         .routing
         .get(job)
+        .or(fallback.as_ref())
         .ok_or_else(|| format!("no provider routed for job '{job}': pick one in Settings"))?;
     let p = s
         .providers
@@ -259,15 +262,34 @@ pub async fn endpoint_models(provider: Option<&Provider>, base_url: Option<Strin
 }
 
 /// Ask a vision question about one image. Only the Claude Code CLI can do this here: it is given the Read tool and the image's folder.
+fn b64(data: &[u8]) -> String {
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(data.len() * 4 / 3 + 4);
+    for c in data.chunks(3) {
+        let n = (u32::from(c[0]) << 16) | (u32::from(*c.get(1).unwrap_or(&0)) << 8) | u32::from(*c.get(2).unwrap_or(&0));
+        out.push(T[(n >> 18) as usize & 63] as char);
+        out.push(T[(n >> 12) as usize & 63] as char);
+        out.push(if c.len() > 1 { T[(n >> 6) as usize & 63] as char } else { '=' });
+        out.push(if c.len() > 2 { T[n as usize & 63] as char } else { '=' });
+    }
+    out
+}
+
+/// A model looks at one picture. The picture goes in the message itself (not through a file-reading tool, which costs a second model
+/// turn and a large tool prompt: about ten times the price).
 pub async fn describe_image(app: &AppHandle, p: &Provider, model: Option<String>, system: &str, user: &str, image: &std::path::Path) -> Result<Completion, String> {
     let t = Instant::now();
     if p.kind != "agent" || p.cli.as_deref() != Some("claude") {
         return Err("looking at pictures needs the Claude Code CLI as the model".into());
     }
-    let dir = image.parent().ok_or("bad image path")?.to_string_lossy().to_string();
     let path = p.path.clone().ok_or("agent has no path")?;
     let cwd = settings::work_dir(app)?;
-    let mut args: Vec<String> = ["-p", "--tools", "Read", "--allowedTools", "Read", "--add-dir", dir.as_str(), "--no-session-persistence", "--setting-sources", "", "--output-format", "json", "--system-prompt"]
+    let bytes = std::fs::read(image).map_err(|e| format!("can't read the picture: {e}"))?;
+    let msg = json!({"type": "user", "message": {"role": "user", "content": [
+        {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": b64(&bytes)}},
+        {"type": "text", "text": user},
+    ]}});
+    let mut args: Vec<String> = ["-p", "--tools", "", "--no-session-persistence", "--setting-sources", "", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--system-prompt"]
         .iter()
         .map(|x| x.to_string())
         .collect();
@@ -276,9 +298,14 @@ pub async fn describe_image(app: &AppHandle, p: &Provider, model: Option<String>
         args.push("--model".into());
         args.push(m.to_string());
     }
-    let prompt = format!("{user}\n\nThe picture is the file {}. Read it, then answer.", image.display());
-    let (out, err, ok) = run_cli(&path, args, Some(&prompt), &cwd).await?;
-    let v: Value = serde_json::from_str(out.trim()).map_err(|_| format!("claude returned non-JSON: {}", trunc(&format!("{out}{err}"))))?;
+    let (out, err, ok) = run_cli(&path, args, Some(&format!("{msg}\n")), &cwd).await?;
+    // the last line of the stream is the result
+    let v: Value = out
+        .lines()
+        .rev()
+        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+        .find(|v| v["type"] == "result")
+        .ok_or_else(|| format!("claude gave no result: {}", trunc(&format!("{out}{err}"))))?;
     if v["is_error"].as_bool().unwrap_or(!ok) {
         return Err(v["result"].as_str().unwrap_or("claude reported an error").to_string());
     }
