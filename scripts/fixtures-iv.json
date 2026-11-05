@@ -1,0 +1,1065 @@
+{
+ "scenes": [
+  {
+   "id": "s1",
+   "from": 0,
+   "to": 3,
+   "visual": true,
+   "kind": "static",
+   "location": "laboratory",
+   "interior": true,
+   "time": {
+    "start": "morning",
+    "end": "morning",
+    "progression": "steady"
+   },
+   "weather": "clear",
+   "subjects": [
+    {
+     "ref": "time_traveller",
+     "pose": "standing beside machine",
+     "action": "describes finished machine",
+     "position": "center"
+    }
+   ],
+   "props": [
+    "time machine",
+    "cracked ivory bar",
+    "bent brass rail"
+   ],
+   "effects": [],
+   "mood": "anticipatory",
+   "camera": {
+    "framing": "medium",
+    "motion": "static"
+   },
+   "beats": [
+    {
+     "at": 1,
+     "action": "ivory bar cracked, brass rail bent visible"
+    },
+    {
+     "at": 3,
+     "action": "clock reads ten o'clock"
+    }
+   ],
+   "audio": {
+    "bed": "quiet workshop hum",
+    "spots": [
+     {
+      "at": 3,
+      "sound": "clock ticking softly"
+     }
+    ]
+   },
+   "confidence": 0.75
+  },
+  {
+   "id": "s2",
+   "from": 4,
+   "to": 6,
+   "visual": true,
+   "kind": "motion",
+   "location": "laboratory",
+   "interior": true,
+   "time": {
+    "start": "morning",
+    "end": "morning",
+    "progression": "steady"
+   },
+   "weather": "clear",
+   "subjects": [
+    {
+     "ref": "time_traveller",
+     "pose": "seated in saddle",
+     "action": "grips both levers",
+     "position": "center"
+    }
+   ],
+   "props": [
+    "starting lever",
+    "stopping lever",
+    "quartz rod"
+   ],
+   "effects": [],
+   "mood": "tense",
+   "camera": {
+    "framing": "close",
+    "motion": "static"
+   },
+   "beats": [
+    {
+     "at": 4,
+     "action": "oils quartz rod, settles into saddle"
+    },
+    {
+     "at": 6,
+     "action": "presses starting lever then stopping lever"
+    }
+   ],
+   "audio": {
+    "bed": "mechanical ticking",
+    "spots": [
+     {
+      "at": 6,
+      "sound": "lever clicks sharply"
+     }
+    ]
+   },
+   "confidence": 0.8
+  },
+  {
+   "id": "s3",
+   "from": 7,
+   "to": 11,
+   "visual": true,
+   "kind": "motion",
+   "location": "laboratory",
+   "interior": true,
+   "time": {
+    "start": "morning",
+    "end": "afternoon",
+    "progression": "accelerating"
+   },
+   "weather": "clear",
+   "subjects": [
+    {
+     "ref": "time_traveller",
+     "pose": "reeling slightly",
+     "action": "looks around disoriented",
+     "position": "center"
+    }
+   ],
+   "props": [
+    "clock",
+    "time machine"
+   ],
+   "effects": [
+    "dizziness blur"
+   ],
+   "mood": "confused",
+   "camera": {
+    "framing": "medium",
+    "motion": "drift"
+   },
+   "beats": [
+    {
+     "at": 7,
+     "action": "laboratory appears unchanged"
+    },
+    {
+     "at": 10,
+     "action": "notices clock"
+    },
+    {
+     "at": 11,
+     "action": "clock hand jumps to half-past three"
+    }
+   ],
+   "audio": {
+    "bed": "faint electrical whirr",
+    "spots": [
+     {
+      "at": 11,
+      "sound": "clock ticking loudly"
+     }
+    ]
+   },
+   "confidence": 0.75
+  },
+  {
+   "id": "s4",
+   "from": 12,
+   "to": 21,
+   "visual": true,
+   "kind": "timelapse",
+   "location": "laboratory",
+   "interior": true,
+   "time": {
+    "start": "afternoon",
+    "end": "night",
+    "progression": "accelerating"
+   },
+   "weather": "clear",
+   "subjects": [
+    {
+     "ref": "time_traveller",
+     "pose": "gripping lever tightly",
+     "action": "pushes machine faster",
+     "position": "center"
+    },
+    {
+     "ref": "mrs_watchett",
+     "pose": "walking briskly",
+     "action": "crosses toward garden door",
+     "position": "back"
+    }
+   ],
+   "props": [
+    "garden door",
+    "time machine dials"
+   ],
+   "effects": [
+    "motion blur",
+    "day-night flicker"
+   ],
+   "mood": "disorienting",
+   "camera": {
+    "framing": "wide",
+    "motion": "drift"
+   },
+   "beats": [
+    {
+     "at": 13,
+     "action": "laboratory grows hazy and dark"
+    },
+    {
+     "at": 15,
+     "action": "Mrs. Watchett walks through unseeing"
+    },
+    {
+     "at": 18,
+     "action": "night snaps off like a lamp"
+    },
+    {
+     "at": 20,
+     "action": "day and night blur faster and faster"
+    },
+    {
+     "at": 21,
+     "action": "an eddying murmur rises"
+    }
+   ],
+   "audio": {
+    "bed": "rising eerie hum",
+    "spots": [
+     {
+      "at": 16,
+      "sound": "rocket-like blurred whoosh"
+     },
+     {
+      "at": 20,
+      "sound": "rapid flashing flicker"
+     }
+    ]
+   },
+   "confidence": 0.78
+  },
+  {
+   "id": "s5",
+   "from": 22,
+   "to": 26,
+   "visual": true,
+   "kind": "abstract",
+   "location": "laboratory",
+   "interior": true,
+   "time": {
+    "start": "night",
+    "end": "night",
+    "progression": "accelerating"
+   },
+   "weather": "clear",
+   "subjects": [
+    {
+     "ref": "time_traveller",
+     "pose": "clutching controls",
+     "action": "endures headlong sensation",
+     "position": "center"
+    }
+   ],
+   "props": [],
+   "effects": [
+    "vertigo blur",
+    "flapping light"
+   ],
+   "mood": "nauseating",
+   "camera": {
+    "framing": "close",
+    "motion": "drift"
+   },
+   "beats": [
+    {
+     "at": 24,
+     "action": "sensation of helpless headlong motion"
+    },
+    {
+     "at": 26,
+     "action": "night and day flap like black wing"
+    }
+   ],
+   "audio": {
+    "bed": "whirling low drone",
+    "spots": [
+     {
+      "at": 25,
+      "sound": "ominous rushing noise"
+     }
+    ]
+   },
+   "confidence": 0.6
+  },
+  {
+   "id": "s6",
+   "from": 27,
+   "to": 39,
+   "visual": true,
+   "kind": "timelapse",
+   "location": "landscape_hillside",
+   "interior": false,
+   "time": {
+    "start": "dawn",
+    "end": "night",
+    "progression": "accelerating"
+   },
+   "weather": "clear",
+   "subjects": [
+    {
+     "ref": "time_traveller",
+     "pose": "seated on machine",
+     "action": "watches world blur past",
+     "position": "center"
+    }
+   ],
+   "props": [
+    "scaffolding remnants",
+    "hillside",
+    "shifting trees",
+    "rising buildings"
+   ],
+   "effects": [
+    "sun streaking",
+    "moon flickering",
+    "melting landscape"
+   ],
+   "mood": "surreal",
+   "camera": {
+    "framing": "wide",
+    "motion": "drift"
+   },
+   "beats": [
+    {
+     "at": 28,
+     "action": "laboratory dissolves into open air"
+    },
+    {
+     "at": 30,
+     "action": "snail blurs past instantly"
+    },
+    {
+     "at": 32,
+     "action": "moon spins through its phases"
+    },
+    {
+     "at": 33,
+     "action": "day and night merge into blue-grey haze"
+    },
+    {
+     "at": 36,
+     "action": "trees grow and vanish like vapor"
+    },
+    {
+     "at": 37,
+     "action": "buildings rise and fade like dreams"
+    },
+    {
+     "at": 39,
+     "action": "speed-dial needles race faster"
+    }
+   ],
+   "audio": {
+    "bed": "roaring rushing wind",
+    "spots": [
+     {
+      "at": 33,
+      "sound": "deep humming glow"
+     },
+     {
+      "at": 38,
+      "sound": "ground melting shift"
+     }
+    ]
+   },
+   "confidence": 0.72
+  },
+  {
+   "id": "s1",
+   "from": 40,
+   "to": 50,
+   "visual": true,
+   "kind": "timelapse",
+   "location": "landscape_hillside",
+   "interior": false,
+   "time": {
+    "start": "night",
+    "end": "day",
+    "progression": "accelerating"
+   },
+   "weather": "clear",
+   "subjects": [
+    {
+     "ref": "time_traveller",
+     "pose": "gripping levers",
+     "action": "riding blurring machine",
+     "position": "center"
+    }
+   ],
+   "props": [
+    "brass time machine",
+    "blurred sky bands",
+    "rising towers"
+   ],
+   "effects": [
+    "motion blur",
+    "color flicker"
+   ],
+   "mood": "exhilarated wonder",
+   "camera": {
+    "framing": "wide",
+    "motion": "drift"
+   },
+   "beats": [
+    {
+     "at": 40,
+     "action": "snow flashes then green spring flickers"
+    },
+    {
+     "at": 48,
+     "action": "massive misty architecture rises around machine"
+    },
+    {
+     "at": 49,
+     "action": "hillside turns richer unbroken green"
+    }
+   ],
+   "audio": {
+    "bed": "whooshing roaring wind",
+    "spots": [
+     {
+      "at": 42,
+      "sound": "rising hysterical laughter"
+     }
+    ]
+   },
+   "confidence": 0.7
+  },
+  {
+   "id": "s2",
+   "from": 51,
+   "to": 58,
+   "visual": true,
+   "kind": "timelapse",
+   "location": "landscape_hillside",
+   "interior": false,
+   "time": {
+    "start": "day",
+    "end": "dusk",
+    "progression": "accelerating"
+   },
+   "weather": "clear",
+   "subjects": [
+    {
+     "ref": "time_traveller",
+     "pose": "tense, leaning",
+     "action": "gripping shuddering lever",
+     "position": "center"
+    }
+   ],
+   "props": [
+    "brass time machine",
+    "swaying frame"
+   ],
+   "effects": [
+    "jarring tremor",
+    "blurred world"
+   ],
+   "mood": "mounting dread",
+   "camera": {
+    "framing": "close",
+    "motion": "static"
+   },
+   "beats": [
+    {
+     "at": 57,
+     "action": "machine jars and sways sickly"
+    },
+    {
+     "at": 58,
+     "action": "traveller yanks lever abruptly"
+    }
+   ],
+   "audio": {
+    "bed": "low rumbling roar",
+    "spots": [
+     {
+      "at": 57,
+      "sound": "metallic groaning jolt"
+     }
+    ]
+   },
+   "confidence": 0.65
+  },
+  {
+   "id": "s3",
+   "from": 59,
+   "to": 59,
+   "visual": true,
+   "kind": "motion",
+   "location": "landscape_hillside",
+   "interior": false,
+   "time": {
+    "start": "dusk",
+    "end": "dusk",
+    "progression": "accelerating"
+   },
+   "weather": "storm",
+   "subjects": [
+    {
+     "ref": "time_traveller",
+     "pose": "flung through air",
+     "action": "tumbling off machine",
+     "position": "center"
+    }
+   ],
+   "props": [
+    "overturning machine"
+   ],
+   "effects": [
+    "motion blur",
+    "impact flash"
+   ],
+   "mood": "violent chaos",
+   "camera": {
+    "framing": "wide",
+    "motion": "push"
+   },
+   "beats": [
+    {
+     "at": 59,
+     "action": "machine reels over, traveller flung headlong"
+    }
+   ],
+   "audio": {
+    "bed": "sudden roaring crash",
+    "spots": [
+     {
+      "at": 59,
+      "sound": "crashing metal thud"
+     }
+    ]
+   },
+   "confidence": 0.6
+  },
+  {
+   "id": "s4",
+   "from": 60,
+   "to": 70,
+   "visual": true,
+   "kind": "static",
+   "location": "rhododendron_garden",
+   "interior": false,
+   "time": {
+    "start": "dusk",
+    "end": "dusk",
+    "progression": "steady"
+   },
+   "weather": "storm",
+   "subjects": [
+    {
+     "ref": "time_traveller",
+     "pose": "sitting on turf",
+     "action": "sitting stunned, then standing",
+     "position": "center"
+    }
+   ],
+   "props": [
+    "overset machine",
+    "hailstones",
+    "rhododendron bushes"
+   ],
+   "effects": [
+    "hail haze",
+    "dropping blossoms"
+   ],
+   "mood": "dazed disorientation",
+   "camera": {
+    "framing": "medium",
+    "motion": "static"
+   },
+   "beats": [
+    {
+     "at": 60,
+     "action": "thunderclap sounds"
+    },
+    {
+     "at": 62,
+     "action": "hail hisses, traveller sits on turf"
+    },
+    {
+     "at": 65,
+     "action": "mauve blossoms shower under hail"
+    },
+    {
+     "at": 66,
+     "action": "hail cloud drifts like smoke over machine"
+    },
+    {
+     "at": 70,
+     "action": "traveller stands, looks around"
+    }
+   ],
+   "audio": {
+    "bed": "hissing hailstorm",
+    "spots": [
+     {
+      "at": 60,
+      "sound": "clap of thunder"
+     },
+     {
+      "at": 68,
+      "sound": "traveller speaks aloud"
+     }
+    ]
+   },
+   "confidence": 0.75
+  },
+  {
+   "id": "s5",
+   "from": 71,
+   "to": 79,
+   "visual": true,
+   "kind": "static",
+   "location": "rhododendron_garden",
+   "interior": false,
+   "time": {
+    "start": "dusk",
+    "end": "dusk",
+    "progression": "slowing"
+   },
+   "weather": "rain",
+   "subjects": [
+    {
+     "ref": "time_traveller",
+     "pose": "standing, staring",
+     "action": "gazing up at statue",
+     "position": "left"
+    },
+    {
+     "ref": "sphinx_statue",
+     "pose": "hovering wings spread",
+     "action": "looming beyond bushes",
+     "position": "right"
+    }
+   ],
+   "props": [
+    "silver birch",
+    "bronze pedestal",
+    "verdigris"
+   ],
+   "effects": [
+    "thinning rain haze"
+   ],
+   "mood": "ominous wonder",
+   "camera": {
+    "framing": "medium",
+    "motion": "push"
+   },
+   "beats": [
+    {
+     "at": 71,
+     "action": "colossal white figure looms through downpour"
+    },
+    {
+     "at": 74,
+     "action": "rain thins, statue seen more distinctly"
+    },
+    {
+     "at": 76,
+     "action": "winged sphinx shape revealed, wings spread hovering"
+    },
+    {
+     "at": 78,
+     "action": "statue's face turns toward traveller, faint smile"
+    },
+    {
+     "at": 79,
+     "action": "weathered surface suggests disease"
+    }
+   ],
+   "audio": {
+    "bed": "fading rain patter",
+    "spots": [
+     {
+      "at": 74,
+      "sound": "rain softening to drizzle"
+     }
+    ]
+   },
+   "confidence": 0.7
+  },
+  {
+   "id": "s1",
+   "from": 80,
+   "to": 91,
+   "visual": true,
+   "kind": "static",
+   "location": "rhododendron_garden",
+   "interior": false,
+   "time": {
+    "start": "dusk",
+    "end": "dawn",
+    "progression": "slowing"
+   },
+   "weather": "storm",
+   "subjects": [
+    {
+     "ref": "time_traveller",
+     "pose": "standing beside saddle",
+     "action": "stares at sphinx",
+     "position": "center"
+    },
+    {
+     "ref": "sphinx_statue",
+     "pose": "crouching white shape",
+     "action": "advances recedes in hail",
+     "position": "back"
+    }
+   ],
+   "props": [
+    "white sphinx statue",
+    "hail stones",
+    "time machine levers"
+   ],
+   "effects": [
+    "thinning hail",
+    "dim shifting light"
+   ],
+   "mood": "fearful tension",
+   "camera": {
+    "framing": "medium",
+    "motion": "drift"
+   },
+   "beats": [
+    {
+     "at": 82,
+     "action": "hail curtain thins, sky lightens"
+    },
+    {
+     "at": 89,
+     "action": "vast buildings loom through storm"
+    },
+    {
+     "at": 91,
+     "action": "turns, grips machine levers"
+    }
+   ],
+   "audio": {
+    "bed": "hail wind howling",
+    "spots": [
+     {
+      "at": 82,
+      "sound": "hail rattling thinning"
+     },
+     {
+      "at": 90,
+      "sound": "sharp breath of panic"
+     }
+    ]
+   },
+   "confidence": 0.75
+  },
+  {
+   "id": "s2",
+   "from": 92,
+   "to": 97,
+   "visual": true,
+   "kind": "timelapse",
+   "location": "rhododendron_garden",
+   "interior": false,
+   "time": {
+    "start": "dawn",
+    "end": "noon",
+    "progression": "accelerating"
+   },
+   "weather": "clear",
+   "subjects": [
+    {
+     "ref": "time_traveller",
+     "pose": "upright by machine",
+     "action": "shields eyes, looks up",
+     "position": "center"
+    }
+   ],
+   "props": [
+    "wet marble buildings",
+    "hailstone ridges",
+    "blue sky"
+   ],
+   "effects": [
+    "sun shafts",
+    "storm dispersing",
+    "wet shine"
+   ],
+   "mood": "awe exposed",
+   "camera": {
+    "framing": "wide",
+    "motion": "pull"
+   },
+   "beats": [
+    {
+     "at": 92,
+     "action": "sunlight pierces thunderstorm"
+    },
+    {
+     "at": 93,
+     "action": "grey rain sweeps away"
+    },
+    {
+     "at": 95,
+     "action": "buildings stand clear, hail-rimmed"
+    }
+   ],
+   "audio": {
+    "bed": "wind sweeping storm away",
+    "spots": [
+     {
+      "at": 92,
+      "sound": "sun breaking through roar"
+     },
+     {
+      "at": 93,
+      "sound": "rain fading to silence"
+     }
+    ]
+   },
+   "confidence": 0.75
+  },
+  {
+   "id": "s3",
+   "from": 98,
+   "to": 102,
+   "visual": true,
+   "kind": "motion",
+   "location": "rhododendron_garden",
+   "interior": false,
+   "time": {
+    "start": "noon",
+    "end": "noon",
+    "progression": "steady"
+   },
+   "weather": "clear",
+   "subjects": [
+    {
+     "ref": "time_traveller",
+     "pose": "gripping wrist and knee",
+     "action": "wrestles machine, falls",
+     "position": "center"
+    }
+   ],
+   "props": [
+    "brass time machine",
+    "ivory saddle",
+    "twin levers"
+   ],
+   "effects": [
+    "struggle blur"
+   ],
+   "mood": "frantic desperation",
+   "camera": {
+    "framing": "close",
+    "motion": "drift"
+   },
+   "beats": [
+    {
+     "at": 100,
+     "action": "machine gives way, turns over"
+    },
+    {
+     "at": 101,
+     "action": "machine strikes his chin"
+    },
+    {
+     "at": 102,
+     "action": "stands panting, hand on saddle"
+    }
+   ],
+   "audio": {
+    "bed": "metal strain grunting effort",
+    "spots": [
+     {
+      "at": 100,
+      "sound": "machine crashing over"
+     },
+     {
+      "at": 101,
+      "sound": "sharp thud of impact"
+     }
+    ]
+   },
+   "confidence": 0.75
+  },
+  {
+   "id": "s4",
+   "from": 103,
+   "to": 106,
+   "visual": true,
+   "kind": "static",
+   "location": "rhododendron_garden",
+   "interior": false,
+   "time": {
+    "start": "noon",
+    "end": "noon",
+    "progression": "steady"
+   },
+   "weather": "clear",
+   "subjects": [
+    {
+     "ref": "time_traveller",
+     "pose": "standing by machine",
+     "action": "looks around curiously",
+     "position": "center"
+    },
+    {
+     "ref": "eloi_observers",
+     "pose": "grouped figures in opening",
+     "action": "faces turned toward him",
+     "position": "back"
+    }
+   ],
+   "props": [
+    "circular wall opening",
+    "robed figures"
+   ],
+   "effects": [],
+   "mood": "cautious curiosity",
+   "camera": {
+    "framing": "wide",
+    "motion": "static"
+   },
+   "beats": [
+    {
+     "at": 105,
+     "action": "robed figures appear in high opening"
+    },
+    {
+     "at": 106,
+     "action": "their faces turn toward him"
+    }
+   ],
+   "audio": {
+    "bed": "quiet warm stillness",
+    "spots": []
+   },
+   "confidence": 0.7
+  },
+  {
+   "id": "s5",
+   "from": 107,
+   "to": 116,
+   "visual": true,
+   "kind": "static",
+   "location": "rhododendron_garden",
+   "interior": false,
+   "time": {
+    "start": "noon",
+    "end": "noon",
+    "progression": "steady"
+   },
+   "weather": "clear",
+   "subjects": [
+    {
+     "ref": "time_traveller",
+     "pose": "standing by machine",
+     "action": "watches, hands lower",
+     "position": "left"
+    },
+    {
+     "ref": "eloi_man",
+     "pose": "emerging on path",
+     "action": "approaches slight and frail",
+     "position": "right"
+    }
+   ],
+   "props": [
+    "purple tunic",
+    "leather belt",
+    "sandals"
+   ],
+   "effects": [],
+   "mood": "wonder relief",
+   "camera": {
+    "framing": "medium",
+    "motion": "push"
+   },
+   "beats": [
+    {
+     "at": 108,
+     "action": "men's heads emerge from bushes"
+    },
+    {
+     "at": 109,
+     "action": "one figure steps onto path"
+    },
+    {
+     "at": 115,
+     "action": "confidence returns, hands lower"
+    },
+    {
+     "at": 116,
+     "action": "releases hands from machine"
+    }
+   ],
+   "audio": {
+    "bed": "rustling bushes soft footsteps",
+    "spots": [
+     {
+      "at": 108,
+      "sound": "figures moving through bushes"
+     },
+     {
+      "at": 109,
+      "sound": "footsteps on path"
+     }
+    ]
+   },
+   "confidence": 0.75
+  }
+ ],
+ "bible": {
+  "characters": [
+   {
+    "id": "time_traveller",
+    "desc": "Man seated in saddle of brass-and-ivory time machine, gripping twin levers."
+   },
+   {
+    "id": "mrs_watchett",
+    "desc": "Housekeeper in period dress, walking briskly through room."
+   },
+   {
+    "id": "sphinx_statue",
+    "desc": "Colossal weather-worn white marble winged sphinx on verdigris bronze pedestal."
+   },
+   {
+    "id": "eloi_observers",
+    "desc": "Distant group of slight robed figures in circular wall opening."
+   },
+   {
+    "id": "eloi_man",
+    "desc": "Slight four-foot figure, purple tunic, bare legs, sandals, flushed frail face."
+   }
+  ],
+  "locations": [
+   {
+    "id": "laboratory",
+    "desc": "Workshop interior with time machine, scaffolding, ivory and brass fittings."
+   },
+   {
+    "id": "landscape_hillside",
+    "desc": "Misty hillside with trees, rising buildings, shifting sky colors."
+   },
+   {
+    "id": "rhododendron_garden",
+    "desc": "Small lawn ringed by rhododendron bushes, silver birch, hail-swept."
+   }
+  ]
+ }
+}

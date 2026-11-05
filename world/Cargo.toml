@@ -1,0 +1,24 @@
+[package]
+name = "lanthorn-world"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Lanthorn's world host: embeds raea's live runtime, takes input as JSON lines on stdin, writes JPEG frames on stdout. No window."
+
+[lib]
+name = "lanthorn_world"
+crate-type = ["cdylib"]
+path = "src/lib.rs"
+
+[[bin]]
+name = "lanthorn-world"
+path = "src/main.rs"
+
+[dependencies]
+raea-runtime-live = { path = "../runtime/live" }
+raea-runtime-react = { path = "../runtime/react", default-features = false }
+raea-gpu-device = { path = "../gpu/device" }
+serde_json = "1"
+objc2 = "0.6"
+wgpu = { version = "=30.0.1", features = ["trace"] }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
