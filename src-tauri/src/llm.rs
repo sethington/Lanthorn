@@ -7,6 +7,29 @@ use tokio::io::AsyncWriteExt;
 
 const TIMEOUT: Duration = Duration::from_secs(300);
 
+#[derive(Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct Usage {
+    pub input: u64,
+    pub output: u64,
+    pub cache_read: u64,
+    pub cache_write: u64,
+    /// what the provider says the call cost, when it says (the Claude CLI does)
+    pub cost: f64,
+}
+
+fn usage_of(v: &Value) -> Usage {
+    let u = &v["usage"];
+    let n = |k: &str| u[k].as_u64().unwrap_or(0);
+    Usage {
+        input: n("input_tokens") + n("prompt_tokens"),
+        output: n("output_tokens") + n("completion_tokens"),
+        cache_read: n("cache_read_input_tokens"),
+        cache_write: n("cache_creation_input_tokens"),
+        cost: v["total_cost_usd"].as_f64().unwrap_or(0.0),
+    }
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Completion {
@@ -15,6 +38,7 @@ pub struct Completion {
     /// the model that actually answered, when the provider says
     pub model: String,
     pub ms: u128,
+    pub usage: Usage,
 }
 
 #[derive(Serialize)]
@@ -69,7 +93,7 @@ pub async fn run_cli(path: &str, args: Vec<String>, stdin: Option<&str>, cwd: &s
     ))
 }
 
-async fn complete_agent(app: &AppHandle, p: &Provider, model: Option<&str>, system: &str, user: &str) -> Result<(String, Option<String>), String> {
+async fn complete_agent(app: &AppHandle, p: &Provider, model: Option<&str>, system: &str, user: &str) -> Result<(String, Option<String>, Usage), String> {
     let cwd = settings::work_dir(app)?;
     let path = p.path.clone().ok_or("agent has no path")?;
     match p.cli.as_deref() {
@@ -90,7 +114,8 @@ async fn complete_agent(app: &AppHandle, p: &Provider, model: Option<&str>, syst
                 return Err(v["result"].as_str().unwrap_or("claude reported an error").to_string());
             }
             let used = v["modelUsage"].as_object().and_then(|m| m.keys().next().cloned());
-            v["result"].as_str().map(|s| (s.to_string(), used)).ok_or_else(|| "claude returned no result".into())
+            let usage = usage_of(&v);
+            v["result"].as_str().map(|s| (s.to_string(), used, usage)).ok_or_else(|| "claude returned no result".into())
         }
         Some("hermes") => {
             let prompt = format!("{system}\n\n{user}");
@@ -106,7 +131,7 @@ async fn complete_agent(app: &AppHandle, p: &Provider, model: Option<&str>, syst
             if out.contains("API call failed") {
                 return Err(trunc(&out));
             }
-            Ok((out.trim().to_string(), None))
+            Ok((out.trim().to_string(), None, Usage::default()))
         }
         Some("codex") => {
             // `codex exec` reads the prompt from stdin ("-"), runs in a read-only sandbox, and writes the final
@@ -125,8 +150,8 @@ async fn complete_agent(app: &AppHandle, p: &Provider, model: Option<&str>, syst
             let last = std::fs::read_to_string(&out_file).ok();
             let _ = std::fs::remove_file(&out_file);
             match last.map(|t| t.trim().to_string()).filter(|t| !t.is_empty()) {
-                Some(t) => Ok((t, None)),
-                None if ok && !out.trim().is_empty() => Ok((out.trim().to_string(), None)),
+                Some(t) => Ok((t, None, Usage::default())),
+                None if ok && !out.trim().is_empty() => Ok((out.trim().to_string(), None, Usage::default())),
                 None => Err(trunc(&format!("codex gave no answer. {err}{out}"))),
             }
         }
@@ -135,7 +160,7 @@ async fn complete_agent(app: &AppHandle, p: &Provider, model: Option<&str>, syst
     }
 }
 
-async fn complete_endpoint(p: &Provider, model: Option<&str>, system: &str, user: &str) -> Result<String, String> {
+async fn complete_endpoint(p: &Provider, model: Option<&str>, system: &str, user: &str) -> Result<(String, Usage), String> {
     let base = p.base_url.clone().filter(|b| !b.is_empty()).ok_or("endpoint has no base URL")?;
     let model = model.map(|m| m.to_string()).ok_or("endpoint has no model: set one in Settings")?;
     let url = format!("{}/chat/completions", base.trim_end_matches('/'));
@@ -167,9 +192,10 @@ async fn complete_endpoint(p: &Provider, model: Option<&str>, system: &str, user
         return Err(format!("HTTP {status}: {}", trunc(&text)));
     }
     let v: Value = serde_json::from_str(&text).map_err(|_| format!("non-JSON reply: {}", trunc(&text)))?;
+    let usage = usage_of(&v);
     v["choices"][0]["message"]["content"]
         .as_str()
-        .map(|s| s.to_string())
+        .map(|s| (s.to_string(), usage))
         .ok_or_else(|| format!("no content in reply: {}", trunc(&text)))
 }
 
@@ -181,12 +207,12 @@ fn trunc(s: &str) -> String {
 pub async fn complete_with(app: &AppHandle, p: &Provider, model: Option<String>, system: &str, user: &str) -> Result<Completion, String> {
     let t = Instant::now();
     let asked = model.clone().unwrap_or_default();
-    let (text, used) = match p.kind.as_str() {
+    let (text, used, usage) = match p.kind.as_str() {
         "agent" => complete_agent(app, p, model.as_deref(), system, user).await?,
-        "endpoint" => (complete_endpoint(p, model.as_deref(), system, user).await?, None),
+        "endpoint" => { let (x, u) = complete_endpoint(p, model.as_deref(), system, user).await?; (x, None, u) }
         other => return Err(format!("unknown provider kind '{other}'")),
     };
-    Ok(Completion { text, provider_id: p.id.clone(), model: used.unwrap_or(asked), ms: t.elapsed().as_millis() })
+    Ok(Completion { text, provider_id: p.id.clone(), model: used.unwrap_or(asked), ms: t.elapsed().as_millis(), usage })
 }
 
 pub async fn test(app: &AppHandle, p: &Provider, model: Option<String>) -> TestResult {
@@ -257,6 +283,7 @@ pub async fn describe_image(app: &AppHandle, p: &Provider, model: Option<String>
         return Err(v["result"].as_str().unwrap_or("claude reported an error").to_string());
     }
     let used = v["modelUsage"].as_object().and_then(|m| m.keys().next().cloned());
+    let usage = usage_of(&v);
     let text = v["result"].as_str().ok_or("claude returned no result")?.to_string();
-    Ok(Completion { text, provider_id: p.id.clone(), model: used.unwrap_or_else(|| model.unwrap_or_default()), ms: t.elapsed().as_millis() })
+    Ok(Completion { text, provider_id: p.id.clone(), model: used.unwrap_or_else(|| model.unwrap_or_default()), ms: t.elapsed().as_millis(), usage })
 }

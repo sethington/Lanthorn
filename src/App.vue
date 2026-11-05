@@ -13,6 +13,7 @@ import { importFile, importHtml, importText } from "./lib/import";
 import { RUNTIME_VERSION } from "./lib/resolve";
 import { hashStr, splitSentences, type Sentence } from "./lib/text";
 import { shiftScene } from "./lib/offset";
+import { fmtTokens, recordChapterUsage, tokensOf, usage, useBook } from "./lib/usage";
 import { DEFAULT_STYLE, STYLES, STYLE_SYSTEM, defaultStyle, effectiveStyle, getChapterOverride, getOverride, heuristicStyle, isStyle, parseStyle, setChapterOverride, setOverride, styleLabel, styleUser, type StyleId, type StyleSource } from "./lib/style";
 
 // --- the open book: any imported book, one chapter at a time ---
@@ -120,6 +121,7 @@ async function openBook(id: string, startChapter?: number) {
   } catch { b = null; }
   if (!b || !b.chapters?.length) { view.value = "library"; return; }
   renderGen++; // work for the book we're leaving is abandoned
+  useBook(b.id);
   filmReady.value = false;
   restoring = true;
   book.value = b;
@@ -483,6 +485,7 @@ async function analyzeChapter(c: Chap, force = false) {
           else {
             const r = await api.llmComplete("scene", SYSTEM, user);
             lastModel.value = r.model;
+            recordChapterUsage(c.key, r.usage);
             text = r.text;
           }
           chunk = validateChunk(extractJson(text), slice[0].id, slice[slice.length - 1].id, b);
@@ -768,6 +771,12 @@ function setEl(el: unknown, i: number) {
             {{ analysis.running ? `Analyzing ${analysis.done}/${analysis.total}…` : "Re-analyze this chapter" }}
           </button>
         </div>
+        <div class="tokens">
+          <div class="tokhead">Tokens used</div>
+          <div class="tokrow"><span>This chapter</span><span>{{ fmtTokens(tokensOf(usage.data.byChapter[curChap?.key ?? ""])) }}<template v-if="usage.data.byChapter[curChap?.key ?? '']"> · {{ fmtTokens(usage.data.byChapter[curChap?.key ?? ""].output) }} out</template><template v-else> · none (saved)</template></span></div>
+          <div class="tokrow"><span>This book</span><span>{{ fmtTokens(tokensOf(usage.data.total)) }} · {{ fmtTokens(usage.data.total.output) }} out · {{ usage.data.total.calls }} calls<template v-if="usage.data.total.cost"> · ${{ usage.data.total.cost.toFixed(2) }}</template></span></div>
+          <div v-for="(t, job) in usage.data.byJob" :key="job" class="tokrow sub"><span>{{ job }}</span><span>{{ fmtTokens(tokensOf(t)) }} · {{ t.calls }} calls</span></div>
+        </div>
         <p v-if="curScenes.length && !analysis.running" class="dim stats">{{ curScenes.length }} scenes · {{ bible.characters.length }} characters · {{ bible.locations.length }} places · {{ visualCount }} with a picture<template v-if="analysis.cached"> · {{ analysis.cached }}/{{ analysis.total }} chunks from cache</template></p>
         <p v-if="analysis.error" class="llmerr">{{ analysis.error }}</p>
         <ul v-if="curScenes.length" class="scenelist">
@@ -829,6 +838,10 @@ html.world, html.world body, html.world #app { background: transparent !importan
 .pill.on { color: #c9a54a; border-color: #5a4a22; }
 .drawer { position: absolute; top: 0; right: 0; bottom: 0; width: min(380px, 92%); background: rgba(12, 14, 18, 0.95); backdrop-filter: blur(8px); border-left: 1px solid #1f232a; padding: 44px 14px 14px; overflow-y: auto; z-index: 5; box-sizing: border-box; font: 12px system-ui, sans-serif; }
 .stats { margin: 10px 0 0; }
+.tokens { margin: 12px 0 0; padding: 10px; border: 1px solid #23262d; border-radius: 8px; font: 12px system-ui, sans-serif; color: #b8bcc6; display: grid; gap: 4px; }
+.tokhead { color: #8b8f99; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; }
+.tokrow { display: flex; justify-content: space-between; gap: 10px; }
+.tokrow.sub { color: #6d7280; padding-left: 10px; }
 .scenelist li.current { background: #1a1d24; color: #e9e6dd; }
 .err { color: #e59a9a; }
 .llm { font: 12px system-ui, sans-serif; }

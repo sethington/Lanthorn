@@ -1,3 +1,4 @@
+import { recordUsage, type Usage } from "./usage";
 import { invoke } from "@tauri-apps/api/core";
 import type { BookMeta } from "./book";
 
@@ -16,7 +17,7 @@ export type Provider = {
 export type Route = { provider: string; model?: string | null };
 export type Settings = { providers: Provider[]; routing: Record<string, Route>; initialized: boolean };
 export type TestResult = { ok: boolean; ms: number; sample: string; model: string; error?: string | null };
-export type Completion = { text: string; providerId: string; model: string; ms: number };
+export type Completion = { text: string; providerId: string; model: string; ms: number; usage?: Usage };
 
 
 export type CacheStats = { renderBytes: number; renderScenes: number; assetsBytes: number; analysisBytes: number };
@@ -69,6 +70,6 @@ export const api = {
   renderAvailable: () => need(() => invoke<boolean>("render_available")),
   endpointModels: (providerId?: string, baseUrl?: string, key?: string) => need(() => invoke<string[]>("endpoint_models", { providerId: providerId ?? null, baseUrl: baseUrl ?? null, key: key ?? null })),
   cacheDir: () => need(() => invoke<string>("cache_dir")),
-  llmVision: (job: string, system: string, user: string, image: string) => need(() => invoke<Completion>("llm_vision", { job, system, user, image })),
-  llmComplete: (job: string, system: string, user: string) => need(() => invoke<Completion>("llm_complete", { job, system, user })),
+  llmVision: (job: string, system: string, user: string, image: string) => need(() => invoke<Completion>("llm_vision", { job, system, user, image })).then((c) => { recordUsage(job, c.usage); return c; }),
+  llmComplete: (job: string, system: string, user: string) => need(() => invoke<Completion>("llm_complete", { job, system, user })).then((c) => { recordUsage(job, c.usage); return c; }),
 };
