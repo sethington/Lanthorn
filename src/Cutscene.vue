@@ -4,6 +4,8 @@
 // a shot and a time of day, and the world is told. Scroll back and it winds back. Click the picture to take the camera (Esc gives
 // it back).
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import Progress from "./Progress.vue";
 import { api } from "./lib/api";
 import { Player, buildTimeline, type Frame, type Timeline } from "./lib/director";
 import { assetsNeeded, resolveScene, sceneKey, type Resolved } from "./lib/resolve";
@@ -86,7 +88,7 @@ function build() {
 build();
 
 const hole = reactive({ x: 0, y: 0, w: 0, h: 0 });
-const ui = reactive({ busy: false, up: false, t: 0, beat: -1, fade: 1, controlling: false, status: "Preparing the world…", error: "" });
+const ui = reactive({ busy: false, up: false, t: 0, beat: -1, fade: 1, controlling: false, status: "Preparing the world…", error: "", phase: "" as "" | "assets" | "bundle" | "engine", pDone: 0, pTotal: 0, pWhat: "", pSince: 0 });
 const frame = ref<Frame | null>(null);
 
 // ---- fit the world's frame inside the host element (the stage panel)
@@ -117,6 +119,7 @@ function onResize() {
 // ---- a group of scenes becomes one world bundle, prepared on demand
 type Prep = { bundle: string; dir: string };
 const preps = new Map<string, Promise<Prep>>();
+const prepKeyOf = new Map<string, string>(); // group -> the key its world is prepared under (progress events carry it)
 const repOf = (g: Group) => g.scenes.find((i) => props.scenes[i].visual);
 function prepare(gi: number): Promise<Prep> {
   const g0 = groups[gi];
@@ -150,6 +153,7 @@ function prepare(gi: number): Promise<Prep> {
     const r: Resolved = resolveScene(whole, props.bible, { pkg: props.pkg, size: SIZE, shots, stage, acting, style: props.styleFor?.(rep) });
     r.live = true;
     r.t0 = 0;
+    prepKeyOf.set(key0, `${sceneKey(r)}-cut`);
     p = api.sceneWorld(`${sceneKey(r)}-cut`, JSON.stringify(r), assetsNeeded(r));
     p.catch(() => preps.delete(key0)); // a failed prepare may be retried
     preps.set(key0, p);
@@ -167,6 +171,8 @@ function worldGroup(gi: number): number {
 }
 
 let loading = false;
+let wantKey = ""; // the prepare key of the place being made now
+let unlistenProg: UnlistenFn | null = null;
 const stats = { loads: 0, fails: 0, ms: [] as number[], hitchMax: 0, judged: 0 }; // dev: how loading went (read by the soak test)
 if (import.meta.env.DEV) (window as any).__lwStats = stats;
 async function loadWorld(i: number) {
@@ -175,7 +181,13 @@ async function loadWorld(i: number) {
   const gOld = groups[i];
   const s = sig(gOld);
   try {
-    const p = await prepare(i);
+    ui.phase = "assets";
+    ui.pDone = 0; ui.pTotal = 0; ui.pWhat = ""; ui.pSince = performance.now();
+    wantKey = "";
+    const pp = prepare(i); // (this sets the group's prepare key)
+    wantKey = prepKeyOf.get(s) ?? "";
+    const p = await pp;
+    ui.phase = "engine"; ui.pSince = performance.now();
     await api.worldCmd({ cmd: "load", bundle: p.bundle, dir: p.dir, w: SIZE[0], h: SIZE[1] });
     // wait until the engine says that load is done (it can take a second or two)
     const st0 = (await api.worldCmd({ cmd: "status" })) as { sent: number; failed: number };
@@ -199,6 +211,7 @@ async function loadWorld(i: number) {
     failedGroups.set(s, (failedGroups.get(s) ?? 0) + 1); // the loop tries again, or (after two failures) moves on without this place
   } finally {
     loading = false;
+    ui.phase = "";
   }
   // get the next place's bundle ready while this one is on screen
   const gi = groups.findIndex((g) => sig(g) === s);
@@ -292,6 +305,17 @@ function step(now: number) {
   }
 }
 
+// ---- progress of the place being made: what step, how far
+const clock = ref(0);
+setInterval(() => (clock.value = performance.now()), 500);
+const making = computed(() => {
+  if (!ui.phase) return null;
+  const secs = Math.max(0, Math.round((clock.value - ui.pSince) / 1000));
+  if (ui.phase === "assets") return ui.pTotal > 0 ? { title: "Gathering the models", detail: `${Math.min(ui.pDone + 1, ui.pTotal)} of ${ui.pTotal}${ui.pWhat ? " · " + ui.pWhat.replace(/_/g, " ") : ""}`, value: ui.pDone / ui.pTotal } : { title: "Preparing the place", detail: "", value: undefined };
+  if (ui.phase === "bundle") return { title: "Building the place", detail: secs > 2 ? `${secs}s` : "", value: undefined };
+  return { title: "Loading it into the world", detail: secs > 2 ? `${secs}s` : "", value: undefined };
+});
+
 // ---- what's on screen
 const beat = computed(() => (frame.value && frame.value.beatIndex >= 0 ? tl.beats[frame.value.beatIndex] : null));
 const speaker = computed(() => (beat.value && beat.value.kind !== "narration" ? beat.value.speaker : ""));
@@ -366,6 +390,12 @@ watch(() => props.styleVer, () => {
 });
 
 onMounted(async () => {
+  if ("__TAURI_INTERNALS__" in window) listen<{ key: string; stage: string; done: number; total: number; what: string }>("world-progress", (e) => {
+    const d = e.payload;
+    if (d.key !== wantKey || !loading) return;
+    ui.phase = d.stage === "bundle" ? "bundle" : "assets";
+    ui.pDone = d.done; ui.pTotal = d.total; ui.pWhat = d.what;
+  }).then((u) => (unlistenProg = u));
   document.documentElement.classList.add("world");
   window.addEventListener("resize", onResize);
   const hostEl = document.querySelector(props.host);
@@ -397,6 +427,7 @@ onMounted(async () => {
   raf = window.setInterval(() => loop(performance.now()), 16);
 });
 onBeforeUnmount(() => {
+  unlistenProg?.();
   clearInterval(raf);
   ro?.disconnect();
   window.removeEventListener("resize", onResize);
@@ -432,9 +463,9 @@ onBeforeUnmount(() => clearInterval(beatTimer));
       <div class="dim" :style="{ opacity: ui.fade }" />
       <div v-if="ui.status || ui.error" class="loading">
         <template v-if="ui.error">{{ ui.error }}</template>
-        <template v-else>{{ ui.status }}</template>
+        <Progress v-else big :title="making?.title ?? ui.status" :detail="making?.detail" :value="making?.value" />
       </div>
-      <div v-if="ui.busy && ui.up" class="busy">moving on…</div>
+      <div v-if="ui.busy && ui.up" class="busy"><Progress :title="making?.title ?? 'Moving on…'" :detail="making?.detail" :value="making?.value" /></div>
       <div v-if="ui.controlling" class="hint">You have the camera · drag to look · W/S zoom · A/D slide · Esc to follow the text again</div>
       <div v-if="speaker && !ui.controlling" class="who">{{ speaker }}</div>
     </div>
@@ -449,7 +480,7 @@ onBeforeUnmount(() => clearInterval(beatTimer));
 .pick.taking { cursor: grabbing; }
 .dim { position: absolute; inset: 0; background: #000; pointer-events: none; transition: opacity 0.12s linear; }
 .loading { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; padding: 20px; color: #8b8f99; font: 12px ui-monospace, Menlo, monospace; pointer-events: none; word-break: break-word; }
-.busy { position: absolute; right: 10px; bottom: 10px; background: rgba(0, 0, 0, 0.5); border-radius: 99px; padding: 3px 10px; font: 11px ui-monospace, Menlo, monospace; color: #b8bcc6; pointer-events: none; }
+.busy { position: absolute; right: 10px; bottom: 10px; background: rgba(0, 0, 0, 0.55); border-radius: 10px; padding: 8px 12px; width: 190px; font: 11px ui-monospace, Menlo, monospace; color: #b8bcc6; pointer-events: none; }
 .hint { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); background: rgba(0, 0, 0, 0.55); border-radius: 99px; padding: 5px 12px; font: 11px ui-monospace, Menlo, monospace; color: #c9c4b6; pointer-events: none; white-space: nowrap; }
 .who { position: absolute; left: 14px; top: 12px; font: 600 10px/1 system-ui, sans-serif; letter-spacing: 0.22em; text-transform: uppercase; color: #d8b45a; text-shadow: 0 1px 4px #000; pointer-events: none; }
 </style>

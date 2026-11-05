@@ -8,7 +8,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 // one render per scene key at a time: concurrent callers wait, then find the finished cache
 static LOCKS: OnceLock<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>> = OnceLock::new();
@@ -153,9 +153,16 @@ pub async fn world_bundle(app: &AppHandle, key: &str, resolved: &str, assets: Ve
     let out = WorldOut { bundle: bundle.to_string_lossy().into(), dir: work.to_string_lossy().into() };
     let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(300)).build().map_err(|e| e.to_string())?;
     let asset_root = root.join("assets");
-    for a in &assets {
+    // progress for the reader: which step of making this place, and how far through it
+    let say = |stage: &str, done: usize, total: usize, what: &str| {
+        let _ = app.emit("world-progress", serde_json::json!({"key": key, "stage": stage, "done": done, "total": total, "what": what}));
+    };
+    let total = assets.len();
+    for (i, a) in assets.iter().enumerate() {
+        say("assets", i, total, &a.id);
         fetch_asset(&client, &asset_root.join("polyhaven"), a).await?; // a no-op when already there at this resolution
     }
+    say("assets", total, total, "");
     crate::package::ensure_link(app, &asset_root)?;
     {
         let dir = asset_root.join("lanthorn").join("moon");
@@ -179,6 +186,7 @@ pub async fn world_bundle(app: &AppHandle, key: &str, resolved: &str, assets: Ve
     std::os::unix::fs::symlink(&asset_root, work.join("media")).map_err(|e| e.to_string())?;
     #[cfg(not(unix))]
     return Err("live worlds on this platform aren't supported yet".into());
+    say("bundle", 0, 1, "");
     let raea = settings::which("raea").await.ok_or("raea isn't installed: run  curl -fsSL https://raea.io/install | sh")?;
     let args = vec!["bundle".to_string(), "scene.tsx".into(), "--composition-bundle".into(), "-o".into(), bundle.to_string_lossy().into()];
     let (so, se, ok) = llm::run_cli(&raea, args, None, &work).await?;

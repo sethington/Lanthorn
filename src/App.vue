@@ -15,6 +15,7 @@ import { hashStr, splitSentences, type Sentence } from "./lib/text";
 import { shiftScene } from "./lib/offset";
 import { describeCue, judgeSpent, judgeUseBook, judgeSettings, memory as judgeMemory } from "./lib/judge";
 import { fmtTokens, recordChapterUsage, tokensOf, usage, useBook } from "./lib/usage";
+import Progress from "./Progress.vue";
 import { DEFAULT_STYLE, STYLES, STYLE_SYSTEM, defaultStyle, effectiveStyle, getChapterOverride, getOverride, heuristicStyle, isStyle, parseStyle, setChapterOverride, setOverride, styleLabel, styleUser, type StyleId, type StyleSource } from "./lib/style";
 
 // --- the open book: any imported book, one chapter at a time ---
@@ -29,7 +30,7 @@ const posKey = (id: string) => `lanthorn:pos:${id}`;
 type Chap = {
   idx: number; base: number; nsent: number; key: string; chars: number; paras: Sentence[][];
   scenes: LlmScene[]; bible: Bible; state: "idle" | "running" | "done" | "error"; checked: boolean;
-  done: number; total: number; cached: number; err: string;
+  done: number; total: number; cached: number; err: string; fresh: number; freshMs: number;
 };
 const chaps = shallowRef<Chap[]>([]);
 const touch = () => triggerRef(chaps);
@@ -100,7 +101,7 @@ function buildChaps(b: Book) {
     const paras: Sentence[][] = ch.paragraphs.map(() => []);
     sents.forEach((s) => paras[s.para].push(s));
     all.push(...sents);
-    const c: Chap = { idx, base, nsent: sents.length, key: hashStr(ch.text), chars: ch.text.length, paras, scenes: [], bible: { characters: [], locations: [] }, state: "idle", checked: false, done: 0, total: 0, cached: 0, err: "" };
+    const c: Chap = { idx, base, nsent: sents.length, key: hashStr(ch.text), chars: ch.text.length, paras, scenes: [], bible: { characters: [], locations: [] }, state: "idle", checked: false, done: 0, total: 0, cached: 0, err: "", fresh: 0, freshMs: 0 };
     base += sents.length;
     return c;
   });
@@ -140,7 +141,7 @@ async function openBook(id: string, startChapter?: number) {
     } catch { /* no saved place */ }
   }
   buildChaps(b);
-  const gen = renderGen;
+  const owner = chaps.value; // this book's chapters: work for another book (or an earlier open of this one) is recognised by these changing
   chapterIdx.value = idx;
   winCenter.value = idx;
   applyChapter(idx);
@@ -158,7 +159,7 @@ async function openBook(id: string, startChapter?: number) {
   filmReady.value = true; // the world starts at the reader's place
   // the other chapters' saved analyses, then the model for whatever is still missing around the reader, in the background
   for (const c of chaps.value.slice().sort((x, y) => Math.abs(x.idx - idx) - Math.abs(y.idx - idx))) {
-    if (gen !== renderGen) return;
+    if (chaps.value !== owner) return;
     if (!c.checked) { await loadCached(c); publish(); }
   }
   pump();
@@ -394,10 +395,18 @@ const AHEAD = 2; // chapters analysed ahead of the reader
 const curChap = computed(() => chaps.value[chapterIdx.value] ?? null);
 /** the chapter's progress, for the panel and the drawer */
 const analysis = computed(() => {
-  const c = curChap.value;
-  return { running: c?.state === "running", done: c?.done ?? 0, total: c?.total ?? 0, error: c?.state === "error" ? c.err : "", cached: c?.cached ?? 0, ready: !!c?.scenes.length };
+  const c = chaps.value[chapterIdx.value]; // (read from chaps itself: a chapter changing in place must re-run this, and curChap would still be the same object)
+  const left = c && c.fresh > 0 ? Math.max(0, c.total - c.done) * (c.freshMs / c.fresh) : 0; // ms, from the average of the parts the model did
+  return { running: c?.state === "running", done: c?.done ?? 0, total: c?.total ?? 0, error: c?.state === "error" ? c.err : "", cached: c?.cached ?? 0, ready: !!c?.scenes.length, etaSec: Math.round(left / 1000) };
 });
-const curScenes = computed(() => curChap.value?.scenes ?? []);
+const analysisDetail = computed(() => {
+  const a = analysis.value;
+  if (!a.running) return "waiting for its turn";
+  const eta = a.etaSec > 90 ? `about ${Math.round(a.etaSec / 60)} min left` : a.etaSec > 5 ? `about ${a.etaSec} s left` : a.done > 0 && a.done === a.total ? "almost done" : "";
+  return `part ${Math.min(a.done + 1, a.total)} of ${a.total}${a.cached ? " · " + a.cached + " saved" : ""}${eta ? " · " + eta : ""}`;
+});
+if (import.meta.env.DEV) (window as any).__app = { chaps, llmScenes, analysis, chapterIdx, filmReady, winCenter };
+const curScenes = computed(() => chaps.value[chapterIdx.value]?.scenes ?? []);
 
 /** Join the chapters' scenes (and characters and places) into the book's. */
 function publish() {
@@ -468,12 +477,14 @@ async function loadCached(c: Chap | undefined) {
 
 /** Analyse one chapter with the model. Scenes appear in the book as each part of the chapter comes back. force = ignore saved replies. */
 async function analyzeChapter(c: Chap, force = false) {
-  if (c.state === "running" || !c.nsent) return;
-  const gen = renderGen;
+  const owner = chaps.value;
+  if (c.state === "running" || !c.nsent || !owner.includes(c)) return;
   c.state = "running";
   c.err = "";
   c.cached = 0;
   c.done = 0;
+  c.fresh = 0;
+  c.freshMs = 0;
   const all = localSentences(c);
   const chunks = Math.ceil(all.length / CHUNK);
   c.total = chunks;
@@ -485,6 +496,8 @@ async function analyzeChapter(c: Chap, force = false) {
   try {
     for (let i = 0; i < chunks; i++) {
       const slice = all.slice(i * CHUNK, (i + 1) * CHUNK);
+      const tChunk = Date.now();
+      let usedModel = false;
       let chunk;
       for (let attempt = 0; ; attempt++) {
         try {
@@ -494,6 +507,7 @@ async function analyzeChapter(c: Chap, force = false) {
           let text = force || attempt > 0 ? null : await cacheRead(ckey);
           if (text) c.cached++;
           else {
+            usedModel = true;
             const r = await api.llmComplete("scene", SYSTEM, user);
             lastModel.value = r.model;
             recordChapterUsage(c.key, r.usage);
@@ -507,7 +521,7 @@ async function analyzeChapter(c: Chap, force = false) {
           if (attempt >= 1 || !/JSON|scene|range/.test(String(e))) throw e;
         }
       }
-      if (gen !== renderGen) return; // another book was opened while the model was working
+      if (chaps.value !== owner) return; // another book was opened while the model was working
       b = chunk.bible;
       chunk.scenes.forEach((sc, k) => (sc.id = `s${local.length + k + 1}`));
       local.push(...chunk.scenes);
@@ -515,6 +529,7 @@ async function analyzeChapter(c: Chap, force = false) {
       c.scenes = local.map((s) => shiftScene(s, c.base, c.idx));
       c.bible = b;
       c.done = i + 1;
+      if (usedModel) { c.fresh++; c.freshMs += Date.now() - tChunk; }
       publish();
       debugLog("analyze", { chapter: c.idx, chunk: i + 1, of: chunks, scenes: chunk.scenes.length });
     }
@@ -524,26 +539,26 @@ async function analyzeChapter(c: Chap, force = false) {
     c.state = "done";
     debugLog("analyzed", { chapter: c.idx, ms: Date.now() - t0 });
   } catch (e) {
-    if (gen === renderGen) {
+    if (chaps.value === owner) {
       c.state = "error";
       c.err = String(e);
       debugLog("analyze-error", { chapter: c.idx, err: String(e) });
     }
   } finally {
-    if (gen === renderGen && c.state === "running") c.state = "idle";
+    if (chaps.value === owner && c.state === "running") c.state = "idle";
     touch();
   }
 }
 
 /** Read ahead: the model works through the chapter the reader is in and the ones just after it (and the one just before), one at a time. */
-let pumping = false;
+let pumpOwner: Chap[] | null = null;
 async function pump() {
-  if (pumping) return;
-  pumping = true;
-  const gen = renderGen;
+  const owner = chaps.value;
+  if (pumpOwner === owner) return; // already reading ahead in this book
+  pumpOwner = owner;
   try {
     for (;;) {
-      if (gen !== renderGen) return;
+      if (chaps.value !== owner) return;
       const ci = chapterIdx.value;
       const order = [0, ...Array.from({ length: AHEAD }, (_, k) => k + 1), -1];
       const next = order.map((d) => chaps.value[ci + d]).find((c) => c && c.checked && c.state === "idle");
@@ -551,7 +566,7 @@ async function pump() {
       await analyzeChapter(next);
     }
   } finally {
-    pumping = false;
+    if (pumpOwner === owner) pumpOwner = null;
   }
 }
 watch(chapterIdx, () => pump());
@@ -755,9 +770,9 @@ function setEl(el: unknown, i: number) {
             <p class="llmerr">{{ analysis.error }}</p>
             <button @click="retryChapter(curChap)">Try again</button>
           </template>
-          <p v-else>Setting the scene… <template v-if="analysis.running">{{ analysis.done }}/{{ analysis.total }}</template></p>
+          <Progress v-else big :title="analysis.running ? 'Reading this part of the book' : 'Getting ready to read this part'" :detail="analysisDetail" :value="analysis.running && analysis.total ? analysis.done / analysis.total : undefined" />
         </div>
-        <div v-if="llmScenes.length && !analysis.ready && !analysis.error" class="aheadpill">{{ analysis.running ? `Reading ahead ${analysis.done}/${analysis.total}…` : "Reading ahead…" }}</div>
+        <div v-if="llmScenes.length && (analysis.running || !analysis.ready) && !analysis.error" class="aheadpill"><Progress title="Reading ahead" :detail="analysisDetail" :value="analysis.running && analysis.total ? analysis.done / analysis.total : undefined" /></div>
       </div>
 
       <aside v-if="showDetails" class="drawer">
@@ -827,7 +842,7 @@ html, body, #app { height: 100%; margin: 0; background: var(--bg); }
 .crumb.show { opacity: 1; transform: none; }
 .chap { display: flow-root; padding-bottom: 16vh; }
 .chapspace { flex: none; }
-.aheadpill { position: absolute; right: 24px; bottom: 24px; z-index: 2; background: rgba(0, 0, 0, 0.5); border-radius: 99px; padding: 3px 12px; font: 11px ui-monospace, Menlo, monospace; color: #b8bcc6; pointer-events: none; }
+.aheadpill { position: absolute; right: 24px; bottom: 24px; z-index: 2; background: rgba(0, 0, 0, 0.6); border-radius: 10px; padding: 8px 12px; width: 210px; pointer-events: none; }
 .chapsel { display: grid; gap: 4px; margin-bottom: 12px; color: #8b8f99; font: 12px system-ui, sans-serif; }
 .chapsel select { background: #0f1115; color: var(--ink); border: 1px solid #2b2f38; border-radius: 8px; padding: 7px 10px; font: 13px system-ui, sans-serif; width: 100%; }
 .crumb strong { color: #b8bcc6; font-weight: 600; }
