@@ -306,12 +306,16 @@ function Figure({ fig, f, p, leverA = 0 }: { fig: any; f: number; p: number; lev
   const Leg = ({ x, hip, knee, ank }: { x: number; hip: number; knee: number; ank: number }) => (
     <Entity transform={at(x, hipY, 0, rot(hip))}>
       <Mesh3d transform={at(0, -0.22, 0).withScale([1.12, 1, 1.1])}>
-        <Capsule3d radius={0.072} half_length={0.15} />
+        <Capsule3d radius={0.08} half_length={0.15} />
         <StandardMaterial {...(eloi ? skin : wool(C.pants))} />
       </Mesh3d>
       <Entity transform={at(0, -0.45, 0, rot(knee))}>
+        <Mesh3d>
+          <Sphere radius={0.066} />
+          <StandardMaterial {...(eloi ? skin : wool(C.pants))} />
+        </Mesh3d>
         <Mesh3d transform={at(0, -0.225, 0).withScale([1, 1, 1.05])}>
-          <Capsule3d radius={0.058} half_length={0.165} />
+          <Capsule3d radius={0.063} half_length={0.165} />
           <StandardMaterial {...(eloi ? skin : wool(C.pants))} />
         </Mesh3d>
         {!eloi ? (
@@ -341,16 +345,20 @@ function Figure({ fig, f, p, leverA = 0 }: { fig: any; f: number; p: number; lev
   const Arm = ({ x, sh, el }: { x: number; sh: number; el: number }) => (
     <Entity transform={at(x, 0.5, 0, rot(sh, 0, x < 0 ? 0.04 : -0.04))}>
       <Mesh3d>
-        <Sphere radius={0.056} />
+        <Sphere radius={0.052} />
         <StandardMaterial {...wool(C.coat)} />
       </Mesh3d>
       <Mesh3d transform={at(0, -0.15, 0).withScale([1.05, 1, 1.05])}>
-        <Capsule3d radius={0.045} half_length={0.105} />
+        <Capsule3d radius={0.05} half_length={0.105} />
         <StandardMaterial {...wool(C.coat)} />
       </Mesh3d>
       <Entity transform={at(0, -0.3, 0, rot(el))}>
+        <Mesh3d>
+          <Sphere radius={0.047} />
+          <StandardMaterial {...wool(C.coat)} />
+        </Mesh3d>
         <Mesh3d transform={at(0, -0.14, 0)}>
-          <Capsule3d radius={0.038} half_length={0.1} />
+          <Capsule3d radius={0.043} half_length={0.1} />
           <StandardMaterial {...wool(woman || eloi ? C.coat : C.coat)} />
         </Mesh3d>
         {man ? (
@@ -376,7 +384,7 @@ function Figure({ fig, f, p, leverA = 0 }: { fig: any; f: number; p: number; lev
       <Leg x={-0.095} hip={A.hipL} knee={A.kneeL} ank={walking ? -A.hipL * 0.4 : seated ? 0.1 : 0} />
       <Leg x={0.095} hip={A.hipR} knee={A.kneeR} ank={walking ? -A.hipR * 0.4 : seated ? 0.1 : 0} />
       {/* pelvis */}
-      <Mesh3d transform={at(0, hipY + 0.02, 0).withScale([1.2, 0.8, 0.85])}>
+      <Mesh3d transform={at(0, hipY + 0.02, 0).withScale([1.3, 0.9, 0.95])}>
         <Sphere radius={0.14} />
         <StandardMaterial {...wool(woman ? C.coat : C.pants)} />
       </Mesh3d>
@@ -386,8 +394,13 @@ function Figure({ fig, f, p, leverA = 0 }: { fig: any; f: number; p: number; lev
           <Capsule3d radius={0.125} half_length={0.07} />
           <StandardMaterial {...wool(C.coat)} />
         </Mesh3d>
-        <Mesh3d transform={at(0, 0.36, 0.005).withScale([1.17, 1 + breathe, 0.84 + breathe])}>
-          <Capsule3d radius={0.155} half_length={0.09} />
+        <Mesh3d transform={at(0, 0.36, 0.005).withScale([1.08, 1 + breathe, 0.84 + breathe])}>
+          <Capsule3d radius={0.138} half_length={0.09} />
+          <StandardMaterial {...wool(C.coat)} />
+        </Mesh3d>
+        {/* the shoulder line: a yoke joining chest and arms, so the arms hang from the body and not from balls */}
+        <Mesh3d transform={at(0, 0.5, 0, rot(0, 0, Math.PI / 2)).withScale([1, 1, 0.78])}>
+          <Capsule3d radius={0.058} half_length={0.125} />
           <StandardMaterial {...wool(C.coat)} />
         </Mesh3d>
         {man ? (
@@ -451,11 +464,11 @@ function Figure({ fig, f, p, leverA = 0 }: { fig: any; f: number; p: number; lev
           </>
         ) : null}
         {/* neck and head */}
-        <Mesh3d transform={at(0, 0.62, 0)}>
-          <Cylinder radius={0.045} half_height={0.05} />
+        <Mesh3d transform={at(0, 0.6, 0)}>
+          <Cylinder radius={0.05} half_height={0.04} />
           <StandardMaterial {...skin} />
         </Mesh3d>
-        <Entity transform={at(0, 0.7, 0, rot(headPitch, headYaw, 0))}>
+        <Entity transform={at(0, 0.665, 0, rot(headPitch, headYaw, 0))}>
           {/* skull and jaw: the face's features sit on their front surface (z about 0.09 to 0.105 at the middle) */}
           <Mesh3d transform={at(0, 0.1, 0).withScale([0.92, 1.08, 1])}>
             <Sphere radius={0.1} />
@@ -564,8 +577,8 @@ function Figure({ fig, f, p, leverA = 0 }: { fig: any; f: number; p: number; lev
             </Mesh3d>
           ) : null}
         </Entity>
-        <Arm x={-0.2} sh={A.shL} el={A.elL} />
-        <Arm x={0.2} sh={A.shR} el={A.elR} />
+        <Arm x={-0.185} sh={A.shL} el={A.elL} />
+        <Arm x={0.185} sh={A.shR} el={A.elR} />
       </Entity>
     </Entity>
   );

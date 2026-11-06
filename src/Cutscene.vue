@@ -26,8 +26,9 @@ function panelSize(): [number, number] {
   const long = 1280;
   return a >= 1 ? [long, Math.round(long / a / 2) * 2] : [Math.round((long * a) / 2) * 2, long];
 }
-const SIZE: [number, number] = panelSize();
-const ASPECT = SIZE[0] / SIZE[1];
+let SIZE: [number, number] = panelSize();
+let ASPECT = SIZE[0] / SIZE[1];
+const hostReady = () => { const r = (document.querySelector(props.host) as HTMLElement | null)?.getBoundingClientRect(); return !!r && r.width > 60 && r.height > 60; };
 
 let tl: Timeline = buildTimeline([], []);
 let player = new Player(tl); // only used as a pure lookup: what the director says at a given time
@@ -404,20 +405,30 @@ onMounted(async () => {
   window.addEventListener("keyup", onKeyUp);
   window.addEventListener("mouseup", onUpAnywhere);
   window.addEventListener("beforeunload", closeWorldNow);
+  // coming back from another screen (Settings, the Library) the page is laid out a moment after this mounts: wait for the panel to have a
+  // size, then take the film's shape from it
+  for (let n = 0; n < 60 && !hostReady(); n++) await new Promise((r) => setTimeout(r, 50));
+  SIZE = panelSize();
+  ASPECT = SIZE[0] / SIZE[1];
   Object.assign(hole, fit());
   const dbg = (m: unknown) => { if (import.meta.env.DEV) fetch("/__debug", { method: "POST", body: JSON.stringify({ kind: "cut-mount", data: m }) }).catch(() => {}); };
   dbg({ opening: { ...hole } });
   try {
     let o;
-    try {
-      o = await api.worldOpen(hole.x, hole.y, hole.w, hole.h, SIZE[0], SIZE[1]);
-    } catch (e) {
-      // a page reload leaves the native view behind: close it and open our own
-      if (!String(e).includes("already open")) throw e;
-      await api.worldCmd({ cmd: "close" }).catch(() => {});
-      o = await api.worldOpen(hole.x, hole.y, hole.w, hole.h, SIZE[0], SIZE[1]);
+    for (let attempt = 0; ; attempt++) {
+      try {
+        o = await api.worldOpen(hole.x, hole.y, hole.w, hole.h, SIZE[0], SIZE[1]);
+        break;
+      } catch (e) {
+        const msg = String(e);
+        if (attempt >= 8) throw e;
+        if (msg.includes("already open")) await api.worldCmd({ cmd: "close" }).catch(() => {}); // a page reload leaves the native view behind: close it and open our own
+        else if (msg.includes("window and a rect")) { await new Promise((r) => setTimeout(r, 150)); Object.assign(hole, fit()); } // the panel had no size yet: look again
+        else throw e;
+      }
     }
     dbg({ opened: o });
+    placeWorld();
   } catch (e) {
     dbg({ openFailed: String(e) });
     ui.error = `The live world isn't available: ${e}`;
