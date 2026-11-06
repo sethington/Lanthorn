@@ -65,7 +65,7 @@ def dress(name):
     x, y, z = cen[:, 0], cen[:, 1], cen[:, 2]
     ax = np.abs(x)
     m = len(idx)
-    reg = np.zeros(m, np.int32)  # 0 skin, 1 hair, 2 coat, 3 vest, 4 trousers, 5 boots, 6 collar
+    reg = np.zeros(m, np.int32)  # 0 skin, 1 hair, 2 coat, 3 vest, 4 trousers, 5 boots, 6 collar, 7 beard
     arm = (ax > sh_x + 0.05 * (hips_y / 1.12)) & (y > hips_y - 0.3 * (hips_y / 1.12))  # the arms: out beyond the shoulder line (the bind pose holds them angled down), from the shoulder to the hand
     torso = (y > hips_y - 0.02) & (y < neck_y + 0.0) & ~arm
     legs = (y < hips_y + 0.02) & ~arm
@@ -83,11 +83,17 @@ def dress(name):
     head = (y > neck_y + 0.03)
     hair = head & ((y > eyes[1] + 0.035) | ((z < eyes[2] - 0.065) & (y > neck_y + 0.06)))
     if name == "woman": hair = hair | (head & (z < eyes[2] - 0.03) & (y > neck_y - 0.12) & (np.hypot(x, z) < 0.13))
+    if name == "man":
+        # a man's hair is cropped: a higher hairline and the back and sides cut at the ear, not a bob down to the neck
+        hair = head & ((y > eyes[1] + 0.065) | ((z < eyes[2] - 0.085) & (y > eyes[1] - 0.005)))
     reg[hair] = 1
+    if name == "man":
+        # a beard region (jaw, chin, upper lip), painted in the skin's colour unless the character has one (scene.tsx: look.beard)
+        reg[head & ~hair & (y < eyes[1] - 0.05) & (y > neck_y + 0.03) & (z > 0.03)] = 7
     # smooth ragged boundaries: each triangle takes the region most of its neighbours (triangles sharing a vertex) are in, twice
     nv = len(pos)
     for _ in range(6):
-        cnt = np.zeros((nv, 7), np.int32)
+        cnt = np.zeros((nv, 8), np.int32)
         for c in range(3): np.add.at(cnt, (idx[:, c], reg), 1)
         vote = cnt[idx].sum(axis=1)  # (m, 7): regions of every triangle touching this one's corners
         new = vote.argmax(axis=1).astype(np.int32)
@@ -95,7 +101,7 @@ def dress(name):
     reg[reg == 3] = 2  # the chest panel's edges are ragged on this mesh: no panel
     tri = reg
     # indices: one primitive per region (a triangle goes to the region most of its corners are in), each with its own flat material
-    names = ["skin", "hair", "coat", "vest", "trou", "boot", "collar"]
+    names = ["skin", "hair", "coat", "vest", "trou", "boot", "collar", "beard"]
     old_mat = js["materials"][P.get("material", 0)]
     prims = []
     mats = []
@@ -108,7 +114,7 @@ def dress(name):
         blob += data
         js["bufferViews"].append({"buffer": 0, "byteOffset": start, "byteLength": len(data), "target": 34963})
         js["accessors"].append({"bufferView": len(js["bufferViews"]) - 1, "componentType": 5125, "count": int(sel.size), "type": "SCALAR"})
-        c = srgb2lin(hexc(o[nm if nm != "trou" else "trou"] if nm != "boot" else o["boot"]))
+        c = srgb2lin(hexc(o[nm] if nm in o else o["skin"]))
         mats.append({"name": nm, "pbrMetallicRoughness": {"baseColorFactor": [float(c[0]), float(c[1]), float(c[2]), 1.0], "metallicFactor": 0.0, "roughnessFactor": 1.0}})
         q = dict(P)
         q["indices"] = len(js["accessors"]) - 1

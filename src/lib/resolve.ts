@@ -24,7 +24,7 @@ export type Fig = {
   walk: [number, number, number, number] | null; // x0, z0, x1, z1 over the scene
   scale: number;
   /** what they wear and look like, from the book's own description of them */
-  look?: { coat: string; vest: string; trou: string; boot: string; hair: string; skin: string; old: boolean };
+  look?: { coat: string; vest: string; trou: string; boot: string; hair: string; skin: string; old: boolean; beard?: boolean };
   /** what this character does, in the world's 0..1 progress: sit, stand, crouch, walk_to (with a target), reach, use_lever, gesture, look_at, turn */
   acts?: { p0: number; p1: number; do: string; tx?: number; tz?: number }[];
 };
@@ -173,7 +173,7 @@ export function personLook(ref: string, desc: string, rnd: () => number): { body
   const skin = /\b(pale|fair|white-skinned)\b/.test(t) ? "#ecc9ad" : /\b(dark-skinned|black-skinned|dark skin|ebony)\b/.test(t) ? "#8a5a3c" : /\b(tanned|swarthy|olive|brown-skinned|sunburnt|weathered)\b/.test(t) ? "#c08e66" : pick(["#e8c39d", "#d7b08f", "#c99a73", "#e3bd9f", "#b98458", "#f0d2b3"]);
   return {
     body,
-    look: { coat: cloth, vest: mixHexC(cloth, "#d8cba8", 0.45), trou: body === "woman" ? cloth : mixHexC(cloth, "#2a2a2e", 0.55), boot: "#2a211b", hair, skin, old },
+    look: { coat: cloth, vest: mixHexC(cloth, "#d8cba8", 0.45), trou: body === "woman" ? cloth : mixHexC(cloth, "#2a2a2e", 0.55), boot: "#2a211b", hair, skin, old, ...(body === "man" && (/\b(beard|bearded|whisker|whiskers|unshaven|stubble|sailor|seaman|pirate|buccaneer|captain|bearded|sea-dog)\b/.test(t) || rnd() < 0.3) ? { beard: true } : {}) },
   };
 }
 
@@ -649,7 +649,7 @@ export function assetsNeeded(r: Resolved): { kind: string; id: string; res: stri
 }
 
 /** Bump when runtime/scene.tsx changes in a way that alters frames, so cached renders are redone. */
-export const RUNTIME_VERSION = "rt75";
+export const RUNTIME_VERSION = "rt76";
 
 /** Cache key: changes whenever the resolved plan or the runtime does. */
 export function sceneKey(r: Resolved): string {

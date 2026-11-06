@@ -415,8 +415,8 @@ function Figure({ fig, f, p, leverA = 0 }: { fig: any; f: number; p: number; lev
       const hp = ((skinJoints(skel, annyPose(skel, P)) as any[]).find((j) => j.name === "spine05")?.pos ?? [0, 1, 0]) as V3;
       skirt = (
         <Entity transform={at(px, rootY, pz, rot(0, yawA)).withScale([sc, sc, sc])}>
-          <Mesh3d transform={at(hp[0], hp[1] - (woman ? 0.36 : eloi ? 0.2 : 0.26), hp[2] + 0.015)}>
-            <Cone radius={woman ? 0.4 : eloi ? 0.26 : 0.24} height={woman ? 0.92 : eloi ? 0.5 : 0.62} />
+          <Mesh3d transform={at(hp[0], hp[1] - (woman ? 0.36 : eloi ? 0.2 : 0.14), hp[2] + 0.015)}>
+            <Cone radius={woman ? 0.4 : eloi ? 0.26 : 0.2} height={woman ? 0.92 : eloi ? 0.5 : 0.36} />
             <StandardMaterial base_color={tint} perceptual_roughness={0.95} metallic={0} reflectance={0.08} />
           </Mesh3d>
         </Entity>
@@ -429,6 +429,7 @@ function Figure({ fig, f, p, leverA = 0 }: { fig: any; f: number; p: number; lev
             <>
               <StandardMaterial material="skin" base_color={LK.skin} perceptual_roughness={1} metallic={0} reflectance={0.02} />
               <StandardMaterial material="hair" base_color={LK.hair} perceptual_roughness={1} metallic={0} reflectance={0.02} />
+              <StandardMaterial material="beard" base_color={LK.beard ? LK.hair : LK.skin} perceptual_roughness={1} metallic={0} reflectance={0.02} />
               <StandardMaterial material="coat" base_color={LK.coat} perceptual_roughness={1} metallic={0} reflectance={0.02} />
               <StandardMaterial material="vest" base_color={LK.vest} perceptual_roughness={1} metallic={0} reflectance={0.02} />
               <StandardMaterial material="trou" base_color={LK.trou} perceptual_roughness={1} metallic={0} reflectance={0.02} />
