@@ -31,7 +31,7 @@ export const ISSUES = ["too_close", "element_missing", "wrong_subject", "too_dar
 
 export const RUBRIC =
   'You judge one frame of a 3D illustration that follows a book as it is read. Say if the picture suits the text. A still cannot show motion or change over time: accept any moment of a change. ' +
-  'Reply with one JSON object only: {"ok":bool,"issues":[...],"note":"<=12 words","place":"interior|exterior","style":"<room kind>"}. style only for an indoor place whose room does not suit the text: one of cellar, church, hall, study, kitchen, ship, bedroom, future, room (a plain parlour). place only when wrong_subject is because the text is indoors but the picture is outdoors, or the reverse: say what the TEXT needs. ' +
+  'Reply with one JSON object only: {"ok":bool,"issues":[...],"note":"<=12 words","place":"interior|exterior","style":"<room kind>"}. style only for an indoor place whose room does not suit the text: one of cellar, church, tavern (an inn or alehouse), hall, study, kitchen, ship, bedroom, future, room (a plain parlour). place only when wrong_subject is because the text is indoors but the picture is outdoors, or the reverse: say what the TEXT needs. ' +
   'issues, only from: too_close (subject cut off or a blur of one object), element_missing (the directed element is not visible), wrong_subject (something unrelated dominates), too_dark, empty (just sky or ground), clipped (camera inside or against an object). ' +
   'element_missing is only for something the direction lists (a person, a prop, the named place); never for details only the prose mentions. wrong_subject with place when the picture is indoors but the text is outdoors or the reverse. people_missing (the direction lists a crowd or several people but few are visible), off_centre (the main subject sits at an edge of the frame or is cropped). ok=true when no issue is clear. Do not nitpick details of the text.';
 
@@ -41,7 +41,7 @@ export function parseVerdict(raw: string): Verdict | null {
   try {
     const j = JSON.parse(m[0]);
     const issues = Array.isArray(j.issues) ? j.issues.filter((x: unknown) => (ISSUES as readonly string[]).includes(String(x))).map(String) : [];
-    return { ok: j.ok !== false && issues.length === 0, issues, note: String(j.note ?? "").slice(0, 120), place: j.place === "interior" || j.place === "exterior" ? j.place : undefined, style: typeof j.style === "string" && ["cellar", "church", "hall", "study", "kitchen", "ship", "bedroom", "future", "room"].includes(j.style) ? j.style : undefined };
+    return { ok: j.ok !== false && issues.length === 0, issues, note: String(j.note ?? "").slice(0, 120), place: j.place === "interior" || j.place === "exterior" ? j.place : undefined, style: typeof j.style === "string" && ["cellar", "church", "tavern", "hall", "study", "kitchen", "ship", "bedroom", "future", "room"].includes(j.style) ? j.style : undefined };
   } catch { return null; }
 }
 

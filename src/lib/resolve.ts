@@ -267,7 +267,8 @@ export type RoomR = {
 const ROOMS: [string, RegExp, Omit<RoomR, "wall"> & { wall?: string }][] = [
   ["cellar", /cellar|dungeon|crypt|vault|prison|cell\b|tomb|catacomb|cave|cavern|mine\b|tunnel|basement|sewer/, { w: 7, d: 6, h: 2.9, floor: "cobblestone_floor_01", tile: 1.4, wallC: "#58544d", wain: null, trim: "#3d3a35", ceilC: "#3a3732", rug: null, windows: [{ x: 0.3, w: 0.28, h: 0.2, y: 2.3 }], pictures: false, door: true }],
   ["church", /church|chapel|cathedral|temple|abbey|monaster|shrine|mosque|minster/, { w: 9, d: 12, h: 7, floor: "stone_tiles", tile: 1.8, wallC: "#bdb5a4", wain: null, trim: "#8e8573", ceilC: "#a79f8d", rug: "#6e1c26", windows: [-0.3, 0, 0.3].map((x) => ({ x, w: 0.5, h: 2.4, y: 3.6 })), pictures: false, door: true }],
-  ["hall", /\\bhall\\b|ballroom|palace|great hall|banquet|throne|gallery|mansion|castle|court\b|assembly rooms?|salon|corridor/, { w: 12, d: 9, h: 5, floor: "marble_tiles", tile: 2, wallC: "#d0c7b3", wain: "#9d9482", trim: "#e7dfcc", ceilC: "#d9d1bf", rug: "#7a1f2b", windows: [-0.3, 0, 0.3].map((x) => ({ x, w: 0.6, h: 1.7, y: 2.5 })), pictures: true, door: true }],
+  ["tavern", /\binn\b|tavern|alehouse|ale-house|taproom|tap-room|public house|\bpub\b|saloon|hostelry|parlour|parlor|coffee-?house/, { w: 9, d: 7, h: 2.7, floor: "dark_wooden_planks", tile: 1.6, wallC: "#8a7656", wain: "#3b2b1d", trim: "#2c2016", ceilC: "#4a3a2a", rug: null, windows: [{ x: -0.28, w: 0.4, h: 0.45, y: 1.6 }], pictures: false, door: true }],
+  ["hall", /\bhall\b|ballroom|palace|great hall|banquet|throne|gallery|mansion|castle|court\b|assembly rooms?|salon|corridor/, { w: 12, d: 9, h: 5, floor: "marble_tiles", tile: 2, wallC: "#d0c7b3", wain: "#9d9482", trim: "#e7dfcc", ceilC: "#d9d1bf", rug: "#7a1f2b", windows: [-0.3, 0, 0.3].map((x) => ({ x, w: 0.6, h: 1.7, y: 2.5 })), pictures: true, door: true }],
   ["study", /study|library|office|laborator|workshop|studio|chambers|counting|bookshop|club\b|smoking|den\b/, { w: 7, d: 5.5, h: 3.2, floor: "dark_wooden_planks", tile: 1.6, wallC: "#6f5a45", wain: "#3b2b1d", trim: "#2c2016", ceilC: "#5a4a3a", rug: "#2f4a3a", windows: [{ x: 0.2, w: 0.65, h: 0.95, y: 1.8 }], pictures: true, door: true }],
   ["kitchen", /kitchen|cottage|farm|hut\b|cabin|barn|stable|hovel|scullery|pantry|dairy|bakery|mill\b/, { w: 6, d: 5, h: 2.8, floor: "plank_flooring_02", tile: 1.5, wallC: "#cdbf9f", wain: null, trim: "#6a5238", ceilC: "#b8a98a", rug: null, windows: [{ x: 0.22, w: 0.5, h: 0.7, y: 1.7 }], pictures: false, door: true }],
   ["ship", /ship|boat|cabin of|galley|forecastle|steerage|hold\b|deck below|submarine|capsule|train|carriage|coach|compartment/, { w: 5.2, d: 4.2, h: 2.3, floor: "wood_planks_grey", tile: 1.2, wallC: "#8a6c4a", wain: "#5b4630", trim: "#3f3022", ceilC: "#6f5a40", rug: null, windows: [{ x: -0.2, w: 0.34, h: 0.4, y: 1.5 }, { x: 0.2, w: 0.34, h: 0.4, y: 1.5 }], pictures: false, door: true }],
@@ -649,7 +650,7 @@ export function assetsNeeded(r: Resolved): { kind: string; id: string; res: stri
 }
 
 /** Bump when runtime/scene.tsx changes in a way that alters frames, so cached renders are redone. */
-export const RUNTIME_VERSION = "rt76";
+export const RUNTIME_VERSION = "rt77";
 
 /** Cache key: changes whenever the resolved plan or the runtime does. */
 export function sceneKey(r: Resolved): string {

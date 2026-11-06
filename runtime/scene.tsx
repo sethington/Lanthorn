@@ -991,7 +991,7 @@ function RoomDressing({ p }: { p: number }) {
   const zb = -d / 2;
   const WIN = (RM.windows ?? [-0.24, 0.24].map((x) => ({ x, w: 0.72, h: 0.95, y: 1.75 })));
   const wins: number[] = WIN.map((q) => q.x * w);
-  const torch = RM.style === "cellar" || RM.style === "church"; // no daylight worth the name: lit from a flame
+  const torch = RM.style === "cellar" || RM.style === "church" || RM.style === "tavern"; // no daylight worth the name: lit from a flame
   return (
     <>
       {/* skirting and a dado rail all round */}
@@ -1018,6 +1018,38 @@ function RoomDressing({ p }: { p: number }) {
       )}
       {torch && (
         <PointLight transform={Transform.fromXyz(-w * 0.3, 1.8, zb + 0.6)} intensity={90_000} color="#ff9a4a" range={14} />
+      )}
+      {RM.style === "tavern" && (
+        <>
+          {/* beams across the low ceiling */}
+          {[-0.33, 0, 0.33].map((z, i) => (
+            <Mesh3d key={`bm${i}`} transform={Transform.fromXyz(0, RM.h - 0.14, d * z)}>
+              <Cuboid half_size={[w / 2, 0.14, 0.14]} />
+              <StandardMaterial base_color="#2a1d12" perceptual_roughness={0.9} />
+            </Mesh3d>
+          ))}
+          {/* a hearth on the left wall: stone, a dark opening, a fire */}
+          <Mesh3d transform={Transform.fromXyz(-w / 2 + 0.3, 1.0, -d * 0.1)}>
+            <Cuboid half_size={[0.3, 1.0, 1.1]} />
+            <StandardMaterial base_color="#6e675d" perceptual_roughness={1} />
+          </Mesh3d>
+          <Mesh3d transform={Transform.fromXyz(-w / 2 + 0.62, 0.55, -d * 0.1)}>
+            <Cuboid half_size={[0.05, 0.5, 0.65]} />
+            <StandardMaterial base_color="#120d0a" perceptual_roughness={1} />
+          </Mesh3d>
+          <Mesh3d transform={Transform.fromXyz(-w / 2 + 0.7, 0.3, -d * 0.1)}>
+            <Cuboid half_size={[0.04, 0.22, 0.4]} />
+            <StandardMaterial base_color="#ff8a2a" unlit emissive={glow("#ff7a1a", 6)} />
+          </Mesh3d>
+          <PointLight transform={Transform.fromXyz(-w / 2 + 1.3, 0.8, -d * 0.1)} intensity={140_000} color="#ff8a3a" range={12} />
+          {/* barrels in the corner */}
+          {[[w / 2 - 0.6, -d / 2 + 0.6], [w / 2 - 1.5, -d / 2 + 0.55]].map((q, i) => (
+            <Mesh3d key={`br${i}`} transform={Transform.fromXyz(q[0], 0.45, q[1])}>
+              <Cylinder radius={0.32} half_height={0.45} />
+              <StandardMaterial base_color="#4a3320" perceptual_roughness={0.9} />
+            </Mesh3d>
+          ))}
+        </>
       )}
       {/* two windows on the back wall: a frame, a pane of sky, and the light it lets in */}
       {wins.map((x, i) => (

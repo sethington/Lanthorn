@@ -840,17 +840,17 @@ function setEl(el: unknown, i: number) {
   --ink: #e9e6dd;
 }
 html, body, #app { height: 100%; margin: 0; background: var(--bg); }
-.app { display: grid; grid-template-columns: minmax(340px, 1fr) minmax(380px, 1.5fr); grid-template-rows: minmax(0, 1fr); height: 100vh; overflow: hidden; color: var(--ink); }
+.app { --fs: clamp(21px, 0.9vw + 10px, 34px); display: grid; grid-template-columns: minmax(340px, 1fr) minmax(380px, min(calc((100vh - 60px) * 0.9), 58vw)); grid-template-rows: minmax(0, 1fr); height: 100vh; overflow: hidden; color: var(--ink); }
 .reader { position: relative; min-width: 0; min-height: 0; height: 100%; padding-top: 40px; box-sizing: border-box; }
 .scroll { height: 100%; overflow-y: auto; padding: 0 clamp(24px, 6vw, 72px); scrollbar-width: none; -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 28px); mask-image: linear-gradient(to bottom, transparent 0, #000 28px); }
 .scroll::-webkit-scrollbar { display: none; }
 .scroll:focus { outline: none; }
 .pad { height: 45vh; }
 .pad.top { height: 20vh; }
-.booktitle { max-width: 34em; margin: 0 auto 6vh; text-align: center; }
+.booktitle { max-width: 40em; margin: 0 auto 6vh; text-align: center; }
 .booktitle h1 { font: 600 clamp(34px, 5.2vw, 52px)/1.1 "Iowan Old Style", Palatino, Georgia, serif; margin: 0 0 14px; letter-spacing: -0.01em; }
 .booktitle .author { margin: 0 auto !important; font: 15px/1.4 system-ui, sans-serif !important; letter-spacing: 0.22em; text-transform: uppercase; color: #8b8f99; }
-.chapterhead { max-width: 34em; margin: 0 auto 2.2em; font: italic 400 26px/1.3 "Iowan Old Style", Palatino, Georgia, serif; color: #b8b2a2; }
+.chapterhead { max-width: 40em; margin: 0 auto 2.2em; font: italic 400 calc(var(--fs) * 1.24)/1.3 "Iowan Old Style", Palatino, Georgia, serif; color: #b8b2a2; }
 .chapterhead span { font-style: normal; font-size: 14px; letter-spacing: 0.2em; color: #6d7280; margin-right: 14px; }
 .crumb { position: fixed; top: 9px; left: 16px; z-index: 20; display: flex; gap: 10px; align-items: baseline; font: 11px ui-monospace, Menlo, monospace; color: #8b8f99; opacity: 0; transform: translateY(-4px); transition: opacity 0.25s, transform 0.25s; pointer-events: none; max-width: calc(100% - 420px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .crumb.show { opacity: 1; transform: none; }
@@ -861,9 +861,9 @@ html, body, #app { height: 100%; margin: 0; background: var(--bg); }
 .chapsel select { background: #0f1115; color: var(--ink); border: 1px solid #2b2f38; border-radius: 8px; padding: 7px 10px; font: 13px system-ui, sans-serif; width: 100%; }
 .crumb strong { color: #b8bcc6; font-weight: 600; }
 .scroll p {
-  font: 21px/1.75 "Iowan Old Style", "Palatino", Georgia, serif;
+  font: var(--fs)/1.75 "Iowan Old Style", "Palatino", Georgia, serif;
   margin: 0 0 1.4em;
-  max-width: 34em;
+  max-width: 40em;
   margin-left: auto;
   margin-right: auto;
 }
