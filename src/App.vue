@@ -392,7 +392,7 @@ function toggleDetails() {
 const llmScenes = ref<LlmScene[]>([]); // every analysed chapter's scenes, joined, in the text's own sentence numbers
 const bible = ref<Bible>({ characters: [], locations: [] });
 const CHUNK = 40;
-const AHEAD = (() => { try { const v = Number(localStorage.getItem("lanthorn:ahead")); return Number.isFinite(v) && localStorage.getItem("lanthorn:ahead") !== null ? Math.max(0, Math.min(6, v)) : 2; } catch { return 2; } })(); // chapters analysed ahead of the reader (localStorage lanthorn:ahead)
+const AHEAD = (() => { try { const v = Number(localStorage.getItem("lanthorn:ahead")); return Number.isFinite(v) && localStorage.getItem("lanthorn:ahead") !== null ? Math.max(0, Math.min(6, v)) : 4; } catch { return 4; } })(); // chapters analysed ahead of the reader (localStorage lanthorn:ahead)
 
 const LOOK = () => 160 + AHEAD * 220; // sentences past the reader that are analysed
 const curChap = computed(() => chaps.value[chapterIdx.value] ?? null);

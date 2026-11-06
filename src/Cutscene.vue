@@ -196,7 +196,7 @@ function worldGroup(gi: number): number {
 }
 
 // Keep the places ahead of the reader prepared, so scrolling on finds them ready: the next few that have a picture, two at a time.
-const AHEAD_PLACES = 4;
+const AHEAD_PLACES = 6;
 const inflight = new Set<string>();
 let pumpAt = 0;
 function pump(gi: number, now: number) {
