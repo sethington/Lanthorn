@@ -63,6 +63,8 @@ export type Resolved = {
   sky: { night: SkyRef; dawn: SkyRef; day: SkyRef; dusk: SkyRef; intensity: number; rotation: number };
   sun: { startElev: number; endElev: number; cycles: number; azimuth: number; color: string; strength: number };
   ground: { id: string; tile: number } | null;
+  /** water at the edge of the land (the sea, a lake): where the shore runs (z) and what kind of water it is */
+  water: { zEdge: number; mood: "calm" | "oily" | "red" | "storm" } | null;
   room: { w: number; d: number; h: number; floor: string; wall: string } | null;
   fog: { color: string; density: number };
   assets: Placed[];
@@ -355,6 +357,12 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
   // ---- ground / room
   const gid = grey || /storm|hail|rain/.test(scene.weather) ? "brown_mud_leaves_01" : "forrest_ground_01";
   const ground = kind === "exterior" ? { id: gid, tile: 2.5 } : null;
+  // water: the sea, a lake, a shore. The land ends at a shoreline and the water runs on to the horizon.
+  const wet = /\b(sea|seas|ocean|shore|shoreline|beach|waves?|tide|tides|surf|harbou?r|bay|lake|coast|swell|brine|strand|shoal|lagoon|estuary|river|water)\b/.test(sceneText + " " + (scene.weather ?? ""));
+  const water: Resolved["water"] = kind === "exterior" && wet && !/\b(rain|raindrop)\b/.test(locText) ? {
+    zEdge: /lake|river|harbou?r/.test(sceneText) ? -9 : -6,
+    mood: /red (?:water|sea)|crimson|scarlet (?:sea|water)|blood/.test(sceneText) ? "red" : /oily|black water|dark water|slick|tar/.test(sceneText) ? "oily" : /storm|rough|gale|tempest|heavy/.test(sceneText + scene.weather) ? "storm" : "calm",
+  } : null;
   const room = kind === "interior" ? { w: 8, d: 6, h: 3.4, floor: "wood_floor", wall: "wood_floor" } : null;
 
   // ---- camera: frame the hero (~1.8 m) by framing and move
@@ -502,6 +510,7 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
     sky: { night: skyPool.night, dawn: skyPool.dawn, day: skyPool.day, dusk: skyPool.dusk, intensity: grey ? 0.9 : t0 === "night" ? 0.7 : 0.6, rotation: (hash(scene.id) % 628) / 100 },
     sun: { startElev: SUN_ELEV[t0] ?? 30, endElev: SUN_ELEV[t1] ?? 30, cycles, azimuth: -0.8 + r() * 1.6, color: SUN_COLOR[t0] ?? "#ffe9c9", strength: grey ? 0.35 : 1 },
     ground,
+    water,
     room,
     fog: { color: grey ? "#8f98a3" : (FOG[t0] ?? "#c6d4e6"), density: grey ? 0.03 : kind === "interior" ? 0 : 0.012 },
     assets,
@@ -534,7 +543,7 @@ export function assetsNeeded(r: Resolved): { kind: string; id: string; res: stri
 }
 
 /** Bump when runtime/scene.tsx changes in a way that alters frames, so cached renders are redone. */
-export const RUNTIME_VERSION = "rt50";
+export const RUNTIME_VERSION = "rt52";
 
 /** Cache key: changes whenever the resolved plan or the runtime does. */
 export function sceneKey(r: Resolved): string {

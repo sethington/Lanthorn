@@ -1,5 +1,5 @@
 import { AbsoluteFill, Composition, registerRoot, staticFile, useCurrentFrame, useGameState, type FrameInput } from "raea";
-import { Bloom, DepthOfField, Entity, Environment, Fog, Grade, Look, Model, Outline, Shadows, Sphere, ToneMapping, Torus, crossSection, manifold } from "raea/3d";
+import { Bloom, DepthOfField, Entity, Environment, Fog, Grade, Look, Model, Outline, Shadows, ShaderMesh, Sphere, ToneMapping, Torus, crossSection, manifold } from "raea/3d";
 import { LinearRgba, Srgba } from "raea/color";
 import { Affine2 } from "raea/math";
 import { StandardMaterial } from "raea/pbr";
@@ -875,6 +875,70 @@ function Building({ a }: { a: any }) {
   );
 }
 
+// ---- the sea: a big plane drawn by a water shader (wave normals from four crossing swells, a fresnel mix of deep colour and sky, the sun's
+// glint, haze to the horizon). The shader reads the frame's clock, so it moves in the reader's world and in a render alike.
+const WATER_WGSL = `
+fn wave(p: vec2<f32>, d: vec2<f32>, k: f32, s: f32, a: f32, t: f32) -> vec2<f32> {
+  let dn = normalize(d);
+  let ph = dot(p, dn) * k + t * s;
+  return dn * (cos(ph) * a * k);
+}
+fn shade(in: VertexOutput) -> vec4<f32> {
+  let p = in.world_position.xz;
+  let t = globals.time;
+  let calm = u_mood().x;
+  var g = vec2<f32>(0.0);
+  g += wave(p, vec2<f32>(1.0, 0.3), 0.55, 1.3, 0.12 * calm, t);
+  g += wave(p, vec2<f32>(-0.4, 1.0), 0.9, 1.7, 0.07 * calm, t);
+  g += wave(p, vec2<f32>(0.7, -0.8), 1.7, 2.3, 0.04 * calm, t);
+  g += wave(p, vec2<f32>(-1.0, -0.2), 3.1, 3.1, 0.02 * calm, t);
+  let n = normalize(vec3<f32>(-g.x, 1.0, -g.y));
+  let v = normalize(view.world_position.xyz - in.world_position.xyz);
+  let fres = pow(1.0 - clamp(dot(n, v), 0.0, 1.0), 4.0);
+  let deep = u_deep().rgb;
+  let skyc = u_sky().rgb;
+  let sun = normalize(u_sun().xyz);
+  let r = reflect(-v, n);
+  let glint = pow(clamp(dot(r, sun), 0.0, 1.0), u_mood().y);
+  var col = mix(deep, skyc, clamp(fres * 0.9 + 0.08, 0.0, 1.0));
+  col += u_suncol().rgb * glint * u_mood().z;
+  // foam where the water meets the land: lines that come in and fade
+  let sh = u_shore().x - in.world_position.z; // metres out from the shore (>0 = in the water)
+  let lines = 0.5 + 0.5 * sin(sh * 1.6 - t * 1.1 + 2.0 * sin(p.x * 0.3));
+  let foam = (1.0 - smoothstep(0.0, 4.5, sh)) * smoothstep(-0.2, 0.3, sh) * (0.35 + 0.65 * lines);
+  col = mix(col, vec3<f32>(0.86, 0.88, 0.86), clamp(foam, 0.0, 0.85));
+  let dist = length(view.world_position.xyz - in.world_position.xyz);
+  col = mix(col, u_fogc().rgb, clamp(dist / 700.0, 0.0, 1.0));
+  return vec4<f32>(col, 1.0);
+}`;
+function Sea({ elev, sunPos, night, sunColor, weather }: { elev: number; sunPos: V3; night: boolean; sunColor: string; weather: string }) {
+  const W = R.water;
+  const storm = W.mood === "storm" || /storm|rain|hail/.test(weather);
+  // [deep, sky/reflection, haze] by the kind of water and the light
+  let deep = night ? "#04080f" : elev < 10 ? "#1c3040" : "#1f5568";
+  let skyc = night ? "#141c30" : elev < 10 ? "#8d7b86" : "#a6bccd"; // (a low sun gives a muted mauve, not orange: the sky above is rarely as warm as the sun)
+  if (storm) { deep = night ? "#05080c" : "#232c34"; skyc = night ? "#11161e" : "#69737d"; }
+  if (W.mood === "oily") { deep = night ? "#030605" : "#08110f"; skyc = night ? "#0f1a16" : "#3c5a4a"; }
+  if (W.mood === "red") { deep = night ? "#1a0505" : "#4a0f0d"; skyc = night ? "#2a0d0d" : "#b04632"; }
+  // the haze at the horizon should meet the sky there, which is dark under a heavy sky: sit between the water and its reflection
+  const mixHex = (a: string, b: string, k: number) => { const x = Srgba.hex(a) as any, y = Srgba.hex(b) as any; return `#${[0, 1, 2].map((i) => Math.round(255 * ((x.toArray?.() ?? [x.red, x.green, x.blue])[i] * (1 - k) + (y.toArray?.() ?? [y.red, y.green, y.blue])[i] * k)).toString(16).padStart(2, "0")).join("")}`; };
+  const haze = (() => { try { return mixHex(skyc, deep, storm || elev < 10 ? 0.55 : 0.3); } catch { return skyc; } })();
+  const sd = Math.hypot(sunPos[0], sunPos[1], sunPos[2]) || 1;
+  const sunDir = [sunPos[0] / sd, Math.max(0.12, sunPos[1] / sd), sunPos[2] / sd, 0];
+  const calm = W.mood === "storm" || storm ? 2.1 : W.mood === "oily" ? 0.35 : W.mood === "red" ? 0.5 : 1.0;
+  const sharp = W.mood === "oily" ? 60 : 160;
+  const glint = (night ? 0.5 : 3) * (W.mood === "oily" ? 1.6 : 1);
+  return (
+    <ShaderMesh
+      name="sea"
+      shape="box(900, 0.1, 900)"
+      position={[0, -0.05, W.zEdge + 1 - 450]}
+      wgsl={WATER_WGSL}
+      uniforms={{ deep, sky: skyc, sun: sunDir, suncol: sunColor, fogc: haze, mood: [calm, sharp, glint, 0], shore: [W.zEdge, 0, 0, 0] }}
+    />
+  );
+}
+
 /** What makes a room a room: skirting and a dado, windows with the day (or the night) in them, a door, a rug, pictures. The window light comes from the time of day. */
 function RoomDressing({ p }: { p: number }) {
   const { w, d, h } = R.room;
@@ -1493,8 +1557,8 @@ function Scene() {
       ) : null}
 
       {R.ground ? (
-        <Mesh3d>
-          <Plane3d normal={[0, 1, 0]} half_size={[70, 70]} />
+        <Mesh3d transform={R.water ? Transform.fromXyz(0, 0, (R.water.zEdge + 70) / 2) : undefined}>
+          <Plane3d normal={[0, 1, 0]} half_size={[70, R.water ? (70 - R.water.zEdge) / 2 : 70]} />
           <StandardMaterial
             base_color_texture={tex(R.ground.id, "diff.jpg")}
             normal_map_texture={tex(R.ground.id, "nor.jpg")}
@@ -1502,10 +1566,11 @@ function Scene() {
             occlusion_texture={tex(R.ground.id, "arm.jpg")}
             metallic={1}
             perceptual_roughness={1}
-            uv_transform={Affine2.fromScale([140 / R.ground.tile, 140 / R.ground.tile])}
+            uv_transform={Affine2.fromScale([140 / R.ground.tile, (R.water ? 70 - R.water.zEdge : 140) / R.ground.tile])}
           />
         </Mesh3d>
       ) : null}
+      {R.water ? <Sea elev={elev} sunPos={sunPos} night={night} sunColor={sunColor} weather={R.weather} /> : null}
       {R.room ? <Room p={p} /> : null}
 
       {R.assets.map((a: any, i: number) =>
