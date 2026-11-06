@@ -1048,7 +1048,8 @@ function RoomDressing({ p }: { p: number }) {
   const zb = -d / 2;
   const WIN = (RM.windows ?? [-0.24, 0.24].map((x) => ({ x, w: 0.72, h: 0.95, y: 1.75 })));
   const wins: number[] = WIN.map((q) => q.x * w);
-  const torch = RM.style === "cellar" || RM.style === "church" || RM.style === "tavern"; // no daylight worth the name: lit from a flame
+  const torch = RM.style === "cellar" || RM.style === "church" || RM.style === "tavern" || !!RM.firelit;
+  const FX = new Set<string>(RM.fixtures ?? []); // no daylight worth the name: lit from a flame
   return (
     <>
       {/* skirting and a dado rail all round */}
@@ -1076,16 +1077,15 @@ function RoomDressing({ p }: { p: number }) {
       {torch && (
         <PointLight transform={Transform.fromXyz(-w * 0.3, 1.8, zb + 0.6)} intensity={90_000} color="#ff9a4a" range={14} />
       )}
-      {RM.style === "tavern" && (
+      {/* fixtures built into the room (the room's design names them): beams, a hearth, a counter, columns, shelves, barrels */}
+      {FX.has("beams") && [-0.33, 0, 0.33].map((z, i) => (
+        <Mesh3d key={`bm${i}`} transform={Transform.fromXyz(0, RM.h - 0.14, d * z)}>
+          <Cuboid half_size={[w / 2, 0.14, 0.14]} />
+          <StandardMaterial base_color="#2a1d12" perceptual_roughness={0.9} />
+        </Mesh3d>
+      ))}
+      {FX.has("hearth") && (
         <>
-          {/* beams across the low ceiling */}
-          {[-0.33, 0, 0.33].map((z, i) => (
-            <Mesh3d key={`bm${i}`} transform={Transform.fromXyz(0, RM.h - 0.14, d * z)}>
-              <Cuboid half_size={[w / 2, 0.14, 0.14]} />
-              <StandardMaterial base_color="#2a1d12" perceptual_roughness={0.9} />
-            </Mesh3d>
-          ))}
-          {/* a hearth on the left wall: stone, a dark opening, a fire */}
           <Mesh3d transform={Transform.fromXyz(-w / 2 + 0.3, 1.0, -d * 0.1)}>
             <Cuboid half_size={[0.3, 1.0, 1.1]} />
             <StandardMaterial base_color="#6e675d" perceptual_roughness={1} />
@@ -1099,15 +1099,46 @@ function RoomDressing({ p }: { p: number }) {
             <StandardMaterial base_color="#ff8a2a" unlit emissive={glow("#ff7a1a", 6)} />
           </Mesh3d>
           <PointLight transform={Transform.fromXyz(-w / 2 + 1.3, 0.8, -d * 0.1)} intensity={140_000} color="#ff8a3a" range={12} />
-          {/* barrels in the corner */}
-          {[[w / 2 - 0.6, -d / 2 + 0.6], [w / 2 - 1.5, -d / 2 + 0.55]].map((q, i) => (
-            <Mesh3d key={`br${i}`} transform={Transform.fromXyz(q[0], 0.45, q[1])}>
-              <Cylinder radius={0.32} half_height={0.45} />
-              <StandardMaterial base_color="#4a3320" perceptual_roughness={0.9} />
-            </Mesh3d>
-          ))}
         </>
       )}
+      {FX.has("barrels") && [[w / 2 - 0.6, -d / 2 + 0.6], [w / 2 - 1.5, -d / 2 + 0.55]].map((q, i) => (
+        <Mesh3d key={`br${i}`} transform={Transform.fromXyz(q[0], 0.45, q[1])}>
+          <Cylinder radius={0.32} half_height={0.45} />
+          <StandardMaterial base_color="#4a3320" perceptual_roughness={0.9} />
+        </Mesh3d>
+      ))}
+      {FX.has("counter") && (
+        <>
+          <Mesh3d transform={Transform.fromXyz(w / 2 - 0.55, 0.55, -d * 0.25)}>
+            <Cuboid half_size={[0.4, 0.55, Math.min(1.8, d * 0.25)]} />
+            <StandardMaterial base_color={RM.wain ?? "#3b2b1d"} perceptual_roughness={0.8} />
+          </Mesh3d>
+          <Mesh3d transform={Transform.fromXyz(w / 2 - 0.55, 1.12, -d * 0.25)}>
+            <Cuboid half_size={[0.46, 0.04, Math.min(1.85, d * 0.26)]} />
+            <StandardMaterial base_color={RM.trim ?? "#2c2016"} perceptual_roughness={0.5} />
+          </Mesh3d>
+        </>
+      )}
+      {FX.has("columns") && [[-0.25, -0.2], [0.25, -0.2], [-0.25, 0.25], [0.25, 0.25]].map((q, i) => (
+        <Mesh3d key={`cl${i}`} transform={Transform.fromXyz(q[0] * w, RM.h / 2, q[1] * d)}>
+          <Cylinder radius={0.22} half_height={RM.h / 2} />
+          <StandardMaterial base_color={RM.trim ?? "#8e8573"} perceptual_roughness={0.8} />
+        </Mesh3d>
+      ))}
+      {FX.has("shelves") && [1.0, 1.6, 2.2].filter((y) => y < RM.h - 0.3).map((y, i) => (
+        <Entity key={`sh${i}`} transform={Transform.fromXyz(-w / 2 + 0.22, y, d * 0.28)}>
+          <Mesh3d>
+            <Cuboid half_size={[0.2, 0.025, Math.min(1.2, d * 0.2)]} />
+            <StandardMaterial base_color={RM.trim ?? "#4a3426"} perceptual_roughness={0.7} />
+          </Mesh3d>
+          {[-0.8, -0.3, 0.2, 0.7].map((z, k) => (
+            <Mesh3d key={k} transform={Transform.fromXyz(0, 0.12, z * Math.min(1, d * 0.16))}>
+              <Cuboid half_size={[0.1, 0.1 + ((i + k) % 3) * 0.04, 0.1]} />
+              <StandardMaterial base_color={["#7a5a3a", "#3f5a4a", "#6a3a3a", "#8a7a4a"][(i + k) % 4]} perceptual_roughness={0.85} />
+            </Mesh3d>
+          ))}
+        </Entity>
+      ))}
       {/* two windows on the back wall: a frame, a pane of sky, and the light it lets in */}
       {wins.map((x, i) => (
         <Entity key={`w${i}`} transform={Transform.fromXyz(0, 0, 0)}>

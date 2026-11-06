@@ -284,11 +284,12 @@ export type RoomR = {
   wallC?: string; wain?: string | null; trim?: string; ceilC?: string; rug?: string | null;
   windows?: { x: number; w: number; h: number; y: number }[]; // on the back wall; x as a fraction of the width
   pictures?: boolean; door?: boolean; style?: string;
+  firelit?: boolean; fixtures?: string[]; // lit by flame; what is built into it (beams, hearth, counter, columns, shelves, barrels)
 };
-const ROOMS: [string, RegExp, Omit<RoomR, "wall"> & { wall?: string }][] = [
+export const ROOMS: [string, RegExp, Omit<RoomR, "wall"> & { wall?: string }][] = [
   ["cellar", /cellar|dungeon|crypt|vault|prison|cell\b|tomb|catacomb|cave|cavern|mine\b|tunnel|basement|sewer/, { w: 7, d: 6, h: 2.9, floor: "cobblestone_floor_01", tile: 1.4, wallC: "#58544d", wain: null, trim: "#3d3a35", ceilC: "#3a3732", rug: null, windows: [{ x: 0.3, w: 0.28, h: 0.2, y: 2.3 }], pictures: false, door: true }],
   ["church", /church|chapel|cathedral|temple|abbey|monaster|shrine|mosque|minster/, { w: 9, d: 12, h: 7, floor: "stone_tiles", tile: 1.8, wallC: "#bdb5a4", wain: null, trim: "#8e8573", ceilC: "#a79f8d", rug: "#6e1c26", windows: [-0.3, 0, 0.3].map((x) => ({ x, w: 0.5, h: 2.4, y: 3.6 })), pictures: false, door: true }],
-  ["tavern", /\binn\b|tavern|alehouse|ale-house|taproom|tap-room|public house|\bpub\b|saloon|hostelry|parlour|parlor|coffee-?house/, { w: 9, d: 7, h: 2.7, floor: "dark_wooden_planks", tile: 1.6, wallC: "#8a7656", wain: "#3b2b1d", trim: "#2c2016", ceilC: "#4a3a2a", rug: null, windows: [{ x: -0.28, w: 0.4, h: 0.45, y: 1.6 }], pictures: false, door: true }],
+  ["tavern", /\binn\b|tavern|alehouse|ale-house|taproom|tap-room|public house|\bpub\b|saloon|hostelry|parlour|parlor|coffee-?house/, { w: 9, d: 7, h: 2.7, floor: "dark_wooden_planks", tile: 1.6, wallC: "#8a7656", wain: "#3b2b1d", trim: "#2c2016", ceilC: "#4a3a2a", rug: null, windows: [{ x: -0.28, w: 0.4, h: 0.45, y: 1.6 }], pictures: false, door: true, firelit: true, fixtures: ["beams", "hearth", "barrels"] }],
   ["hall", /\bhall\b|ballroom|palace|great hall|banquet|throne|gallery|mansion|castle|court\b|assembly rooms?|salon|corridor/, { w: 12, d: 9, h: 5, floor: "marble_tiles", tile: 2, wallC: "#d0c7b3", wain: "#9d9482", trim: "#e7dfcc", ceilC: "#d9d1bf", rug: "#7a1f2b", windows: [-0.3, 0, 0.3].map((x) => ({ x, w: 0.6, h: 1.7, y: 2.5 })), pictures: true, door: true }],
   ["study", /study|library|office|laborator|workshop|studio|chambers|counting|bookshop|club\b|smoking|den\b/, { w: 7, d: 5.5, h: 3.2, floor: "dark_wooden_planks", tile: 1.6, wallC: "#6f5a45", wain: "#3b2b1d", trim: "#2c2016", ceilC: "#5a4a3a", rug: "#2f4a3a", windows: [{ x: 0.2, w: 0.65, h: 0.95, y: 1.8 }], pictures: true, door: true }],
   ["kitchen", /kitchen|cottage|farm|hut\b|cabin|barn|stable|hovel|scullery|pantry|dairy|bakery|mill\b/, { w: 6, d: 5, h: 2.8, floor: "plank_flooring_02", tile: 1.5, wallC: "#cdbf9f", wain: null, trim: "#6a5238", ceilC: "#b8a98a", rug: null, windows: [{ x: 0.22, w: 0.5, h: 0.7, y: 1.7 }], pictures: false, door: true }],
@@ -298,13 +299,15 @@ const ROOMS: [string, RegExp, Omit<RoomR, "wall"> & { wall?: string }][] = [
   ["room", /./, { w: 8, d: 6, h: 3.4, floor: "wood_floor", tile: 1.6, wallC: "#bda98c", wain: "#5c4332", trim: "#4a3426", ceilC: "#a89a82", rug: "#6b2f2a", windows: [-0.24, 0.24].map((x) => ({ x, w: 0.72, h: 0.95, y: 1.75 })), pictures: true, door: true }],
 ];
 export const ROOM_STYLES = ROOMS.map((r) => r[0]);
+/** True when no recipe fits this text (or the judge's words), so a room has to be designed for it. */
+export const needsDesign = (text: string, forced?: string): boolean => (forced ? !ROOM_STYLES.includes(forced) : roomFor(text).style === "room");
 export function roomFor(text: string, forced?: string): RoomR {
   const t = text.toLowerCase().replace(/_/g, " ");
   const hit = (forced ? ROOMS.find((r) => r[0] === forced) : undefined) ?? ROOMS.find(([, re]) => re.test(t)) ?? ROOMS[ROOMS.length - 1];
   return { ...hit[2], wall: hit[2].floor, style: hit[0] } as RoomR;
 }
 
-export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number; size?: [number, number]; pkg?: PackageAsset[]; shots?: { shot: Shot; p0: number; p1: number }[]; stage?: { cue: Cue; p0: number; p1: number }[]; acting?: { act: Act; p0: number; p1: number }[]; style?: string; place?: "interior" | "exterior"; roomStyle?: string; procs?: Record<string, import("./props").Part[]> } = {}): Resolved {
+export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number; size?: [number, number]; pkg?: PackageAsset[]; shots?: { shot: Shot; p0: number; p1: number }[]; stage?: { cue: Cue; p0: number; p1: number }[]; acting?: { act: Act; p0: number; p1: number }[]; style?: string; place?: "interior" | "exterior"; roomStyle?: string; roomSpec?: RoomR; seconds?: number; extra?: { kind: "prop" | "set"; what: string }[]; procs?: Record<string, import("./props").Part[]> } = {}): Resolved {
   const pkg = pkgModels(opts.pkg);
   const loc = bible.locations.find((l) => l.id === scene.location);
   const locText = `${scene.location} ${loc?.desc ?? ""}`;
@@ -440,7 +443,8 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
   }
   // anything named that we couldn't place (and isn't part of the hero) is reported, not invented
   const heroish = /machine|lever|quartz|dial|saddle|traveller|rod/;
-  for (const p of scene.props) {
+  const extraKind = new Map((opts.extra ?? []).map((e) => [e.what.toLowerCase(), e.kind]));
+  for (const p of [...scene.props, ...(opts.extra ?? []).map((e) => e.what)]) {
     if (heroish.test(p.toLowerCase())) continue;
     const pm = matchPkg(p, pkg.models);
     const bk = !pm && kind === "exterior" ? buildingKind(p) : undefined;
@@ -454,7 +458,7 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
     else if (!m && !/tree|bush|rock|hill|sky|building|tower|garden/.test(p.toLowerCase())) {
       // no model in the library: a prop the language model has drawn from basic shapes, or reported as missing
       const parts = opts.procs?.[p.toLowerCase()];
-      if (parts && assets.length < 14) assets.push({ id: `proc:${p.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`, file: "", pos: [(r() - 0.5) * 5, 0, -0.5 - r() * 3], rotY: r() * Math.PI * 2, scale: 1, label: p, parts });
+      if (parts && assets.length < 14) assets.push({ id: `proc:${p.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`, file: "", pos: extraKind.get(p.toLowerCase()) === "set" && kind === "exterior" ? [(r() - 0.5) * 24, 0, -9 - r() * 8] : [(r() - 0.5) * 5, 0, -0.5 - r() * 3], rotY: r() * Math.PI * 2, scale: 1, label: p, parts });
       else unresolved.push(p);
     }
   }
@@ -482,7 +486,50 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
     zEdge: /lake|river|harbou?r/.test(sceneText) ? -9 : -6,
     mood: /red (?:water|sea)|crimson|scarlet (?:sea|water)|blood/.test(sceneText) ? "red" : /oily|black water|dark water|slick|tar/.test(sceneText) ? "oily" : /storm|rough|gale|tempest|heavy/.test(sceneText + scene.weather) ? "storm" : "calm",
   } : null;
-  const room: RoomR | null = kind === "interior" ? roomFor(`${locText} ${scene.mood ?? ""}`, opts.roomStyle) : null;
+  const room: RoomR | null = kind === "interior" ? (opts.roomSpec ? { ...opts.roomSpec, wall: opts.roomSpec.floor } : roomFor(`${locText} ${scene.mood ?? ""}`, opts.roomStyle)) : null;
+
+  // ---- life: between the acts the book names, everyone keeps moving: changing gestures, glances at the others, short strolls.
+  // Each person has their own timeline (seeded by name), shaped by the mood of the scene, so no two move alike.
+  {
+    const secs = Math.max(8, opts.seconds ?? 40);
+    const mood = `${scene.mood ?? ""} ${scene.beats.map((b) => b.action).join(" ")}`.toLowerCase();
+    const heat = /anger|angry|tense|menac|danger|fury|rage|threat|fight|quarrel|standoff/.test(mood);
+    const glad = /merry|joy|rowdy|festive|cheer|celebrat|raucous|triumph|laugh/.test(mood);
+    const dark = /sad|grief|mourn|fear|dread|ominous|terror|dismay|quiet|gloom|solemn/.test(mood);
+    for (const fg of figures) {
+      if (fg.onMachine || fg.walk) continue;
+      const rnd = rng(hash(`${fg.ref}:life:${scene.id}`));
+      const explicit = fg.acts ?? [];
+      const sits = explicit.some((a) => a.do === "sit" || a.do === "crouch") || fg.pose !== "standing";
+      const pool: string[] = ["talk", "talk", "talk", "nod", "think", "shrug", "look", "look", "point"];
+      if (!sits) pool.push("walk", "walk");
+      if (heat) pool.push("shake_fist", "point", "point");
+      if (glad) pool.push("cheer", "laugh", "clap", "drink");
+      if (dark) pool.push("cover_face", "think", "think", "plead");
+      const out = [...explicit];
+      const busy = (a: number, b: number) => out.some((x) => x.p0 < b + 0.01 && x.p1 > a - 0.01);
+      let t = 1.5 + rnd() * 4;
+      while (t < secs - 2) {
+        const dur = 2.2 + rnd() * 3.2;
+        const p0 = t / secs;
+        const p1 = Math.min(0.99, (t + dur) / secs);
+        if (!busy(p0, p1)) {
+          const what = pool[Math.floor(rnd() * pool.length)];
+          if (what === "walk") {
+            let tx = fg.x + (rnd() - 0.5) * 2.6;
+            let tz = fg.z + (rnd() - 0.5) * 1.8;
+            if (room) { tx = Math.max(-room.w / 2 + 0.8, Math.min(room.w / 2 - 0.8, tx)); tz = Math.max(-room.d / 2 + 0.8, Math.min(room.d / 2 - 0.8, tz)); }
+            out.push({ p0, p1, do: "walk_to", tx, tz });
+          } else if (what === "look") {
+            const o = figures.filter((q) => q !== fg)[Math.floor(rnd() * Math.max(1, figures.length - 1))];
+            if (o) out.push({ p0, p1, do: "look_at", tx: o.x, tz: o.z });
+          } else out.push({ p0, p1, do: what === "talk" ? "gesture" : what });
+        }
+        t += dur + 0.8 + rnd() * 3.5;
+      }
+      fg.acts = out.sort((a, b) => a.p0 - b.p0);
+    }
+  }
 
   // ---- camera: frame the hero (~1.8 m) by framing and move
   const heroH = hero.sphinx ? 5 : 1.9;
@@ -688,7 +735,7 @@ export function assetsNeeded(r: Resolved): { kind: string; id: string; res: stri
 }
 
 /** Bump when runtime/scene.tsx changes in a way that alters frames, so cached renders are redone. */
-export const RUNTIME_VERSION = "rt82";
+export const RUNTIME_VERSION = "rt84";
 
 /** Cache key: changes whenever the resolved plan or the runtime does. */
 export function sceneKey(r: Resolved): string {

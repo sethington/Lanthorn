@@ -9,11 +9,12 @@ import Progress from "./Progress.vue";
 import { api } from "./lib/api";
 import { Player, buildTimeline, type Frame, type Timeline } from "./lib/director";
 import { makeProps } from "./lib/props";
-import { assetsNeeded, resolveScene, sceneKey, type Resolved } from "./lib/resolve";
+import { makeRoom } from "./lib/roomspec";
+import { assetsNeeded, needsDesign, resolveScene, sceneKey, type Resolved } from "./lib/resolve";
 import type { Bible, Scene } from "./lib/scene";
 import type { PackageAsset } from "./lib/book";
 import type { Sentence } from "./lib/text";
-import { alreadyJudged, applyVerdict, budgetLeft, describeCue, brightFor, styleOf, aimFor, crowdFor, placeFor, isDropped, judgeSettings, parseVerdict, RUBRIC, widenFor } from "./lib/judge";
+import { alreadyJudged, applyVerdict, budgetLeft, describeCue, brightFor, styleOf, aimFor, crowdFor, placeFor, madeFor, isDropped, judgeSettings, parseVerdict, RUBRIC, widenFor } from "./lib/judge";
 
 // `sid` is the sentence under the reading line, `frac` how far through it (0..1). The picture sits in the element matched by `host`.
 const props = defineProps<{ sentences: Sentence[]; scenes: Scene[]; bible: Bible; pkg?: PackageAsset[]; host: string; sid: number; frac: number; styleFor?: (s: Scene) => string | undefined; styleVer?: number }>();
@@ -155,14 +156,24 @@ function prepare(gi: number): Promise<Prep> {
         return { act, p0: (t0 - g.t0) / span, p1: (t1 - g.t0) / span };
       });
     });
-    const ropts = { pkg: props.pkg, size: SIZE, shots, stage, acting, style: props.styleFor?.(rep), place: placeFor(key0), roomStyle: styleOf(key0) };
+    const ropts = { pkg: props.pkg, size: SIZE, shots, stage, acting, style: props.styleFor?.(rep), place: placeFor(key0), roomStyle: styleOf(key0), extra: madeFor(key0), seconds: span };
     p = (async () => {
       let r: Resolved = resolveScene(whole, props.bible, ropts);
+      // no recipe fits this place (or the judge named one in its own words): the language model designs the room
+      if (r.room) {
+        const loc = props.bible.locations.find((l) => l.id === whole.location);
+        const forced = styleOf(key0);
+        const text = `${whole.location.replace(/_/g, " ")} ${loc?.desc ?? ""} ${whole.mood ?? ""}`;
+        if (needsDesign(text, forced)) {
+          const spec = await makeRoom(forced ?? `${loc?.desc ?? whole.location.replace(/_/g, " ")}. Mood: ${whole.mood ?? ""}. Props: ${whole.props.slice(0, 5).join(", ")}`);
+          if (spec) r = resolveScene(whole, props.bible, { ...ropts, roomSpec: spec });
+        }
+      }
       // props the library has no model for: the language model draws them from basic shapes (kept for next time)
       const missing = r.unresolved.filter((u) => !u.startsWith("place:"));
       if (missing.length) {
-        const procs = await makeProps(missing);
-        if (Object.keys(procs).length) r = resolveScene(whole, props.bible, { ...ropts, procs });
+        const procs = await makeProps(missing, Object.fromEntries(madeFor(key0).map((q) => [q.what.toLowerCase(), q.kind])));
+        if (Object.keys(procs).length) r = resolveScene(whole, props.bible, { ...ropts, procs, roomSpec: r.room?.style === "custom" ? r.room : undefined });
       }
       r.live = true;
       r.t0 = 0;
