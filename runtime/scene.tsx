@@ -52,7 +52,8 @@ const WORLD0 = {
   dist: D0,
   // the shot camera as shown: it glides toward the wanted shot (a cut becomes a move, never a fade)
   sm: { cam: [...R.camera.from] as number[], look: [...R.camera.lookFrom] as number[], fov: R.camera.fov as number, init: false },
-  pan: 0, // sideways shift of the orbit's centre, metres (A/D)
+  pan: 0,
+  oc: [LOOK[0], LOOK[1], LOOK[2]] as number[], // the orbit's centre: where the shot was looking when the viewer took the camera (A/D slide it sideways)
   px: 0, py: 0, drag: false, paused: false, spaceHeld: false,
   // set by the host each frame (Lanthorn's director): which shot, how far through it, how dark the screen is, and whether
   // the viewer has taken the controls (then the camera orbits instead of following the shot)
@@ -64,27 +65,24 @@ const LOOP_SECONDS = (R.loopSeconds as number) ?? 40;
 function stepWorld(s: World, input: FrameInput, _frame: number): World {
   const has = (k: string) => input.keys.includes(k);
   let { yaw, pitch, dist, t, paused, px, py, drag, pan } = s;
+  let oc = s.oc;
   const control = has("Control:1") || drag;
   if (has("ArrowLeft")) yaw -= 0.05;
   if (has("ArrowRight")) yaw += 0.05;
-  if (has("a")) pan -= 0.02 * dist; // A/D slide the view left and right
-  if (has("d")) pan += 0.02 * dist;
+  if (has("a") || has("d")) { const k = (has("d") ? 0.02 : -0.02) * dist; oc = [oc[0] + Math.cos(yaw) * k, oc[1], oc[2] - Math.sin(yaw) * k]; } // A/D slide the view left and right
   if (has("ArrowUp")) pitch += 0.025;
   if (has("ArrowDown")) pitch -= 0.025;
   if (has("w")) dist *= 0.955;
   if (has("s")) dist *= 1.045;
-  // taking the controls mid-shot: carry on from the shot's camera, not from the scene's default view
-  if (control && !s.control && s.shot >= 0 && (R.shots as any[])?.[s.shot]) {
-    const sh = (R.shots as any[])[s.shot];
-    const k = smooth(0, 1, Math.max(0, s.shotP));
-    const cam = [0, 1, 2].map((i) => mix(sh.from[i], sh.to[i], k));
-    const look = [0, 1, 2].map((i) => mix(sh.lookFrom[i], sh.lookTo[i], k));
-    const v = [cam[0] - look[0], cam[1] - LOOK[1], cam[2] - look[2]];
+  // taking the controls: carry on from the camera as shown (where it is and what it looks at), and orbit around that point
+  if (control && !s.control) {
+    const F: any = (globalThis as any).__camflt; // the camera last drawn (after the director's and the judge's adjustments)
+    const sc = F?.c ?? s.sm.cam, sl = F?.l ?? s.sm.look;
+    oc = [sl[0], sl[1], sl[2]];
+    const v = [sc[0] - oc[0], sc[1] - oc[1], sc[2] - oc[2]];
     dist = Math.max(0.5, Math.hypot(v[0], v[1], v[2]));
     yaw = Math.atan2(v[0], v[2]);
     pitch = Math.asin(clamp(v[1] / dist, -1, 1));
-    // the orbit's centre is LOOK slid sideways by `pan` along the camera's right: put it under the shot's look point
-    pan = (look[0] - LOOK[0]) * Math.cos(yaw) - (look[2] - LOOK[2]) * Math.sin(yaw);
   }
   // pointer may arrive normalised (0..1) or in pixels: accept both
   const ptr = (input as any).pointer as { x: number; y: number; down: boolean } | undefined;
@@ -136,8 +134,8 @@ function stepWorld(s: World, input: FrameInput, _frame: number): World {
     t,
     yaw,
     pitch: clamp(pitch, -0.15, 1.35),
-    dist: clamp(dist, D0 * 0.12, D0 * 3),
-    pan: clamp(pan, -12, 12),
+    dist: clamp(dist, 0.5, Math.max(D0 * 3, 14)),
+    pan: 0, oc,
     px, py, drag, paused, spaceHeld: space,
     shot, shotP, fade, control,
   };
@@ -1458,12 +1456,11 @@ function Scene() {
   // a slow handheld drift (a few seconds a swing), never a buzz: at 30 frames a second the old 1.7 rad/frame was an 8 Hz shudder
   const shake = R.sun.cycles > 0 ? 0.004 + 0.014 * smooth(0.2, 0.8, p) : 0.002;
   // the orbit's centre slides sideways (along the camera's right) with A/D
-  const panX = Math.cos(world.yaw) * world.pan;
-  const panZ = -Math.sin(world.yaw) * world.pan;
+  const OC = world.oc as number[];
   const orbit: [number, number, number] = [
-    LOOK[0] + panX + world.dist * Math.sin(world.yaw) * Math.cos(world.pitch),
-    LOOK[1] + world.dist * Math.sin(world.pitch),
-    LOOK[2] + panZ + world.dist * Math.cos(world.yaw) * Math.cos(world.pitch),
+    OC[0] + world.dist * Math.sin(world.yaw) * Math.cos(world.pitch),
+    OC[1] + world.dist * Math.sin(world.pitch),
+    OC[2] + world.dist * Math.cos(world.yaw) * Math.cos(world.pitch),
   ];
   if (live && R.room) {
     // never leave the room: clamp the orbit camera inside the walls and below the ceiling
@@ -1482,9 +1479,9 @@ function Scene() {
       ];
   const look: [number, number, number] = live && world.control
     ? [
-        R.room ? clamp(LOOK[0] + panX, -R.room.w / 2 + 0.4, R.room.w / 2 - 0.4) : LOOK[0] + panX,
-        LOOK[1],
-        R.room ? clamp(LOOK[2] + panZ, -R.room.d / 2 + 0.4, R.room.d / 2 - 0.4) : LOOK[2] + panZ,
+        R.room ? clamp(OC[0], -R.room.w / 2 + 0.4, R.room.w / 2 - 0.4) : OC[0],
+        OC[1],
+        R.room ? clamp(OC[2], -R.room.d / 2 + 0.4, R.room.d / 2 - 0.4) : OC[2],
       ]
     : live
     ? [world.sm.look[0], world.sm.look[1], world.sm.look[2]]
