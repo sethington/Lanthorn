@@ -7,10 +7,14 @@ import { Capsule3d, Cone, Cuboid, Cylinder, Mesh3d, Plane3d } from "raea/mesh";
 import { AmbientLight, DirectionalLight, PointLight } from "raea/light";
 import { Quat, Transform } from "raea/transform";
 import { Camera3d } from "raea/camera";
-import { Character, held, pose as annyPose, registerBody, skinJoints } from "raea/character";
+import { Character, blend, held, pose as annyPose, registerBody, skinJoints } from "raea/character";
+import { clipPose, readClips } from "raea/clip";
 import annyMan from "./media/characters/man/skeleton.json" with { type: "json" };
 import annyWoman from "./media/characters/woman/skeleton.json" with { type: "json" };
 import annyKid from "./media/characters/kid/skeleton.json" with { type: "json" };
+import clipsMan from "./media/characters/man/clips.json" with { type: "json" };
+import clipsWoman from "./media/characters/woman/clips.json" with { type: "json" };
+import clipsKid from "./media/characters/kid/clips.json" with { type: "json" };
 import data from "./scene.json" with { type: "json" };
 
 // Generic runtime: renders any resolved Lanthorn scene (see src/lib/resolve.ts). Pure function of the frame.
@@ -20,6 +24,8 @@ registerBody(annyMan as any);
 registerBody(annyWoman as any);
 registerBody(annyKid as any);
 const BODIES: Record<string, any> = { man: annyMan, woman: annyWoman, kid: annyKid };
+// motion capture (CMU, retargeted by raea's tools/retarget.ts): the walk. Standing and sitting are held poses.
+const CLIPS: Record<string, any> = { man: readClips(clipsMan as any), woman: readClips(clipsWoman as any), kid: readClips(clipsKid as any) };
 const N: number = R.frames;
 const [W, H]: [number, number] = R.size;
 
@@ -368,7 +374,17 @@ function Figure({ fig, f, p, leverA = 0 }: { fig: any; f: number; p: number; lev
       Head: [Math.sin(headYaw) * 0.6, Math.cos(headPitch), Math.sin(headPitch) * 0.8],
     };
     // the clothes and hair are painted on the body (scripts/dress-people.py): vertex colours, so they move exactly with the skin
-    const P = held(skel, aims);
+    let P = held(skel, aims);
+    // walking: the motion-captured walk, in place (the figure itself is moved by the scene), blended in as the pose changes to and from it
+    const wk = pose === "walking" ? k : from === "walking" ? 1 - k : 0;
+    if (wk > 0.001) {
+      const wc = CLIPS[bodyName].get("walk");
+      if (wc) {
+        const wp = clipPose(wc, (f / R.fps) * (eloi ? 1.25 : 1), { loop: true });
+        const root = wp.root;
+        P = blend(P, { ...wp, root: [0, root[1], 0] } as any, wk);
+      }
+    }
     // a dress or tunic has volume the painted body lacks: a skirt hung from the hips (in the skin's own frame)
     let skirt: any = null;
     if (woman || eloi) {

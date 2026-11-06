@@ -31,9 +31,10 @@ macro_rules! person {
         ("body.hull.glb", include_bytes!(concat!("../../runtime/characters/", $n, "/body.hull.glb")) as &[u8]),
         ("joint.glb", include_bytes!(concat!("../../runtime/characters/", $n, "/joint.glb")) as &[u8]),
         ("skeleton.json", include_bytes!(concat!("../../runtime/characters/", $n, "/skeleton.json")) as &[u8]),
+        ("clips.json", include_bytes!(concat!("../../runtime/characters/", $n, "/clips.json")) as &[u8]),
     ])),*] };
 }
-const PEOPLE: &[(&str, [(&str, &[u8]); 4])] = person!("man", "woman", "kid");
+const PEOPLE: &[(&str, [(&str, &[u8]); 5])] = person!("man", "woman", "kid");
 
 /// Release builds ship the embedded runtime. Debug builds read it from disk so editing runtime/scene.tsx
 /// takes effect on the next render without a Rust rebuild (tauri dev only watches src-tauri).
