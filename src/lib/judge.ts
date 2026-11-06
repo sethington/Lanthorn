@@ -27,13 +27,13 @@ export function judgeSpent(): number {
 }
 
 export type Verdict = { ok: boolean; issues: string[]; note: string; place?: "interior" | "exterior" };
-export const ISSUES = ["too_close", "element_missing", "wrong_subject", "too_dark", "empty", "clipped"] as const;
+export const ISSUES = ["too_close", "element_missing", "wrong_subject", "too_dark", "empty", "clipped", "people_missing", "off_centre"] as const;
 
 export const RUBRIC =
   'You judge one frame of a 3D illustration that follows a book as it is read. Say if the picture suits the text. A still cannot show motion or change over time: accept any moment of a change. ' +
   'Reply with one JSON object only: {"ok":bool,"issues":[...],"note":"<=12 words","place":"interior|exterior"}. place only when wrong_subject is because the text is indoors but the picture is outdoors, or the reverse: say what the TEXT needs. ' +
   'issues, only from: too_close (subject cut off or a blur of one object), element_missing (the directed element is not visible), wrong_subject (something unrelated dominates), too_dark, empty (just sky or ground), clipped (camera inside or against an object). ' +
-  'ok=true when no issue is clear. Do not nitpick details of the text.';
+  'element_missing is only for something the direction lists (a person, a prop, the named place); never for details only the prose mentions. wrong_subject with place when the picture is indoors but the text is outdoors or the reverse. people_missing (the direction lists a crowd or several people but few are visible), off_centre (the main subject sits at an edge of the frame or is cropped). ok=true when no issue is clear. Do not nitpick details of the text.';
 
 export function parseVerdict(raw: string): Verdict | null {
   const m = raw.match(/\{[\s\S]*\}/);
@@ -63,7 +63,7 @@ export function describeCue(c: { k: string; what?: string; how?: string }): stri
 }
 
 // ---- what the judge has learned about this book: per place and shot, saved
-type Memory = { place?: Record<string, "interior" | "exterior">; bright?: Record<string, number>; widen: Record<string, number>; fails: Record<string, number>; done: Record<string, 1>; drop: string[]; stats: Record<string, { ok: number; bad: number }> };
+type Memory = { aim?: Record<string, number>; crowd?: Record<string, number>; place?: Record<string, "interior" | "exterior">; bright?: Record<string, number>; widen: Record<string, number>; fails: Record<string, number>; done: Record<string, 1>; drop: string[]; stats: Record<string, { ok: number; bad: number }> };
 const MKEY = (book: string) => `lanthorn:judge:${book}`;
 export const memory = reactive<{ book: string; m: Memory }>({ book: "", m: { widen: {}, fails: {}, done: {}, drop: [], stats: {} } });
 export function judgeUseBook(id: string) {
@@ -75,6 +75,8 @@ export function judgeUseBook(id: string) {
 function save() { try { localStorage.setItem(MKEY(memory.book), JSON.stringify(memory.m)); } catch { /* optional */ } }
 export const alreadyJudged = (key: string) => !!memory.m.done[key];
 export const placeFor = (groupKey: string) => memory.m.place?.[groupKey];
+export const aimFor = (key: string) => memory.m.aim?.[key] ?? 0;
+export const crowdFor = (key: string) => memory.m.crowd?.[key] ?? 0;
 export const brightFor = (key: string) => memory.m.bright?.[key] ?? 0;
 export const widenFor = (key: string) => memory.m.widen[key] ?? 0;
 export const isDropped = (key: string) => memory.m.drop.includes(key);
@@ -89,6 +91,8 @@ export function applyVerdict(key: string, kind: string, v: Verdict, groupKey?: s
   if (v.ok) s.ok++; else s.bad++;
   if (flipped) { delete m.widen[key]; delete m.done[key]; save(); return true; } // wrong kind of place: it is made again and judged afresh, not widened
   if (!v.ok) {
+    if (v.issues.includes("people_missing")) (m.crowd ??= {})[key] = Math.min(6, (m.crowd[key] ?? 0) + 3); // more people appear in the running scene
+    if (v.issues.some((i) => i === "off_centre" || i === "too_close" || i === "clipped")) (m.aim ??= {})[key] = Math.min(1, (m.aim[key] ?? 0) + 0.6); // the lens swings onto the people
     if (v.issues.includes("too_dark")) { (m.bright ??= {})[key] = Math.min(1, (m.bright[key] ?? 0) + 0.5); } // a murky frame is lifted, not just widened
     if (v.issues.some((i) => i === "too_close" || i === "clipped" || i === "empty")) m.widen[key] = Math.min(1.5, (m.widen[key] ?? 0) + 0.55);
     if (v.issues.includes("element_missing") || v.issues.includes("wrong_subject")) {

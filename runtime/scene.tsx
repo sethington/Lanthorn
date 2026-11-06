@@ -102,6 +102,8 @@ function stepWorld(s: World, input: FrameInput, _frame: number): World {
   const num = (prefix: string, d: number) => { const k = input.keys.find((x) => x.startsWith(prefix)); return k ? parseFloat(k.slice(prefix.length)) : d; };
   const shot = num("Shot:", -1);
   brightS += (num("Bright:", 0) - brightS) * 0.06;
+  aimS += (num("Aim:", 0) - aimS) * 0.06;
+  crowdN = Math.round(num("Crowd:", 0));
   widenS += (num("Widen:", 0) - widenS) * 0.06; // the picture judge asks for a wider view when a shot is too tight
   const shotP = num("ShotP:", -1);
   const fade = clamp(num("Fade:", 0));
@@ -213,6 +215,20 @@ function exprOf(mood: string): { tilt: number; lift: number; smile: number; open
 }
 const EXPR = exprOf(R.mood);
 
+/** Extra people the judge asked for: stand about the real ones, a few paces out, in their own clothes. Same every frame. */
+function crowdFigs(): any[] {
+  const base = (R.figures as any[]).find((x) => !x.onMachine);
+  if (!base || crowdN <= 0) return [];
+  const coats = ["#6b4a3a", "#3f4f63", "#6a5d3c", "#57404f", "#47603f", "#7a6a52"];
+  const out: any[] = [];
+  for (let i = 0; i < crowdN; i++) {
+    const a = 0.9 + i * 1.7, r = 2.4 + (i % 3) * 0.9;
+    let x = base.x + Math.sin(a) * r, z = base.z - Math.abs(Math.cos(a)) * r - 0.5;
+    if (R.room) { x = Math.max(-R.room.w / 2 + 0.7, Math.min(R.room.w / 2 - 0.7, x)); z = Math.max(-R.room.d / 2 + 0.7, Math.min(R.room.d / 2 - 0.7, z)); }
+    out.push({ ...base, ref: `extra${i}`, x, z, walk: null, yaw: Math.atan2(base.x - x, base.z - z), pose: "standing", kind: i % 3 === 1 ? "woman" : "man", look: { ...(base.look ?? {}), coat: coats[i % coats.length] }, scale: 0.95 + (i % 4) * 0.03 });
+  }
+  return out;
+}
 function Figure({ fig, f, p, leverA = 0 }: { fig: any; f: number; p: number; leverA?: number }) {
   const eloi = fig.kind === "eloi";
   const woman = fig.kind === "woman";
@@ -1039,6 +1055,8 @@ function RoomDressing({ p }: { p: number }) {
 type V3 = [number, number, number];
 const cueQ = (c: any, p: number) => clamp((p - c.p0) / Math.max(1e-4, c.p1 - c.p0));
 const bell = (q: number) => Math.sin(Math.PI * clamp(q));
+let aimS = 0; // the judge swings the lens onto the people (0..1), eased
+let crowdN = 0; // the judge asks for more people in the picture
 let brightS = 0; // the judge lifts a frame it found too dark (0..1), eased
 let widenS = 0; // how much extra room the camera is asked to give (0..1.5), eased
 const vsub = (a: V3, b: V3): V3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
@@ -1476,6 +1494,14 @@ function Scene() {
       // indoors the lens never goes out through a wall
       if (R.room) camS = [Math.max(-R.room.w / 2 + 0.3, Math.min(R.room.w / 2 - 0.3, camS[0])), Math.max(0.3, Math.min(R.room.h - 0.3, camS[1])), Math.max(-R.room.d / 2 + 0.3, Math.min(R.room.d / 2 - 0.3, camS[2]))];
     }
+    // the judge's request: the subject was off to one side, so look at the people
+    if (aimS > 0.01) {
+      const ppl = (R.figures as any[]).filter((x) => !x.onMachine);
+      if (ppl.length) {
+        const cx = ppl.reduce((a, x) => a + x.x, 0) / ppl.length, cz = ppl.reduce((a, x) => a + x.z, 0) / ppl.length;
+        lookS = [mix(lookS[0], cx, aimS), mix(lookS[1], 1.15, aimS * 0.6), mix(lookS[2], cz, aimS)];
+      }
+    }
     // the camera never sits inside or against a placed thing: unless it is looking at that thing, keep clear of it
     for (const a of R.assets as any[]) {
       const dx = camS[0] - a.pos[0];
@@ -1600,6 +1626,7 @@ function Scene() {
       )}
       {R.hero.kind === "time_machine" ? <Machine p={p} f={f} /> : null}
       {(R.figures as any[]).filter((x) => !x.onMachine).map((x, i) => <Figure key={i} fig={x} f={f} p={p} />)}
+      {crowdFigs().map((x: any, i: number) => <Figure key={`c${i}`} fig={x} f={f} p={p} />)}
       {R.hero.sphinx ? <Sphinx /> : null}
       {heavyWx ? <Rain f={f} heavy={R.weather === "storm"} /> : null}
 
