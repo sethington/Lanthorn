@@ -7,7 +7,7 @@ import { Capsule3d, Cone, Cuboid, Cylinder, Mesh3d, Plane3d } from "raea/mesh";
 import { AmbientLight, DirectionalLight, PointLight } from "raea/light";
 import { Quat, Transform } from "raea/transform";
 import { Camera3d } from "raea/camera";
-import { Character, held, registerBody } from "raea/character";
+import { Character, held, pose as annyPose, registerBody, skinJoints } from "raea/character";
 import annyMan from "./media/characters/man/skeleton.json" with { type: "json" };
 import annyWoman from "./media/characters/woman/skeleton.json" with { type: "json" };
 import annyKid from "./media/characters/kid/skeleton.json" with { type: "json" };
@@ -351,14 +351,15 @@ function Figure({ fig, f, p, leverA = 0 }: { fig: any; f: number; p: number; lev
   // ---- a person: an Anny body held in the pose the acting values describe
   {
     const bodyName = woman ? "woman" : eloi ? "kid" : "man";
+    const tint = woman ? "#7a5590" : "#b78fd0"; // the dress and the tunic, as painted on the bodies
     const skel = BODIES[bodyName];
     const dirA = (s: number, a: number, side: number): [number, number, number] => [side, -Math.cos(a), -Math.sin(a)]; // a limb hanging from a joint, swung by a (negative = forward)
     const out = 0.1; // arms hang a little away from the body
     const aims: Record<string, [number, number, number]> = {
       RightUpLeg: dirA(0, A.hipL, 0),
-      RightLeg: dirA(0, A.hipL + A.kneeL, 0),
+      RightLeg: dirA(0, A.hipL + A.kneeL + (seated && fig.onMachine ? 0.5 : 0), 0),
       LeftUpLeg: dirA(0, A.hipR, 0),
-      LeftLeg: dirA(0, A.hipR + A.kneeR, 0),
+      LeftLeg: dirA(0, A.hipR + A.kneeR + (seated && fig.onMachine ? 0.5 : 0), 0),
       RightArm: dirA(0, A.shL, -out),
       RightForeArm: dirA(0, A.shL + A.elL, -out * 0.6),
       LeftArm: dirA(0, A.shR, out),
@@ -366,11 +367,26 @@ function Figure({ fig, f, p, leverA = 0 }: { fig: any; f: number; p: number; lev
       Spine1: [0, Math.cos(A.lean), Math.sin(A.lean) * 1.0],
       Head: [Math.sin(headYaw) * 0.6, Math.cos(headPitch), Math.sin(headPitch) * 0.8],
     };
-    const tint = woman ? "#7d5a8c" : eloi ? "#b98ad0" : C.coat;
+    // the clothes and hair are painted on the body (scripts/dress-people.py): vertex colours, so they move exactly with the skin
+    const P = held(skel, aims);
+    // a dress or tunic has volume the painted body lacks: a skirt hung from the hips (in the skin's own frame)
+    let skirt: any = null;
+    if (woman || eloi) {
+      const hp = ((skinJoints(skel, annyPose(skel, P)) as any[]).find((j) => j.name === "spine05")?.pos ?? [0, 1, 0]) as V3;
+      skirt = (
+        <Entity transform={at(px, rootY, pz, rot(0, yawA)).withScale([sc, sc, sc])}>
+          <Mesh3d transform={at(hp[0], hp[1] - (woman ? 0.36 : 0.2), hp[2] + 0.015)}>
+            <Cone radius={woman ? 0.4 : 0.26} height={woman ? 0.92 : 0.5} />
+            <StandardMaterial base_color={tint} perceptual_roughness={0.85} />
+          </Mesh3d>
+        </Entity>
+      );
+    }
     return (
-      <Character body={bodyName} pose={held(skel, aims)} position={[px, rootY, pz]} yaw={yawA} scale={sc * (eloi ? 1 : 1)} outline={false}>
-        <StandardMaterial base_color={tint} base_color_texture={null} perceptual_roughness={0.8} />
-      </Character>
+      <>
+        <Character body={bodyName} pose={P} position={[px, rootY, pz]} yaw={yawA} scale={sc} outline={false} />
+        {skirt}
+      </>
     );
   }
   return (
@@ -1035,7 +1051,8 @@ function Scene() {
 
   const c = dirShot ?? R.camera;
   const ct = smooth(0, 1, dirShot ? shotP : p);
-  const shake = R.sun.cycles > 0 ? 0.012 + 0.05 * smooth(0.2, 0.8, p) : 0.006;
+  // a slow handheld drift (a few seconds a swing), never a buzz: at 30 frames a second the old 1.7 rad/frame was an 8 Hz shudder
+  const shake = R.sun.cycles > 0 ? 0.004 + 0.014 * smooth(0.2, 0.8, p) : 0.002;
   // the orbit's centre slides sideways (along the camera's right) with A/D
   const panX = Math.cos(world.yaw) * world.pan;
   const panZ = -Math.sin(world.yaw) * world.pan;
@@ -1053,10 +1070,10 @@ function Scene() {
   const cam: [number, number, number] = live && world.control
     ? orbit
     : live
-    ? [world.sm.cam[0] + Math.sin(f * 1.7) * shake, world.sm.cam[1] + Math.cos(f * 1.3) * shake, world.sm.cam[2]]
+    ? [world.sm.cam[0] + Math.sin(f * 0.045) * shake, world.sm.cam[1] + Math.cos(f * 0.037) * shake, world.sm.cam[2]]
     : [
-        mix(c.from[0], c.to[0], ct) + Math.sin(f * 1.7) * shake,
-        mix(c.from[1], c.to[1], ct) + Math.cos(f * 1.3) * shake,
+        mix(c.from[0], c.to[0], ct) + Math.sin(f * 0.045) * shake,
+        mix(c.from[1], c.to[1], ct) + Math.cos(f * 0.037) * shake,
         mix(c.from[2], c.to[2], ct),
       ];
   const look: [number, number, number] = live && world.control
@@ -1176,7 +1193,7 @@ function Scene() {
         camS = [a.pos[0] + ux * need, camS[1], a.pos[2] + uz * need];
       }
     }
-    for (const c of on("quake")) shakeS += 0.22 * (c.amount ?? 0.6) * bell(cueQ(c, p));
+    for (const c of on("quake")) shakeS += 0.1 * (c.amount ?? 0.6) * bell(cueQ(c, p));
   }
   let dimOv = 0; // a dark veil over the picture: the painted looks' flat sky ignores the lights, so the dimming is drawn on top
   let veil = "#04050c";
