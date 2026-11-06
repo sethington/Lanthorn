@@ -216,16 +216,22 @@ function exprOf(mood: string): { tilt: number; lift: number; smile: number; open
 const EXPR = exprOf(R.mood);
 
 /** Extra people the judge asked for: stand about the real ones, a few paces out, in their own clothes. Same every frame. */
-function crowdFigs(): any[] {
+function crowdFigs(cam: V3, look: V3): any[] {
   const base = (R.figures as any[]).find((x) => !x.onMachine);
   if (!base || crowdN <= 0) return [];
   const coats = ["#6b4a3a", "#3f4f63", "#6a5d3c", "#57404f", "#47603f", "#7a6a52"];
   const out: any[] = [];
+  // across the view, beyond the people already there: left and right of the line of sight, each a little further back
+  let dx = look[0] - cam[0], dz = look[2] - cam[2];
+  const dl = Math.hypot(dx, dz) || 1; dx /= dl; dz /= dl;
+  const sx = -dz, sz = dx; // sideways
   for (let i = 0; i < crowdN; i++) {
-    const a = 0.9 + i * 1.7, r = 2.4 + (i % 3) * 0.9;
-    let x = base.x + Math.sin(a) * r, z = base.z - Math.abs(Math.cos(a)) * r - 0.5;
+    const side = (i % 2 === 0 ? 1 : -1) * (0.85 + Math.floor(i / 2) * 0.7);
+    const back = 1.6 + (i % 3) * 0.9 + Math.floor(i / 2) * 0.6;
+    let x = base.x + sx * side + dx * back, z = base.z + sz * side + dz * back;
+    for (const a of R.assets as any[]) { const ddx = x - a.pos[0], ddz = z - a.pos[2], dd = Math.hypot(ddx, ddz); if (dd < 1.3) { const u = dd > 1e-3 ? 1.3 / dd : 1; x = a.pos[0] + (dd > 1e-3 ? ddx * u : 1.3); z = a.pos[2] + (dd > 1e-3 ? ddz * u : 0); } } // not inside the furniture
     if (R.room) { x = Math.max(-R.room.w / 2 + 0.7, Math.min(R.room.w / 2 - 0.7, x)); z = Math.max(-R.room.d / 2 + 0.7, Math.min(R.room.d / 2 - 0.7, z)); }
-    out.push({ ...base, ref: `extra${i}`, x, z, walk: null, yaw: Math.atan2(base.x - x, base.z - z), pose: "standing", kind: i % 3 === 1 ? "woman" : "man", look: { ...(base.look ?? {}), coat: coats[i % coats.length] }, scale: 0.95 + (i % 4) * 0.03 });
+    out.push({ ...base, ref: `extra${i}`, x, z, walk: null, yaw: Math.atan2(cam[0] - x, cam[2] - z), pose: "standing", kind: i % 3 === 1 ? "woman" : "man", look: { ...(base.look ?? {}), coat: coats[i % coats.length] }, scale: 0.95 + (i % 4) * 0.03 });
   }
   return out;
 }
@@ -1626,7 +1632,7 @@ function Scene() {
       )}
       {R.hero.kind === "time_machine" ? <Machine p={p} f={f} /> : null}
       {(R.figures as any[]).filter((x) => !x.onMachine).map((x, i) => <Figure key={i} fig={x} f={f} p={p} />)}
-      {crowdFigs().map((x: any, i: number) => <Figure key={`c${i}`} fig={x} f={f} p={p} />)}
+      {crowdFigs(camS, lookS).map((x: any, i: number) => <Figure key={`c${i}`} fig={x} f={f} p={p} />)}
       {R.hero.sphinx ? <Sphinx /> : null}
       {heavyWx ? <Rain f={f} heavy={R.weather === "storm"} /> : null}
 

@@ -106,3 +106,5 @@ export function applyVerdict(key: string, kind: string, v: Verdict, groupKey?: s
   save();
   return flipped;
 }
+
+if (import.meta.env.DEV) (window as any).__judgeMem = memory; // dev: poke corrections to see them without waiting for the judge
