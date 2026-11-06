@@ -182,7 +182,7 @@ const PAL: Record<string, any> = {
   man: { coat: "#5d4e3a", vest: "#8f7f5c", pants: "#44444b", shoe: "#2b211a", hair: "#4a3626", shirt: "#ece6d8" },
   woman: { coat: "#3d3445", vest: "#3d3445", pants: "#3d3445", shoe: "#2b211a", hair: "#3a2a22", shirt: "#e9e3d6" },
   eloi: { coat: "#7b4f8c", vest: "#6a4378", pants: "#c8a283", shoe: "#8a6a48", hair: "#d8b968", shirt: "#7b4f8c" },
-  generic: { coat: "#5a5a60", vest: "#6a6a70", pants: "#3e3e44", shoe: "#2b211a", hair: "#3a2e26", shirt: "#e3ddd0" },
+  generic: { coat: "#6b5a47", vest: "#a99772", pants: "#4a4540", shoe: "#2b211a", hair: "#3a2e26", shirt: "#e3ddd0" },
 };
 
 /** The face's expression from the scene's mood word(s): brow tilt (inner ends up = worry), brow lift, smile (-1 frown .. 1 smile), open mouth. */
@@ -303,78 +303,38 @@ function Figure({ fig, f, p, leverA = 0 }: { fig: any; f: number; p: number; lev
   const headPitch = seated ? 0.12 + 0.08 * Math.abs(leverA) : 0.03 + Math.sin(f * 0.031) * 0.02;
   const tailSwing = 0.12 + (walking ? 0.25 * Math.abs(sw) : 0) + Math.sin(f * 0.05) * 0.02;
 
+  // A deliberate, stylised figure: smooth clay-like ellipsoids that overlap at the joints (so there are no seams), matte colour, simple shapes
+  // for clothes. Which period it is comes from the clothes' shapes and colours, not from detail.
+  const clay = (c: string, r = 0.85) => ({ base_color: c, perceptual_roughness: r });
+  const E = ({ x = 0, y = 0, z = 0, rx, ry, rz, m, q }: { x?: number; y?: number; z?: number; rx: number; ry: number; rz: number; m: any; q?: any }) => (
+    <Mesh3d transform={at(x, y, z, q).withScale([rx, ry, rz])}>
+      <Sphere radius={1} />
+      <StandardMaterial {...m} />
+    </Mesh3d>
+  );
+  const pantsM = eloi ? skin : clay(C.pants);
+  const shoeM = clay(eloi ? "#9a7a52" : "#2f241d", 0.55);
   const Leg = ({ x, hip, knee, ank }: { x: number; hip: number; knee: number; ank: number }) => (
     <Entity transform={at(x, hipY, 0, rot(hip))}>
-      <Mesh3d transform={at(0, -0.22, 0).withScale([1.12, 1, 1.1])}>
-        <Capsule3d radius={0.08} half_length={0.15} />
-        <StandardMaterial {...(eloi ? skin : wool(C.pants))} />
-      </Mesh3d>
+      <E y={-0.2} rx={0.092} ry={0.27} rz={0.095} m={pantsM} />
       <Entity transform={at(0, -0.45, 0, rot(knee))}>
-        <Mesh3d>
-          <Sphere radius={0.066} />
-          <StandardMaterial {...(eloi ? skin : wool(C.pants))} />
-        </Mesh3d>
-        <Mesh3d transform={at(0, -0.225, 0).withScale([1, 1, 1.05])}>
-          <Capsule3d radius={0.063} half_length={0.165} />
-          <StandardMaterial {...(eloi ? skin : wool(C.pants))} />
-        </Mesh3d>
-        {!eloi ? (
-          <Mesh3d transform={at(0, -0.435, 0)}>
-            <Cylinder radius={0.064} half_height={0.03} />
-            <StandardMaterial {...wool(C.pants)} />
-          </Mesh3d>
-        ) : null}
+        <E y={-0.01} rx={0.07} ry={0.075} rz={0.072} m={pantsM} />
+        <E y={-0.22} rx={0.066} ry={0.255} rz={0.07} m={pantsM} />
         <Entity transform={at(0, -0.46, 0.0, rot(ank))}>
-          <Mesh3d transform={at(0, -0.02, 0.07)}>
-            <Cuboid half_size={[0.045, 0.028, 0.1]} />
-            <StandardMaterial {...leather(eloi ? "#b08a5a" : "#4a3a2e")} />
-          </Mesh3d>
-          <Mesh3d transform={at(0, -0.02, 0.17)}>
-            <Sphere radius={0.045} />
-            <StandardMaterial {...leather(eloi ? "#b08a5a" : "#4a3a2e")} />
-          </Mesh3d>
-          <Mesh3d transform={at(0, -0.045, -0.02)}>
-            <Cuboid half_size={[0.04, 0.018, 0.035]} />
-            <StandardMaterial base_color={C.shoe} perceptual_roughness={0.6} />
-          </Mesh3d>
+          <E y={-0.025} z={0.06} rx={0.058} ry={0.05} rz={0.13} m={shoeM} />
         </Entity>
       </Entity>
     </Entity>
   );
 
   const Arm = ({ x, sh, el }: { x: number; sh: number; el: number }) => (
-    <Entity transform={at(x, 0.5, 0, rot(sh, 0, x < 0 ? 0.04 : -0.04))}>
-      <Mesh3d>
-        <Sphere radius={0.052} />
-        <StandardMaterial {...wool(C.coat)} />
-      </Mesh3d>
-      <Mesh3d transform={at(0, -0.15, 0).withScale([1.05, 1, 1.05])}>
-        <Capsule3d radius={0.05} half_length={0.105} />
-        <StandardMaterial {...wool(C.coat)} />
-      </Mesh3d>
+    <Entity transform={at(x, 0.482, 0, rot(sh, 0, x < 0 ? 0.04 : -0.04))}>
+      <E rx={0.056} ry={0.056} rz={0.056} m={clay(C.coat)} />
+      <E y={-0.15} rx={0.054} ry={0.17} rz={0.056} m={clay(C.coat)} />
       <Entity transform={at(0, -0.3, 0, rot(el))}>
-        <Mesh3d>
-          <Sphere radius={0.047} />
-          <StandardMaterial {...wool(C.coat)} />
-        </Mesh3d>
-        <Mesh3d transform={at(0, -0.14, 0)}>
-          <Capsule3d radius={0.043} half_length={0.1} />
-          <StandardMaterial {...wool(woman || eloi ? C.coat : C.coat)} />
-        </Mesh3d>
-        {man ? (
-          <Mesh3d transform={at(0, -0.255, 0)}>
-            <Cylinder radius={0.04} half_height={0.012} />
-            <StandardMaterial base_color={C.shirt} perceptual_roughness={0.7} />
-          </Mesh3d>
-        ) : null}
-        <Mesh3d transform={at(0, -0.31, 0.005).withScale([0.95, 1.25, 0.6])}>
-          <Sphere radius={0.04} />
-          <StandardMaterial {...skin} />
-        </Mesh3d>
-        <Mesh3d transform={at(0.03 * (x < 0 ? 1 : -1), -0.29, 0.03)}>
-          <Sphere radius={0.016} />
-          <StandardMaterial {...skin} />
-        </Mesh3d>
+        <E rx={0.05} ry={0.05} rz={0.05} m={clay(C.coat)} />
+        <E y={-0.14} rx={0.046} ry={0.165} rz={0.047} m={clay(C.coat)} />
+        <E y={-0.315} z={0.005} rx={0.04} ry={0.058} rz={0.03} m={skin} />
       </Entity>
     </Entity>
   );
@@ -384,100 +344,46 @@ function Figure({ fig, f, p, leverA = 0 }: { fig: any; f: number; p: number; lev
       <Leg x={-0.095} hip={A.hipL} knee={A.kneeL} ank={walking ? -A.hipL * 0.4 : seated ? 0.1 : 0} />
       <Leg x={0.095} hip={A.hipR} knee={A.kneeR} ank={walking ? -A.hipR * 0.4 : seated ? 0.1 : 0} />
       {/* pelvis */}
-      <Mesh3d transform={at(0, hipY + 0.02, 0).withScale([1.3, 0.9, 0.95])}>
-        <Sphere radius={0.14} />
-        <StandardMaterial {...wool(woman ? C.coat : C.pants)} />
-      </Mesh3d>
+      <E y={hipY + 0.03} rx={0.17} ry={0.12} rz={0.125} m={clay(eloi ? C.pants : C.coat)} />
       <Entity transform={at(0, hipY, 0, rot(A.lean, A.twist, 0))}>
-        {/* waist, chest, shoulders */}
-        <Mesh3d transform={at(0, 0.13, 0).withScale([1, 1, 0.8])}>
-          <Capsule3d radius={0.125} half_length={0.07} />
-          <StandardMaterial {...wool(C.coat)} />
-        </Mesh3d>
-        <Mesh3d transform={at(0, 0.36, 0.005).withScale([1.08, 1 + breathe, 0.84 + breathe])}>
-          <Capsule3d radius={0.138} half_length={0.09} />
-          <StandardMaterial {...wool(C.coat)} />
-        </Mesh3d>
-        {/* the shoulder line: a yoke joining chest and arms, so the arms hang from the body and not from balls */}
-        <Mesh3d transform={at(0, 0.5, 0, rot(0, 0, Math.PI / 2)).withScale([1, 1, 0.78])}>
-          <Capsule3d radius={0.058} half_length={0.125} />
-          <StandardMaterial {...wool(C.coat)} />
-        </Mesh3d>
+        {/* waist, chest, shoulders: one smooth body */}
+        <E y={0.15} rx={0.138} ry={0.15} rz={0.105} m={clay(C.coat)} />
+        <E y={0.385} rx={0.175} ry={0.205 * (1 + breathe)} rz={0.122 + breathe} m={clay(C.coat)} />
+        <E y={0.495} rx={0.215} ry={0.085} rz={0.105} m={clay(C.coat)} />
         {man ? (
           <>
-            {/* waistcoat, shirt collar, cravat, lapels */}
-            <Mesh3d transform={at(0, 0.33, 0.118)}>
-              <Cuboid half_size={[0.062, 0.14, 0.012]} />
-              <StandardMaterial {...wool(C.vest)} />
+            {/* the coat flares from the waist: a long skirt, open a little at the front over a pale waistcoat */}
+            <E y={-0.1} rx={0.17} ry={0.22} rz={0.14} m={clay(C.coat)} />
+            <E y={0.37} z={0.105} rx={0.07} ry={0.12} rz={0.028} m={clay(C.vest, 0.7)} />
+            <Mesh3d transform={at(0, 0.545, 0.005)}>
+              <Torus major_radius={0.062} minor_radius={0.017} />
+              <StandardMaterial {...clay(C.shirt, 0.7)} />
             </Mesh3d>
-            <Mesh3d transform={at(0, 0.56, 0.01)}>
-              <Cylinder radius={0.058} half_height={0.022} />
-              <StandardMaterial base_color={C.shirt} perceptual_roughness={0.7} />
-            </Mesh3d>
-            <Mesh3d transform={at(0, 0.5, 0.108)}>
-              <Cuboid half_size={[0.028, 0.045, 0.014]} />
-              <StandardMaterial base_color="#3a2a38" perceptual_roughness={0.5} />
-            </Mesh3d>
-            {[-1, 1].map((sd) => (
-              <Mesh3d key={sd} transform={at(sd * 0.06, 0.43, 0.118, rot(0, 0, sd * -0.35))}>
-                <Cuboid half_size={[0.014, 0.1, 0.01]} />
-                <StandardMaterial {...wool(C.coat)} />
-              </Mesh3d>
-            ))}
-            {/* coat tails */}
-            {[-1, 1].map((sd) => (
-              <Entity key={sd} transform={at(sd * 0.06, 0.02, -0.1, rot(tailSwing))}>
-                <Mesh3d transform={at(0, -0.17, 0)}>
-                  <Cuboid half_size={[0.055, 0.17, 0.012]} />
-                  <StandardMaterial {...wool(C.coat)} />
-                </Mesh3d>
-              </Entity>
-            ))}
           </>
         ) : null}
         {woman ? (
           <>
             <Mesh3d transform={at(0, -0.37, 0)}>
-              <Cone radius={0.37} height={0.9} />
-              <StandardMaterial {...wool(C.coat)} />
+              <Cone radius={0.38} height={0.9} />
+              <StandardMaterial {...clay(C.coat)} />
             </Mesh3d>
-            <Mesh3d transform={at(0, 0.1, 0.11)}>
-              <Cuboid half_size={[0.1, 0.34, 0.01]} />
-              <StandardMaterial base_color="#ece7dc" perceptual_roughness={0.75} />
-            </Mesh3d>
-            <Mesh3d transform={at(0, 0.56, 0.01)}>
-              <Cylinder radius={0.06} half_height={0.02} />
-              <StandardMaterial base_color={C.shirt} perceptual_roughness={0.7} />
-            </Mesh3d>
+            <E y={0.52} z={0.07} rx={0.085} ry={0.04} rz={0.05} m={clay(C.shirt)} />
           </>
         ) : null}
         {eloi ? (
           <>
-            <Mesh3d transform={at(0, -0.12, 0)}>
-              <Cylinder radius={0.2} half_height={0.2} />
-              <StandardMaterial {...wool(C.coat)} />
+            <Mesh3d transform={at(0, -0.14, 0)}>
+              <Cone radius={0.26} height={0.62} />
+              <StandardMaterial {...clay(C.coat)} />
             </Mesh3d>
-            <Mesh3d transform={at(0, 0.1, 0)}>
-              <Cylinder radius={0.135} half_height={0.02} />
-              <StandardMaterial {...leather("#7a5a3a")} />
-            </Mesh3d>
+            <E y={0.1} rx={0.14} ry={0.025} rz={0.11} m={clay("#7a5a3a")} />
           </>
         ) : null}
         {/* neck and head */}
-        <Mesh3d transform={at(0, 0.6, 0)}>
-          <Cylinder radius={0.05} half_height={0.04} />
-          <StandardMaterial {...skin} />
-        </Mesh3d>
-        <Entity transform={at(0, 0.665, 0, rot(headPitch, headYaw, 0))}>
-          {/* skull and jaw: the face's features sit on their front surface (z about 0.09 to 0.105 at the middle) */}
-          <Mesh3d transform={at(0, 0.1, 0).withScale([0.92, 1.08, 1])}>
-            <Sphere radius={0.1} />
-            <StandardMaterial {...skin} />
-          </Mesh3d>
-          <Mesh3d transform={at(0, 0.03, 0.012).withScale([0.8, 0.78, 0.78])}>
-            <Sphere radius={0.088} />
-            <StandardMaterial {...skin} />
-          </Mesh3d>
+        <E y={0.6} rx={0.066} ry={0.075} rz={0.07} m={skin} />
+        <Entity transform={at(0, 0.645, 0, rot(headPitch, headYaw, 0))}>
+          {/* head: one egg, so there is no jaw seam */}
+          <E y={0.105} rx={0.1} ry={0.122} rz={0.106} m={skin} />
           {/* nose: a bridge and a rounded tip, with dark nostrils */}
           <Mesh3d transform={at(0, 0.094, 0.094).withScale([0.8, 1.3, 1])}>
             <Sphere radius={0.0095} />
