@@ -26,12 +26,12 @@ export function judgeSpent(): number {
   return !t ? 0 : t.cost > 0 ? t.cost : (t.input + t.output + t.cacheWrite + t.cacheRead * 0.1) * 4e-6;
 }
 
-export type Verdict = { ok: boolean; issues: string[]; note: string; place?: "interior" | "exterior" };
+export type Verdict = { ok: boolean; issues: string[]; note: string; place?: "interior" | "exterior"; style?: string };
 export const ISSUES = ["too_close", "element_missing", "wrong_subject", "too_dark", "empty", "clipped", "people_missing", "off_centre"] as const;
 
 export const RUBRIC =
   'You judge one frame of a 3D illustration that follows a book as it is read. Say if the picture suits the text. A still cannot show motion or change over time: accept any moment of a change. ' +
-  'Reply with one JSON object only: {"ok":bool,"issues":[...],"note":"<=12 words","place":"interior|exterior"}. place only when wrong_subject is because the text is indoors but the picture is outdoors, or the reverse: say what the TEXT needs. ' +
+  'Reply with one JSON object only: {"ok":bool,"issues":[...],"note":"<=12 words","place":"interior|exterior","style":"<room kind>"}. style only for an indoor place whose room does not suit the text: one of cellar, church, hall, study, kitchen, ship, bedroom, future, room (a plain parlour). place only when wrong_subject is because the text is indoors but the picture is outdoors, or the reverse: say what the TEXT needs. ' +
   'issues, only from: too_close (subject cut off or a blur of one object), element_missing (the directed element is not visible), wrong_subject (something unrelated dominates), too_dark, empty (just sky or ground), clipped (camera inside or against an object). ' +
   'element_missing is only for something the direction lists (a person, a prop, the named place); never for details only the prose mentions. wrong_subject with place when the picture is indoors but the text is outdoors or the reverse. people_missing (the direction lists a crowd or several people but few are visible), off_centre (the main subject sits at an edge of the frame or is cropped). ok=true when no issue is clear. Do not nitpick details of the text.';
 
@@ -41,7 +41,7 @@ export function parseVerdict(raw: string): Verdict | null {
   try {
     const j = JSON.parse(m[0]);
     const issues = Array.isArray(j.issues) ? j.issues.filter((x: unknown) => (ISSUES as readonly string[]).includes(String(x))).map(String) : [];
-    return { ok: j.ok !== false && issues.length === 0, issues, note: String(j.note ?? "").slice(0, 120), place: j.place === "interior" || j.place === "exterior" ? j.place : undefined };
+    return { ok: j.ok !== false && issues.length === 0, issues, note: String(j.note ?? "").slice(0, 120), place: j.place === "interior" || j.place === "exterior" ? j.place : undefined, style: typeof j.style === "string" && ["cellar", "church", "hall", "study", "kitchen", "ship", "bedroom", "future", "room"].includes(j.style) ? j.style : undefined };
   } catch { return null; }
 }
 
@@ -63,7 +63,7 @@ export function describeCue(c: { k: string; what?: string; how?: string }): stri
 }
 
 // ---- what the judge has learned about this book: per place and shot, saved
-type Memory = { aim?: Record<string, number>; crowd?: Record<string, number>; place?: Record<string, "interior" | "exterior">; bright?: Record<string, number>; widen: Record<string, number>; fails: Record<string, number>; done: Record<string, 1>; drop: string[]; stats: Record<string, { ok: number; bad: number }> };
+type Memory = { style?: Record<string, string>; aim?: Record<string, number>; crowd?: Record<string, number>; place?: Record<string, "interior" | "exterior">; bright?: Record<string, number>; widen: Record<string, number>; fails: Record<string, number>; done: Record<string, 1>; drop: string[]; stats: Record<string, { ok: number; bad: number }> };
 const MKEY = (book: string) => `lanthorn:judge:${book}`;
 export const memory = reactive<{ book: string; m: Memory }>({ book: "", m: { widen: {}, fails: {}, done: {}, drop: [], stats: {} } });
 export function judgeUseBook(id: string) {
@@ -74,6 +74,7 @@ export function judgeUseBook(id: string) {
 }
 function save() { try { localStorage.setItem(MKEY(memory.book), JSON.stringify(memory.m)); } catch { /* optional */ } }
 export const alreadyJudged = (key: string) => !!memory.m.done[key];
+export const styleOf = (groupKey: string) => memory.m.style?.[groupKey];
 export const placeFor = (groupKey: string) => memory.m.place?.[groupKey];
 export const aimFor = (key: string) => memory.m.aim?.[key] ?? 0;
 export const crowdFor = (key: string) => memory.m.crowd?.[key] ?? 0;
@@ -89,6 +90,7 @@ export function applyVerdict(key: string, kind: string, v: Verdict, groupKey?: s
   m.done[key] = 1;
   const s = (m.stats[kind] ??= { ok: 0, bad: 0 });
   if (v.ok) s.ok++; else s.bad++;
+  if (!v.ok && v.style && groupKey && kind === "shot" && m.style?.[groupKey] !== v.style) { (m.style ??= {})[groupKey] = v.style; flipped = true; } // the room is the wrong kind of room: make it again
   if (flipped) { delete m.widen[key]; delete m.done[key]; save(); return true; } // wrong kind of place: it is made again and judged afresh, not widened
   if (!v.ok) {
     if (v.issues.includes("people_missing")) (m.crowd ??= {})[key] = Math.min(6, (m.crowd[key] ?? 0) + 3); // more people appear in the running scene

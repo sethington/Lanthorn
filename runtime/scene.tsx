@@ -1574,7 +1574,7 @@ function Scene() {
         camS = [a.pos[0] + ux * need, camS[1], a.pos[2] + uz * need];
       }
     }
-    for (const c of on("quake")) shakeS += 0.1 * (c.amount ?? 0.6) * bell(cueQ(c, p));
+    for (const c of on("quake")) shakeS += 0.045 * (c.amount ?? 0.6) * bell(cueQ(c, p)); // a rumble you can read, not a jitter: the old one was three times this at a buzz of 11 Hz
     // whatever the cues did, a lens indoors stays inside the room (a pull-back to "see the event" would otherwise end up outside the walls)
     if (R.room) camS = [Math.max(-R.room.w / 2 + 0.3, Math.min(R.room.w / 2 - 0.3, camS[0])), Math.max(0.3, Math.min(R.room.h - 0.3, camS[1])), Math.max(-R.room.d / 2 + 0.3, Math.min(R.room.d / 2 - 0.3, camS[2]))];
   }
@@ -1609,8 +1609,22 @@ function Scene() {
       flashM *= 1 + (c.amount ?? 0.6) * b * (Math.sin(f * 0.55) > 0 ? 1.7 : -0.7);
     }
   }
-  if (shakeS > 0) camS = [camS[0] + Math.sin(f * 2.3) * shakeS, camS[1] + Math.cos(f * 2.9) * shakeS, camS[2] + Math.sin(f * 1.9) * shakeS];
+  if (shakeS > 0) camS = [camS[0] + Math.sin(f * 0.37) * shakeS, camS[1] + Math.cos(f * 0.47) * shakeS * 0.7, camS[2] + Math.sin(f * 0.31) * shakeS];
 
+  // a last low-pass on what the camera shows: whatever noise reached the position or the aim (a stepped input, a cue's arithmetic, two
+  // corrections taking turns) is smoothed out over a few frames, while the real moves (shots, drifts, pull-backs) are far slower and pass untouched.
+  // The viewer's own free camera is never filtered.
+  {
+    const F: any = ((globalThis as any).__camflt ??= { c: null, l: null, f: -1 });
+    if (takenOver || !F.c || Math.abs(f - F.f) > 20 || Math.hypot(camS[0] - F.c[0], camS[1] - F.c[1], camS[2] - F.c[2]) > 6) { F.c = [camS[0], camS[1], camS[2]]; F.l = [lookS[0], lookS[1], lookS[2]]; }
+    else {
+      const k = 0.3;
+      F.c = [F.c[0] + (camS[0] - F.c[0]) * k, F.c[1] + (camS[1] - F.c[1]) * k, F.c[2] + (camS[2] - F.c[2]) * k];
+      F.l = [F.l[0] + (lookS[0] - F.l[0]) * k, F.l[1] + (lookS[1] - F.l[1]) * k, F.l[2] + (lookS[2] - F.l[2]) * k];
+      camS = [F.c[0], F.c[1], F.c[2]]; lookS = [F.l[0], F.l[1], F.l[2]];
+    }
+    F.f = f;
+  }
   return (
     <AbsoluteFill style={{ background: "#05070b" }}>
       <Camera3d transform={Transform.fromXyz(...camS).lookingAt(lookS, upS)} projection={{ Perspective: { fov: (fovS * Math.PI) / 180 } }}>

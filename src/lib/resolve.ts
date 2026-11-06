@@ -275,13 +275,14 @@ const ROOMS: [string, RegExp, Omit<RoomR, "wall"> & { wall?: string }][] = [
   ["future", /future|palace of green|porcelain|laborator.*future|metal(?:lic)? (?:hall|room)|machine room|engine room|spaceship|station/, { w: 9, d: 7, h: 4.5, floor: "large_floor_tiles_02", tile: 2, wallC: "#c5d2cf", wain: null, trim: "#8fa7a4", ceilC: "#dfe8e5", rug: null, windows: [-0.28, 0.28].map((x) => ({ x, w: 0.7, h: 1.4, y: 2.4 })), pictures: false, door: true }],
   ["room", /./, { w: 8, d: 6, h: 3.4, floor: "wood_floor", tile: 1.6, wallC: "#bda98c", wain: "#5c4332", trim: "#4a3426", ceilC: "#a89a82", rug: "#6b2f2a", windows: [-0.24, 0.24].map((x) => ({ x, w: 0.72, h: 0.95, y: 1.75 })), pictures: true, door: true }],
 ];
-export function roomFor(text: string): RoomR {
+export const ROOM_STYLES = ROOMS.map((r) => r[0]);
+export function roomFor(text: string, forced?: string): RoomR {
   const t = text.toLowerCase().replace(/_/g, " ");
-  const hit = ROOMS.find(([, re]) => re.test(t)) ?? ROOMS[ROOMS.length - 1];
+  const hit = (forced ? ROOMS.find((r) => r[0] === forced) : undefined) ?? ROOMS.find(([, re]) => re.test(t)) ?? ROOMS[ROOMS.length - 1];
   return { ...hit[2], wall: hit[2].floor, style: hit[0] } as RoomR;
 }
 
-export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number; size?: [number, number]; pkg?: PackageAsset[]; shots?: { shot: Shot; p0: number; p1: number }[]; stage?: { cue: Cue; p0: number; p1: number }[]; acting?: { act: Act; p0: number; p1: number }[]; style?: string; place?: "interior" | "exterior" } = {}): Resolved {
+export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number; size?: [number, number]; pkg?: PackageAsset[]; shots?: { shot: Shot; p0: number; p1: number }[]; stage?: { cue: Cue; p0: number; p1: number }[]; acting?: { act: Act; p0: number; p1: number }[]; style?: string; place?: "interior" | "exterior"; roomStyle?: string } = {}): Resolved {
   const pkg = pkgModels(opts.pkg);
   const loc = bible.locations.find((l) => l.id === scene.location);
   const locText = `${scene.location} ${loc?.desc ?? ""}`;
@@ -442,7 +443,7 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
     zEdge: /lake|river|harbou?r/.test(sceneText) ? -9 : -6,
     mood: /red (?:water|sea)|crimson|scarlet (?:sea|water)|blood/.test(sceneText) ? "red" : /oily|black water|dark water|slick|tar/.test(sceneText) ? "oily" : /storm|rough|gale|tempest|heavy/.test(sceneText + scene.weather) ? "storm" : "calm",
   } : null;
-  const room: RoomR | null = kind === "interior" ? roomFor(`${locText} ${scene.mood ?? ""}`) : null;
+  const room: RoomR | null = kind === "interior" ? roomFor(`${locText} ${scene.mood ?? ""}`, opts.roomStyle) : null;
 
   // ---- camera: frame the hero (~1.8 m) by framing and move
   const heroH = hero.sphinx ? 5 : 1.9;
@@ -648,7 +649,7 @@ export function assetsNeeded(r: Resolved): { kind: string; id: string; res: stri
 }
 
 /** Bump when runtime/scene.tsx changes in a way that alters frames, so cached renders are redone. */
-export const RUNTIME_VERSION = "rt71";
+export const RUNTIME_VERSION = "rt75";
 
 /** Cache key: changes whenever the resolved plan or the runtime does. */
 export function sceneKey(r: Resolved): string {

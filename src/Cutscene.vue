@@ -12,7 +12,7 @@ import { assetsNeeded, resolveScene, sceneKey, type Resolved } from "./lib/resol
 import type { Bible, Scene } from "./lib/scene";
 import type { PackageAsset } from "./lib/book";
 import type { Sentence } from "./lib/text";
-import { alreadyJudged, applyVerdict, budgetLeft, describeCue, brightFor, aimFor, crowdFor, placeFor, isDropped, judgeSettings, parseVerdict, RUBRIC, widenFor } from "./lib/judge";
+import { alreadyJudged, applyVerdict, budgetLeft, describeCue, brightFor, styleOf, aimFor, crowdFor, placeFor, isDropped, judgeSettings, parseVerdict, RUBRIC, widenFor } from "./lib/judge";
 
 // `sid` is the sentence under the reading line, `frac` how far through it (0..1). The picture sits in the element matched by `host`.
 const props = defineProps<{ sentences: Sentence[]; scenes: Scene[]; bible: Bible; pkg?: PackageAsset[]; host: string; sid: number; frac: number; styleFor?: (s: Scene) => string | undefined; styleVer?: number }>();
@@ -154,7 +154,7 @@ function prepare(gi: number): Promise<Prep> {
         return { act, p0: (t0 - g.t0) / span, p1: (t1 - g.t0) / span };
       });
     });
-    const r: Resolved = resolveScene(whole, props.bible, { pkg: props.pkg, size: SIZE, shots, stage, acting, style: props.styleFor?.(rep), place: placeFor(key0) });
+    const r: Resolved = resolveScene(whole, props.bible, { pkg: props.pkg, size: SIZE, shots, stage, acting, style: props.styleFor?.(rep), place: placeFor(key0), roomStyle: styleOf(key0) });
     r.live = true;
     r.t0 = 0;
     prepKeyOf.set(key0, `${sceneKey(r)}-cut`);
