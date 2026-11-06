@@ -45,7 +45,8 @@ export type StageR = {
   p1: number;
   how: string;
   amount: number;
-  /** creature: its kind (crab, butterfly, bird) */
+  /** creature: the drawn type (crab, butterfly, bird, beast) and the text's own word for it */
+  kind?: string;
   what?: string;
   /** moon and sun: where in the sky (azimuth in radians from +Z toward +X, elevation in degrees) */
   az?: number;
@@ -563,10 +564,10 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
       stage.push({ ...base, items });
     } else if (cue.k === "creature") {
       const w = (cue.what ?? "crab").toLowerCase();
-      const type = /butterfly|moth|bat|flutter|wing/.test(w) ? "butterfly" : /bird|gull|eagle|crow|raven|hawk|pterodactyl|swallow/.test(w) ? "bird" : "crab";
+      const type: string = /butterfly|moth|bat|flutter|wing/.test(w) ? "butterfly" : /bird|gull|eagle|crow|raven|hawk|pterodactyl|swallow/.test(w) ? "bird" : /crab|lobster|crustacean|spider|insect|beetle|scorpion|monster|horror|blob|thing|creature/.test(w) ? "crab" : "beast";
       // a path across the ground in front of the default camera, left to right or right to left
       const dir = sr() < 0.5 ? -1 : 1;
-      stage.push({ ...base, what: type, az: fwdAz + dir * 0.0, items: [{ id: type, file: "", pos: [lookX + dir * -9, 0, 2.2 + sr() * 1.6], rotY: dir > 0 ? Math.PI / 2 : -Math.PI / 2, scale: 1, d: 0 }] });
+      stage.push({ ...base, what: type, kind: w, az: fwdAz + dir * 0.0, items: [{ id: type, file: "", pos: [lookX + dir * -9, 0, 2.2 + sr() * 1.6], rotY: dir > 0 ? Math.PI / 2 : -Math.PI / 2, scale: 1, d: 0 }] });
     } else if (cue.k === "dim") {
       stage.push({ ...base, az: fwdAz + 0.3, el: 38 });
     } else if (cue.k !== "grow") {
@@ -616,7 +617,7 @@ export function assetsNeeded(r: Resolved): { kind: string; id: string; res: stri
 }
 
 /** Bump when runtime/scene.tsx changes in a way that alters frames, so cached renders are redone. */
-export const RUNTIME_VERSION = "rt68";
+export const RUNTIME_VERSION = "rt70";
 
 /** Cache key: changes whenever the resolved plan or the runtime does. */
 export function sceneKey(r: Resolved): string {

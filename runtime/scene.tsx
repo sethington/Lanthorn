@@ -1176,7 +1176,7 @@ function creatureAt(c: any, q: number, f: number): { x: number; y: number; z: nu
   const fly = c.what === "butterfly" || c.what === "bird";
   const y = fly ? 3 + Math.sin(q * 9 + f * 0.02) * 0.9 + (c.what === "bird" ? 3 : 0) : 0;
   const z = it.pos[2] + (fly ? Math.sin(q * 6) * 1.5 : Math.sin(q * 7) * 0.8);
-  return { x, y, z, yaw: it.rotY, size: c.what === "crab" ? 2.4 : c.what === "butterfly" ? 2.4 : 2.6 };
+  return { x, y, z, yaw: it.rotY, size: c.what === "crab" ? 2.4 : c.what === "butterfly" ? 2.4 : c.what === "beast" ? 1.6 : 2.6 };
 }
 
 /** A creature crossing the view (procedural: crab, butterfly, bird). */
@@ -1204,6 +1204,45 @@ function Creature({ c, p, f }: { c: any; p: number; f: number }) {
             </Mesh3d>
           </Entity>
         ))}
+      </Entity>
+    );
+  }
+  if (c.what === "beast") {
+    // a four-legged animal: coloured and proportioned by its name (rabbit: white with long ears; dog; cat; horse; anything else a plain brown beast)
+    const w = String(c.kind ?? "");
+    const big = /horse|ox|cow|bull|deer|bear|wolf|lion|tiger|elephant/.test(w);
+    const small = /rabbit|hare|cat|rat|mouse|squirrel|fox|dog|hound/.test(w);
+    const col = /rabbit|hare|white|sheep|lamb|swan/.test(w) ? "#efeae0" : /black|cat|panther|wolf|crow/.test(w) ? "#2b2926" : /fox|red/.test(w) ? "#b4581f" : /grey|gray|rat|mouse/.test(w) ? "#77746d" : "#7b5a3a";
+    const long = /rabbit|hare/.test(w);
+    const s = cr.size * vis * (big ? 1.5 : small ? 0.8 : 1);
+    const hop = long ? Math.abs(Math.sin(f * 0.22)) * 0.5 * s : 0;
+    const leg = (x: number, z: number, ph: number) => (
+      <Mesh3d key={`${x}${z}`} shadow={false} transform={at(x * s, 0.22 * s + (long ? 0 : Math.max(0, Math.sin(f * 0.4 + ph)) * 0.08 * s), z * s)}>
+        <Capsule3d radius={0.06 * s} half_length={0.16 * s} />
+        <StandardMaterial base_color={col} perceptual_roughness={0.9} />
+      </Mesh3d>
+    );
+    return (
+      <Entity transform={at(cr.x, hop, cr.z, rot(0, cr.yaw + Math.PI / 2))}>
+        <Mesh3d shadow={false} transform={at(0, 0.5 * s, 0).withScale([1.5, 0.8, 0.85])}>
+          <Sphere radius={0.3 * s} />
+          <StandardMaterial base_color={col} perceptual_roughness={0.95} />
+        </Mesh3d>
+        <Mesh3d shadow={false} transform={at(0.5 * s, 0.68 * s, 0)}>
+          <Sphere radius={0.17 * s} />
+          <StandardMaterial base_color={col} perceptual_roughness={0.95} />
+        </Mesh3d>
+        {[-1, 1].map((sd) => (
+          <Mesh3d key={sd} shadow={false} transform={at(0.46 * s, (long ? 0.98 : 0.84) * s, sd * 0.08 * s)}>
+            <Capsule3d radius={0.035 * s} half_length={(long ? 0.2 : 0.07) * s} />
+            <StandardMaterial base_color={col} perceptual_roughness={0.95} />
+          </Mesh3d>
+        ))}
+        <Mesh3d shadow={false} transform={at(-0.48 * s, 0.55 * s, 0)}>
+          <Sphere radius={0.07 * s} />
+          <StandardMaterial base_color={long ? "#ffffff" : col} perceptual_roughness={0.95} />
+        </Mesh3d>
+        {[leg(0.3, 0.12, 0), leg(0.3, -0.12, 3), leg(-0.3, 0.12, 3), leg(-0.3, -0.12, 0)]}
       </Entity>
     );
   }
@@ -1522,6 +1561,8 @@ function Scene() {
       }
     }
     for (const c of on("quake")) shakeS += 0.1 * (c.amount ?? 0.6) * bell(cueQ(c, p));
+    // whatever the cues did, a lens indoors stays inside the room (a pull-back to "see the event" would otherwise end up outside the walls)
+    if (R.room) camS = [Math.max(-R.room.w / 2 + 0.3, Math.min(R.room.w / 2 - 0.3, camS[0])), Math.max(0.3, Math.min(R.room.h - 0.3, camS[1])), Math.max(-R.room.d / 2 + 0.3, Math.min(R.room.d / 2 - 0.3, camS[2]))];
   }
   let dimOv = 0; // a dark veil over the picture: the painted looks' flat sky ignores the lights, so the dimming is drawn on top
   let veil = "#04050c";
