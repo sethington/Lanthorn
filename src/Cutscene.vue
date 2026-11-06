@@ -12,7 +12,7 @@ import { assetsNeeded, resolveScene, sceneKey, type Resolved } from "./lib/resol
 import type { Bible, Scene } from "./lib/scene";
 import type { PackageAsset } from "./lib/book";
 import type { Sentence } from "./lib/text";
-import { alreadyJudged, applyVerdict, budgetLeft, describeCue, isDropped, judgeSettings, parseVerdict, RUBRIC, widenFor } from "./lib/judge";
+import { alreadyJudged, applyVerdict, budgetLeft, describeCue, brightFor, isDropped, judgeSettings, parseVerdict, RUBRIC, widenFor } from "./lib/judge";
 
 // `sid` is the sentence under the reading line, `frac` how far through it (0..1). The picture sits in the element matched by `host`.
 const props = defineProps<{ sentences: Sentence[]; scenes: Scene[]; bible: Bible; pkg?: PackageAsset[]; host: string; sid: number; frac: number; styleFor?: (s: Scene) => string | undefined; styleVer?: number }>();
@@ -292,14 +292,15 @@ function step(now: number) {
     if (import.meta.env.DEV) (window as any).__lwN = { narr, shot: sh, shotp: f.shotProgress, gi: loaded, g0: loadedG?.t0, g1: loadedG?.t1 };
     // the judge's corrections for what is on screen now: a shot that was too tight, a cue that needed more room
     let widen = 0;
+    let bright = 0;
     if (!ui.controlling) {
       const si = f.shot ? localShot.get(f.shot) : undefined;
-      if (si !== undefined) widen = widenFor(`${sig(loadedG)}|s${si}`);
-      for (const i of loadedG.scenes) for (const cue of props.scenes[i].stage ?? []) if (props.sid >= cue.at && props.sid <= cue.to) widen = Math.max(widen, widenFor(cueKey(loadedG, cue)));
+      if (si !== undefined) { widen = widenFor(`${sig(loadedG)}|s${si}`); bright = brightFor(`${sig(loadedG)}|s${si}`); }
+      for (const i of loadedG.scenes) for (const cue of props.scenes[i].stage ?? []) if (props.sid >= cue.at && props.sid <= cue.to) { widen = Math.max(widen, widenFor(cueKey(loadedG, cue))); bright = Math.max(bright, brightFor(cueKey(loadedG, cue))); }
     }
     api.worldCmd({
       cmd: "input",
-      keys: [...keys, ...(widen > 0.01 ? [`Widen:${widen.toFixed(2)}`] : [])],
+      keys: [...keys, ...(widen > 0.01 ? [`Widen:${widen.toFixed(2)}`] : []), ...(bright > 0.01 ? [`Bright:${bright.toFixed(2)}`] : [])],
       pointer: pointer ?? undefined,
       narrative: loadedG ? Math.min(1, Math.max(0, (tNow - loadedG.t0) / Math.max(0.001, loadedG.t1 - loadedG.t0))) : f.sceneProgress,
       shot: ui.controlling ? undefined : sh,

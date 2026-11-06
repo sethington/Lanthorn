@@ -481,6 +481,12 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
       const e = Math.asin(Math.max(-0.9, Math.min(0.9, (camY - tgt[1]) / d)));
       let p: [number, number, number] = [tgt[0] + Math.sin(a) * Math.cos(e) * d, tgt[1] + Math.sin(e) * d, tgt[2] + Math.cos(a) * Math.cos(e) * d];
       if (room) p = [Math.max(-room.w / 2 + 0.4, Math.min(room.w / 2 - 0.4, p[0])), Math.max(0.35, Math.min(room.h - 0.35, p[1])), Math.max(-room.d / 2 + 0.4, Math.min(room.d / 2 - 0.4, p[2]))];
+      // a lens inside someone's shoulder shows the top of a head: back it off anyone it isn't looking at
+      for (const g of figures) {
+        if (g.onMachine || Math.hypot(g.x - tgt[0], g.z - tgt[2]) < 0.8) continue;
+        const dx = p[0] - g.x, dz = p[2] - g.z, dd = Math.hypot(dx, dz);
+        if (dd < 2.2) { const k = dd < 0.01 ? 0 : 2.2 / dd; p = [g.x + (dd < 0.01 ? 2.2 : dx * k), p[1], g.z + (dd < 0.01 ? 0 : dz * k)]; }
+      }
       return p;
     };
     const panX = sh.move === "pan" ? 0.9 : 0;
@@ -604,7 +610,7 @@ export function assetsNeeded(r: Resolved): { kind: string; id: string; res: stri
 }
 
 /** Bump when runtime/scene.tsx changes in a way that alters frames, so cached renders are redone. */
-export const RUNTIME_VERSION = "rt61";
+export const RUNTIME_VERSION = "rt63";
 
 /** Cache key: changes whenever the resolved plan or the runtime does. */
 export function sceneKey(r: Resolved): string {

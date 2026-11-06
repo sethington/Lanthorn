@@ -84,6 +84,14 @@ def dress(name):
     hair = head & ((y > eyes[1] + 0.035) | ((z < eyes[2] - 0.065) & (y > neck_y + 0.06)))
     if name == "woman": hair = hair | (head & (z < eyes[2] - 0.03) & (y > neck_y - 0.12) & (np.hypot(x, z) < 0.13))
     reg[hair] = 1
+    # smooth ragged boundaries: each triangle takes the region most of its neighbours (triangles sharing a vertex) are in, twice
+    nv = len(pos)
+    for _ in range(2):
+        cnt = np.zeros((nv, 7), np.int32)
+        for c in range(3): np.add.at(cnt, (idx[:, c], reg), 1)
+        vote = cnt[idx].sum(axis=1)  # (m, 7): regions of every triangle touching this one's corners
+        new = vote.argmax(axis=1).astype(np.int32)
+        reg = np.where(vote[np.arange(m), new] > vote[np.arange(m), reg] * 1.15, new, reg)
     tri = reg
     # indices: one primitive per region (a triangle goes to the region most of its corners are in), each with its own flat material
     names = ["skin", "hair", "coat", "vest", "trou", "boot", "collar"]

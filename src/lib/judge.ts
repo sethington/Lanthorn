@@ -63,7 +63,7 @@ export function describeCue(c: { k: string; what?: string; how?: string }): stri
 }
 
 // ---- what the judge has learned about this book: per place and shot, saved
-type Memory = { widen: Record<string, number>; fails: Record<string, number>; done: Record<string, 1>; drop: string[]; stats: Record<string, { ok: number; bad: number }> };
+type Memory = { bright?: Record<string, number>; widen: Record<string, number>; fails: Record<string, number>; done: Record<string, 1>; drop: string[]; stats: Record<string, { ok: number; bad: number }> };
 const MKEY = (book: string) => `lanthorn:judge:${book}`;
 export const memory = reactive<{ book: string; m: Memory }>({ book: "", m: { widen: {}, fails: {}, done: {}, drop: [], stats: {} } });
 export function judgeUseBook(id: string) {
@@ -74,6 +74,7 @@ export function judgeUseBook(id: string) {
 }
 function save() { try { localStorage.setItem(MKEY(memory.book), JSON.stringify(memory.m)); } catch { /* optional */ } }
 export const alreadyJudged = (key: string) => !!memory.m.done[key];
+export const brightFor = (key: string) => memory.m.bright?.[key] ?? 0;
 export const widenFor = (key: string) => memory.m.widen[key] ?? 0;
 export const isDropped = (key: string) => memory.m.drop.includes(key);
 
@@ -84,6 +85,7 @@ export function applyVerdict(key: string, kind: string, v: Verdict) {
   const s = (m.stats[kind] ??= { ok: 0, bad: 0 });
   if (v.ok) s.ok++; else s.bad++;
   if (!v.ok) {
+    if (v.issues.includes("too_dark")) { (m.bright ??= {})[key] = Math.min(1, (m.bright[key] ?? 0) + 0.5); } // a murky frame is lifted, not just widened
     if (v.issues.some((i) => i === "too_close" || i === "clipped" || i === "empty")) m.widen[key] = Math.min(1.5, (m.widen[key] ?? 0) + 0.55);
     if (v.issues.includes("element_missing") || v.issues.includes("wrong_subject")) {
       m.fails[key] = (m.fails[key] ?? 0) + 1;

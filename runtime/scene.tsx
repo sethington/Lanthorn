@@ -101,6 +101,7 @@ function stepWorld(s: World, input: FrameInput, _frame: number): World {
   } else drag = false;
   const num = (prefix: string, d: number) => { const k = input.keys.find((x) => x.startsWith(prefix)); return k ? parseFloat(k.slice(prefix.length)) : d; };
   const shot = num("Shot:", -1);
+  brightS += (num("Bright:", 0) - brightS) * 0.06;
   widenS += (num("Widen:", 0) - widenS) * 0.06; // the picture judge asks for a wider view when a shot is too tight
   const shotP = num("ShotP:", -1);
   const fade = clamp(num("Fade:", 0));
@@ -1038,6 +1039,7 @@ function RoomDressing({ p }: { p: number }) {
 type V3 = [number, number, number];
 const cueQ = (c: any, p: number) => clamp((p - c.p0) / Math.max(1e-4, c.p1 - c.p0));
 const bell = (q: number) => Math.sin(Math.PI * clamp(q));
+let brightS = 0; // the judge lifts a frame it found too dark (0..1), eased
 let widenS = 0; // how much extra room the camera is asked to give (0..1.5), eased
 const vsub = (a: V3, b: V3): V3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const vnorm = (a: V3): V3 => { const n = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / n, a[1] / n, a[2] / n]; };
@@ -1533,7 +1535,7 @@ function Scene() {
       {STYLE === "cinematic" ? (
         <>
           <Bloom intensity={0.45} threshold={1.5} />
-          <ToneMapping mode="aces" exposure={R.exposure} />
+          <ToneMapping mode="aces" exposure={R.exposure * (1 + 0.8 * brightS)} />
           <Grade vignette={0.32} />
         </>
       ) : null}
