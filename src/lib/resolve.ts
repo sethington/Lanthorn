@@ -455,7 +455,12 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
     }
     if (/lever|dial|machine|rod|quartz/.test(f)) return [/lever/.test(f) ? 0.12 : 0, /lever/.test(f) ? 0.75 : 0.85, 0.35];
     const asset = assets.find((a) => f.includes(a.label.toLowerCase()) || a.label.toLowerCase().includes(f));
-    if (asset && f !== "scene") return [asset.pos[0], Math.max(0.4, level * 0.6), asset.pos[2]];
+    if (asset && f !== "scene") {
+      // a wide shot of a thing with people about keeps the nearest person in frame too: aim between them
+      const who = (framing as string) === "wide" ? figures.filter((g) => !g.onMachine).sort((a, b) => Math.hypot(a.x - asset.pos[0], a.z - asset.pos[2]) - Math.hypot(b.x - asset.pos[0], b.z - asset.pos[2]))[0] : undefined;
+      if (who) return [(who.x + asset.pos[0]) / 2, Math.max(0.6, level * 0.6), (who.z + asset.pos[2]) / 2];
+      return [asset.pos[0], Math.max(0.4, level * 0.6), asset.pos[2]];
+    }
     return [lookX, heroH * 0.5, 0];
   };
   const rigShot = (sh: Shot, p0: number, p1: number, i: number): CamShot => {
@@ -599,7 +604,7 @@ export function assetsNeeded(r: Resolved): { kind: string; id: string; res: stri
 }
 
 /** Bump when runtime/scene.tsx changes in a way that alters frames, so cached renders are redone. */
-export const RUNTIME_VERSION = "rt60";
+export const RUNTIME_VERSION = "rt61";
 
 /** Cache key: changes whenever the resolved plan or the runtime does. */
 export function sceneKey(r: Resolved): string {
