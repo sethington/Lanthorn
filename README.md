@@ -267,3 +267,9 @@ Lanthorn is licensed under the [GNU AGPL-3.0](LICENSE). Copyright (C) 2026 Seth 
 Scenes use CC0 models, skies and textures from [Poly Haven](https://polyhaven.com). 3D rendering is by
 [raea](https://github.com/shinyobjectz/raea) (FSL-1.1-ALv2). A package lists the licence, author and source of every asset
 it bundles in its manifest; the app doesn't display those credits yet.
+
+The people are bodies from [Anny](https://github.com/naver/anny) (NAVER LABS Europe, Apache 2.0, built on MakeHuman's CC0
+assets), generated with raea's character tool and painted with clothes and hair by `scripts/dress-people.py`. Their walking
+and other clips are retargeted motion capture from the CMU Graphics Lab Motion Capture Database (mocap.cs.cmu.edu), whose
+data is free to use; it was created with funding from NSF EIA-0196217. The example package's chapter is H. G. Wells,
+*The Time Machine* (1895), which is in the public domain.
