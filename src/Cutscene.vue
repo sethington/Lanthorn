@@ -12,7 +12,7 @@ import { assetsNeeded, resolveScene, sceneKey, type Resolved } from "./lib/resol
 import type { Bible, Scene } from "./lib/scene";
 import type { PackageAsset } from "./lib/book";
 import type { Sentence } from "./lib/text";
-import { alreadyJudged, applyVerdict, budgetLeft, describeCue, brightFor, isDropped, judgeSettings, parseVerdict, RUBRIC, widenFor } from "./lib/judge";
+import { alreadyJudged, applyVerdict, budgetLeft, describeCue, brightFor, placeFor, isDropped, judgeSettings, parseVerdict, RUBRIC, widenFor } from "./lib/judge";
 
 // `sid` is the sentence under the reading line, `frac` how far through it (0..1). The picture sits in the element matched by `host`.
 const props = defineProps<{ sentences: Sentence[]; scenes: Scene[]; bible: Bible; pkg?: PackageAsset[]; host: string; sid: number; frac: number; styleFor?: (s: Scene) => string | undefined; styleVer?: number }>();
@@ -50,7 +50,10 @@ const norm = (x: string) => (x ?? "").trim().toLowerCase();
 const sameWorld = (a: Scene, b: Scene) => norm(a.location) === norm(b.location) && !!a.interior === !!b.interior && norm(a.weather) === norm(b.weather);
 let groups: Group[] = [];
 let groupOfScene = new Map<number, number>();
-let localShot = new Map<object, number>();
+let localShot = new Map<string, number>();
+/** a shot's place in its group, found by its own times (the director may hand back a copy of the shot, so identity is not enough) */
+const shotKey = (x: { t0: number; t1: number; scene?: number }) => `${x.scene}|${x.t0.toFixed(3)}|${x.t1.toFixed(3)}`;
+const localOf = (x: any): number | undefined => (x ? localShot.get(shotKey(x)) : undefined);
 // a group's identity: where it starts and ends in the text (stable while other chapters come and go)
 const sig = (g: Group) => `${props.scenes[g.scenes[0]].from}:${props.scenes[g.scenes[g.scenes.length - 1]].to}`;
 const cueKey = (g: Group, cue: { k: string; at: number }) => `${sig(g)}|c:${cue.k}:${cue.at}`;
@@ -81,7 +84,7 @@ function build() {
   groups = gs;
   groupOfScene = gos;
   localShot = new Map();
-  groups.forEach((g) => groupShots(g).forEach((sh, n) => localShot.set(sh, n)));
+  groups.forEach((g) => groupShots(g).forEach((sh, n) => localShot.set(shotKey(sh), n)));
   loadedG = loadedSig ? groups.find((g) => sig(g) === loadedSig) ?? null : null;
   if (loadedSig && !loadedG) loadedSig = ""; // that place changed under us: it is loaded again
   tNow = targetTime();
@@ -151,7 +154,7 @@ function prepare(gi: number): Promise<Prep> {
         return { act, p0: (t0 - g.t0) / span, p1: (t1 - g.t0) / span };
       });
     });
-    const r: Resolved = resolveScene(whole, props.bible, { pkg: props.pkg, size: SIZE, shots, stage, acting, style: props.styleFor?.(rep) });
+    const r: Resolved = resolveScene(whole, props.bible, { pkg: props.pkg, size: SIZE, shots, stage, acting, style: props.styleFor?.(rep), place: placeFor(key0) });
     r.live = true;
     r.t0 = 0;
     prepKeyOf.set(key0, `${sceneKey(r)}-cut`);
@@ -287,14 +290,14 @@ function step(now: number) {
 
   if (!needLoad && loadedG && now - lastSent > 30) {
     lastSent = now;
-    const sh = f.shot ? (localShot.get(f.shot) ?? -1) : -1;
+    const sh = localOf(f.shot) ?? -1;
     const narr = loadedG ? Math.min(1, Math.max(0, (tNow - loadedG.t0) / Math.max(0.001, loadedG.t1 - loadedG.t0))) : f.sceneProgress;
     if (import.meta.env.DEV) (window as any).__lwN = { narr, shot: sh, shotp: f.shotProgress, gi: loaded, g0: loadedG?.t0, g1: loadedG?.t1 };
     // the judge's corrections for what is on screen now: a shot that was too tight, a cue that needed more room
     let widen = 0;
     let bright = 0;
     if (!ui.controlling) {
-      const si = f.shot ? localShot.get(f.shot) : undefined;
+      const si = localOf(f.shot);
       if (si !== undefined) { widen = widenFor(`${sig(loadedG)}|s${si}`); bright = brightFor(`${sig(loadedG)}|s${si}`); }
       for (const i of loadedG.scenes) for (const cue of props.scenes[i].stage ?? []) if (props.sid >= cue.at && props.sid <= cue.to) { widen = Math.max(widen, widenFor(cueKey(loadedG, cue))); bright = Math.max(bright, brightFor(cueKey(loadedG, cue))); }
     }
@@ -352,7 +355,7 @@ async function judgeTick() {
     if (key) break;
   }
   if (!key) {
-    const si = f.shot ? localShot.get(f.shot) : undefined;
+    const si = localOf(f.shot);
     if (si === undefined) return;
     const k = `${sig(g)}|s${si}`;
     if (alreadyJudged(k)) return;
@@ -370,7 +373,7 @@ async function judgeTick() {
     const c = await api.llmVision("judge", RUBRIC, `Text being read: "${text}"\nThe world was directed to show: ${what}.\nDoes the picture suit it?`, path);
     const v = parseVerdict(c.text);
     if (v) {
-      applyVerdict(key, kind, v);
+      if (applyVerdict(key, kind, v, sig(g))) { preps.delete(sig(g)); if (loadedG && sig(loadedG) === sig(g)) { loadedSig = ""; loadedG = null; } } // wrong kind of place: build it again
       stats.judged++;
       if (import.meta.env.DEV) fetch("/__debug", { method: "POST", body: JSON.stringify({ kind: "judge", data: { key, kind, ...v } }) }).catch(() => {});
     }

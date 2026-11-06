@@ -255,12 +255,12 @@ function matchPkg(phrase: string, models: Model[]): Model | null {
   return best?.m ?? null;
 }
 
-export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number; size?: [number, number]; pkg?: PackageAsset[]; shots?: { shot: Shot; p0: number; p1: number }[]; stage?: { cue: Cue; p0: number; p1: number }[]; acting?: { act: Act; p0: number; p1: number }[]; style?: string } = {}): Resolved {
+export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number; size?: [number, number]; pkg?: PackageAsset[]; shots?: { shot: Shot; p0: number; p1: number }[]; stage?: { cue: Cue; p0: number; p1: number }[]; acting?: { act: Act; p0: number; p1: number }[]; style?: string; place?: "interior" | "exterior" } = {}): Resolved {
   const pkg = pkgModels(opts.pkg);
   const loc = bible.locations.find((l) => l.id === scene.location);
   const locText = `${scene.location} ${loc?.desc ?? ""}`;
   const lw = words(locText.replace(/_/g, " "));
-  const kind: Kind = scene.interior && !EXT_WORDS.some((e) => lw.includes(e)) ? "interior" : "exterior";
+  const kind: Kind = opts.place ?? (scene.interior && !EXT_WORDS.some((e) => lw.includes(e)) ? "interior" : "exterior");
   const r = rng(hash(`${scene.id}:${scene.from}:${scene.to}`));
   const nSent = scene.to - scene.from + 1;
   // frames are scrubbed by reading position, so a scene needs resolution only where something changes: a static scene
@@ -461,6 +461,12 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
       if (who) return [(who.x + asset.pos[0]) / 2, Math.max(0.6, level * 0.6), (who.z + asset.pos[2]) / 2];
       return [asset.pos[0], Math.max(0.4, level * 0.6), asset.pos[2]];
     }
+    // nothing in particular to look at: look at the people (their middle, at chest height) rather than an empty centre
+    const people = figures.filter((g) => !g.onMachine);
+    if (people.length && kind !== "exterior" || people.length && (framing as string) !== "wide") {
+      const cx = people.reduce((a, g) => a + g.x, 0) / people.length, cz = people.reduce((a, g) => a + g.z, 0) / people.length;
+      return [cx, 1.1 * (people[0].scale ?? 1), cz];
+    }
     return [lookX, heroH * 0.5, 0];
   };
   const rigShot = (sh: Shot, p0: number, p1: number, i: number): CamShot => {
@@ -610,7 +616,7 @@ export function assetsNeeded(r: Resolved): { kind: string; id: string; res: stri
 }
 
 /** Bump when runtime/scene.tsx changes in a way that alters frames, so cached renders are redone. */
-export const RUNTIME_VERSION = "rt63";
+export const RUNTIME_VERSION = "rt65";
 
 /** Cache key: changes whenever the resolved plan or the runtime does. */
 export function sceneKey(r: Resolved): string {
