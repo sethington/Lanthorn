@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Lanthorn — Read by lantern light</title>
+<link rel="icon" href="logo.svg" type="image/svg+xml">
 <meta name="description" content="Lanthorn is a reader that projects each scene of your book as a living 3D world beside the page.">
 <meta property="og:title" content="Lanthorn — Read by lantern light">
 <meta property="og:description" content="A reader that projects each scene of your book as a living 3D world beside the page.">
@@ -24,30 +25,19 @@
     padding:0 16px; text-align:center;
   }
   main { max-width:34rem; }
-  .flame {
-    width:14px; height:22px; margin:0 auto 28px; border-radius:50% 50% 50% 50% / 65% 65% 35% 35%;
-    background:radial-gradient(circle at 50% 70%, #fff4d0, var(--glow) 60%, transparent 75%);
-    box-shadow:0 0 40px 14px rgba(255,185,90,.45);
-    animation:flicker 3.2s ease-in-out infinite;
-  }
-  @keyframes flicker {
-    0%,100% { opacity:1; transform:scale(1) }
-    30% { opacity:.85; transform:scale(.94,1.05) }
-    60% { opacity:.95; transform:scale(1.04,.97) }
-  }
+  .logo { display:block; margin:0 auto 24px; border-radius:22px; box-shadow:0 0 60px 8px rgba(255,185,90,.25); }
   h1 { font-size:clamp(2.6rem,9vw,4rem); font-weight:400; letter-spacing:.04em; margin:0 0 .4rem; }
   .tag { font-size:clamp(1.15rem,3.6vw,1.45rem); color:var(--glow); font-style:italic; margin:0 0 1.6rem; }
   p { color:var(--dim); line-height:1.6; margin:0 0 1.8rem; font-size:1.05rem; }
   a { color:var(--fg); text-decoration:none; border-bottom:1px solid var(--glow); padding-bottom:2px; }
   a:hover { color:var(--glow); }
   small { display:block; margin-top:2.4rem; color:#6d6150; font-size:.85rem; }
-  @media (prefers-reduced-motion:reduce) { .flame { animation:none } }
 </style>
 </head>
 <body>
 <noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-KDDFF74L" height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
 <main>
-  <div class="flame" aria-hidden="true"></div>
+  <img class="logo" src="logo.svg" alt="" width="96" height="96">
   <h1>Lanthorn</h1>
   <div class="tag">Read by lantern light.</div>
   <p>A reader that works out what each passage looks and sounds like, then builds it as a living 3D scene beside the page. Sky, weather, people and sound follow wherever you are in the text.</p>
