@@ -280,6 +280,9 @@ function step(now: number) {
   // Black only until the first world is up (never the desktop through the pane). After that nothing fades: shots are camera
   // moves, and a change of place holds the last picture until the next world is ready.
   ui.fade = ui.up ? 0 : 1;
+  // before any picture is up: say what we are waiting for. If this part of the book has no picture at all (a title page, a contents list), say so.
+  if (!ui.up && !loading && want < 0 && groups.length && !ui.error) ui.status = "No picture for this part";
+  else if (!ui.up && ui.status === "No picture for this part") ui.status = "Preparing the world…";
   ui.busy = needLoad;
 
   if (!needLoad && loadedG && now - lastSent > 30) {

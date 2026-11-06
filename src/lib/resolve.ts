@@ -156,7 +156,7 @@ export function personLook(ref: string, desc: string, rnd: () => number): { body
   const child = /\b(child|children|kid|little (?:boy|girl)|toddler|infant|schoolboy|schoolgirl|eloi|boy|girl)\b/.test(t) && !/\bold\b.*\bman\b/.test(t);
   const old = /\b(old|elderly|aged|ancient|grey-?haired|white-?haired|silver-?haired|bent|frail|stooped|venerable|withered)\b/.test(t);
   const body: "man" | "woman" | "kid" = child ? "kid" : she && !he ? "woman" : "man";
-  const nearby = (re: RegExp, words: RegExp): string | null => {
+  const nearby = (re: RegExp): string | null => {
     const m = re.exec(t);
     if (!m) return null;
     const around = t.slice(Math.max(0, m.index - 28), m.index + 36);
@@ -164,7 +164,7 @@ export function personLook(ref: string, desc: string, rnd: () => number): { body
     return null;
   };
   const pick = <T,>(a: T[]) => a[Math.floor(rnd() * a.length)];
-  const cloth = nearby(/\b(coat|jacket|dress|robe|suit|uniform|gown|cloak|tunic|shirt|clothes|clothing|garb|attire|cassock|frock)\b/, /./)
+  const cloth = nearby(/\b(coat|jacket|dress|robe|suit|uniform|gown|cloak|tunic|shirt|clothes|clothing|garb|attire|cassock|frock)\b/)
     ?? pick(body === "woman" ? ["#7a5590", "#5b6f58", "#7f3f45", "#3f4f6b", "#6d5a4a", "#2f3037"] : ["#6a5340", "#3f4a58", "#4a4a50", "#5a6048", "#5d4a3a", "#2e3036"]);
   const hairWord = /(black|brown|blond|blonde|golden|flaxen|red|ginger|auburn|grey|gray|white|silver|dark)[- ]?(?:hair|haired|beard|bearded)/.exec(t)?.[1];
   const hairMap: Record<string, string> = { black: "#1f1b18", brown: "#4a3626", blond: "#c7a65a", blonde: "#c7a65a", golden: "#d6b45c", flaxen: "#d6b45c", red: "#8a3a22", ginger: "#a2481f", auburn: "#6e3320", grey: "#9a9a9a", gray: "#9a9a9a", white: "#e2e0da", silver: "#c4c4c4", dark: "#2a2220" };
@@ -179,12 +179,16 @@ export function personLook(ref: string, desc: string, rnd: () => number): { body
 export function matchModel(phrase: string, allowed?: (m: Model) => boolean): Model | null {
   const ws = words(phrase);
   if (!ws.length) return null;
+  // the thing named is its last word ("sea-chest" is a chest, not the sea): a model must answer to that word, or it is a wrong object
+  const head = ws[ws.length - 1];
+  const heads = new Set([head, head.replace(/ies$/, "y"), head.replace(/es$/, ""), head.replace(/s$/, "")]);
   let best: { m: Model; s: number } | null = null;
   for (const m of MODELS) {
     if (m.poly > POLY_BUDGET || (allowed && !allowed(m))) continue;
     const nameW = new Set(words(m.name.replace(/_/g, " ")));
     const tagW = new Set(m.tags.flatMap((t) => words(t)));
     const catW = new Set(m.cats.flatMap((t) => words(t)));
+    if (ws.length > 1 && ![...heads].some((h) => nameW.has(h) || tagW.has(h))) continue;
     let s = 0;
     for (const w of ws) {
       if (nameW.has(w)) s += 4;
@@ -397,6 +401,12 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
     assets.push({ id: m.id, file: pkg.files.get(m.id)!, pos: [pl.x ?? 0, pl.y ?? 0, pl.z ?? 0], rotY: pl.rotY ?? 0, scale: h / height(m), label: pl.asset });
   }
 
+  // the place itself is a building (an inn, a church, a castle...) when the scene is outdoors at it and no prop already stands for it
+  if (kind === "exterior" && !assets.some((a) => a.id.startsWith("bld:"))) {
+    const bk = buildingKind(locText);
+    if (bk) assets.push({ id: `bld:${bk[0]}`, file: "", pos: [(r() - 0.5) * 6 + 6, 0, -Math.max(9, bk[3] * 0.6)], rotY: -0.35 + (r() - 0.5) * 0.4, scale: bk[2] * 1.15, label: locText.slice(0, 24) });
+  }
+
   // ---- ground / room
   const gid = grey || /storm|hail|rain/.test(scene.weather) ? "brown_mud_leaves_01" : "forrest_ground_01";
   const ground = kind === "exterior" ? { id: gid, tile: 2.5 } : null;
@@ -586,7 +596,7 @@ export function assetsNeeded(r: Resolved): { kind: string; id: string; res: stri
 }
 
 /** Bump when runtime/scene.tsx changes in a way that alters frames, so cached renders are redone. */
-export const RUNTIME_VERSION = "rt53";
+export const RUNTIME_VERSION = "rt56";
 
 /** Cache key: changes whenever the resolved plan or the runtime does. */
 export function sceneKey(r: Resolved): string {

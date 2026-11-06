@@ -16,6 +16,8 @@ const titleCase = (s: string) => s.replace(/[-_]+/g, " ").replace(/\b\w/g, (c) =
 // " IV.\n Time Travelling\n": a Roman numeral alone on a line, then a title line
 const ROMAN = /\n ([IVXLC]+)\.\n\s*(.+)\n/g;
 const CHAPTER_WORD = /^[ \t]*(?:CHAPTER|Chapter)[ \t]+([0-9]+|[IVXLC]+|[A-Za-z-]+)[.:]?[ \t]*(.*)$/gm;
+// "VII\nI Go to Bristol\n": a Roman numeral alone on its line (no dot), then the chapter's title (Gutenberg's newer layout); table-of-contents lines have dot leaders, so they don't match
+const ROMAN_BARE = /\n\n[ \t]*([IVXLC]{1,7})[ \t]*\n[ \t]*([^\n.]{3,90})\n\n/g;
 const MD_HEAD = /^#{1,2}[ \t]+(.+)$/gm;
 // "_1. The Horror in Clay._" or "2. The Tale": a small number, a dot and a short title alone on a line (Lovecraft-style parts)
 const NUMBERED = /^[ \t]*_?([0-9]{1,2})\.[ \t]+([A-Z][^\n]{2,70}?)\.?_?[ \t]*$/gm;
@@ -31,6 +33,11 @@ function hits(raw: string, re: RegExp, make: (m: RegExpExecArray) => Omit<Hit, "
 
 export function importText(rawIn: string, filename: string, kind: "text" | "markdown" = "text"): Book {
   let raw = rawIn.replace(/\r\n?/g, "\n");
+  // Project Gutenberg's own header and licence are not the book
+  const gs = /\*\*\* ?START OF (?:THE|THIS) PROJECT GUTENBERG[^\n]*\n/i.exec(raw);
+  if (gs) raw = raw.slice(gs.index + gs[0].length);
+  const ge = /\*\*\* ?END OF (?:THE|THIS) PROJECT GUTENBERG/i.exec(raw);
+  if (ge) raw = raw.slice(0, ge.index);
   // Gutenberg marks italics with _underscores_: show the words, not the marks
   if (kind === "text") raw = raw.replace(/(^|[\s(\[“"'‘])_([^_\n]+?)_(?=[\s.,;:!?)\]”"'’]|$)/gm, "$1$2");
   const base = filename.replace(/\.[a-z0-9]+$/i, "");
@@ -43,11 +50,18 @@ export function importText(rawIn: string, filename: string, kind: "text" | "mark
   let found: Hit[] = [];
   let strategy: "roman" | "word" | "md" | "none" = "none";
   const roman = hits(raw, ROMAN, (m) => ({ num: m[1], title: m[2].trim() }));
+  const bare = hits(raw, ROMAN_BARE, (m) => ({ num: m[1], title: m[2].trim() })).filter((h, i, all) => {
+    // a real run of chapter numbers: I, II, III... in order (roman values rising)
+    const val = (s: string) => ({ I: 1, V: 5, X: 10, L: 50, C: 100 } as Record<string, number>)[s] ?? 0;
+    const n = (s: string) => [...s].reduce((a, ch, k, arr) => a + (val(ch) < val(arr[k + 1] ?? "") ? -val(ch) : val(ch)), 0);
+    return all.length >= 5 && (i === 0 || n(h.num!) > n(all[i - 1].num!));
+  });
   const word = hits(raw, CHAPTER_WORD, (m) => ({ num: `Chapter ${m[1]}`, title: m[2].trim() }));
   const numbered = hits(raw, NUMBERED, (m) => ({ num: m[1], title: m[2].trim() })).filter((h, i, all) => Number(h.num) === i + 1 && all.length >= 2);
   const md = hits(raw, MD_HEAD, (m) => ({ title: m[1].trim() }));
   if (kind === "markdown" && md.length >= 2) { found = md; strategy = "md"; }
   else if (roman.length >= 3) { found = roman; strategy = "roman"; }
+  else if (bare.length >= 5) { found = bare; strategy = "word"; }
   else if (word.length >= 2) { found = word; strategy = "word"; }
   else if (numbered.length >= 2) { found = numbered; strategy = "word"; }
   else if (md.length >= 2) { found = md; strategy = "md"; }

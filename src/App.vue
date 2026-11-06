@@ -31,6 +31,8 @@ type Chap = {
   idx: number; base: number; nsent: number; key: string; chars: number; paras: Sentence[][];
   scenes: LlmScene[]; bible: Bible; state: "idle" | "running" | "done" | "error"; checked: boolean;
   done: number; total: number; cached: number; err: string; fresh: number; freshMs: number;
+  /** where a long chapter's analysis stopped (it only runs a little way ahead of the reader) */
+  resume?: { i: number; local: LlmScene[]; b: Bible; prevEnd: string | null };
 };
 const chaps = shallowRef<Chap[]>([]);
 const touch = () => triggerRef(chaps);
@@ -390,8 +392,9 @@ function toggleDetails() {
 const llmScenes = ref<LlmScene[]>([]); // every analysed chapter's scenes, joined, in the text's own sentence numbers
 const bible = ref<Bible>({ characters: [], locations: [] });
 const CHUNK = 40;
-const AHEAD = 2; // chapters analysed ahead of the reader
+const AHEAD = (() => { try { const v = Number(localStorage.getItem("lanthorn:ahead")); return Number.isFinite(v) && localStorage.getItem("lanthorn:ahead") !== null ? Math.max(0, Math.min(6, v)) : 2; } catch { return 2; } })(); // chapters analysed ahead of the reader (localStorage lanthorn:ahead)
 
+const LOOK = () => 160 + AHEAD * 220; // sentences past the reader that are analysed
 const curChap = computed(() => chaps.value[chapterIdx.value] ?? null);
 /** the chapter's progress, for the panel and the drawer */
 const analysis = computed(() => {
@@ -489,12 +492,22 @@ async function analyzeChapter(c: Chap, force = false) {
   const chunks = Math.ceil(all.length / CHUNK);
   c.total = chunks;
   touch();
-  let b: Bible = { characters: [], locations: [] };
-  let prevEnd: string | null = null;
-  const local: LlmScene[] = [];
+  let b: Bible = c.resume?.b ?? { characters: [], locations: [] };
+  let prevEnd: string | null = c.resume?.prevEnd ?? null;
+  const local: LlmScene[] = c.resume?.local ?? [];
+  const i0 = c.resume?.i ?? 0;
+  c.resume = undefined;
   const t0 = Date.now();
   try {
-    for (let i = 0; i < chunks; i++) {
+    for (let i = i0; i < chunks; i++) {
+      // only a little way ahead of the reader: a long chapter (a whole novel with no chapter marks) is read as they get to it, not all at once
+      if (c.base + i * CHUNK > curSid.value + LOOK()) {
+        c.resume = { i, local, b, prevEnd };
+        c.state = "idle";
+        c.done = i;
+        touch();
+        return;
+      }
       const slice = all.slice(i * CHUNK, (i + 1) * CHUNK);
       const tChunk = Date.now();
       let usedModel = false;
@@ -561,7 +574,7 @@ async function pump() {
       if (chaps.value !== owner) return;
       const ci = chapterIdx.value;
       const order = [0, ...Array.from({ length: AHEAD }, (_, k) => k + 1), -1];
-      const next = order.map((d) => chaps.value[ci + d]).find((c) => c && c.checked && c.state === "idle");
+      const next = order.map((d) => chaps.value[ci + d]).find((c) => c && c.checked && c.state === "idle" && !(c.resume && c.base + c.resume.i * CHUNK > curSid.value + LOOK()));
       if (!next) return;
       await analyzeChapter(next);
     }
@@ -570,6 +583,7 @@ async function pump() {
   }
 }
 watch(chapterIdx, () => pump());
+watch(() => Math.floor(curSid.value / 25), () => pump()); // as the reader moves on, a paused chapter goes on
 function retryChapter(c: Chap | null) {
   if (!c) return;
   c.state = "idle";

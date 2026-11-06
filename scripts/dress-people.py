@@ -100,7 +100,7 @@ def dress(name):
         js["bufferViews"].append({"buffer": 0, "byteOffset": start, "byteLength": len(data), "target": 34963})
         js["accessors"].append({"bufferView": len(js["bufferViews"]) - 1, "componentType": 5125, "count": int(sel.size), "type": "SCALAR"})
         c = srgb2lin(hexc(o[nm if nm != "trou" else "trou"] if nm != "boot" else o["boot"]))
-        mats.append({"name": nm, "pbrMetallicRoughness": {"baseColorFactor": [float(c[0]), float(c[1]), float(c[2]), 1.0], "metallicFactor": 0.0, "roughnessFactor": 0.82}})
+        mats.append({"name": nm, "pbrMetallicRoughness": {"baseColorFactor": [float(c[0]), float(c[1]), float(c[2]), 1.0], "metallicFactor": 0.0, "roughnessFactor": 1.0}})
         q = dict(P)
         q["indices"] = len(js["accessors"]) - 1
         q["material"] = len(js["materials"]) + len(mats) - 1
