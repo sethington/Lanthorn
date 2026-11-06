@@ -357,7 +357,8 @@ function Figure({ fig, f, p, leverA = 0 }: { fig: any; f: number; p: number; lev
   // ---- a person: an Anny body held in the pose the acting values describe
   {
     const bodyName = woman ? "woman" : eloi ? "kid" : "man";
-    const tint = woman ? "#7a5590" : "#b78fd0"; // the dress and the tunic, as painted on the bodies
+    const LK = fig.look as any; // per-character colours (resolver: personLook)
+    const tint = fig.look?.coat ?? (woman ? "#7a5590" : "#b78fd0"); // the dress and the tunic, as painted on the bodies
     const skel = BODIES[bodyName];
     const dirA = (s: number, a: number, side: number): [number, number, number] => [side, -Math.cos(a), -Math.sin(a)]; // a limb hanging from a joint, swung by a (negative = forward)
     const out = 0.1; // arms hang a little away from the body
@@ -370,7 +371,7 @@ function Figure({ fig, f, p, leverA = 0 }: { fig: any; f: number; p: number; lev
       RightForeArm: dirA(0, A.shL + A.elL, -out * 0.6),
       LeftArm: dirA(0, A.shR, out),
       LeftForeArm: dirA(0, A.shR + A.elR, out * 0.6),
-      Spine1: [0, Math.cos(A.lean), Math.sin(A.lean) * 1.0],
+      Spine1: [0, Math.cos(A.lean + (fig.look?.old ? -0.16 : 0)), Math.sin(A.lean + (fig.look?.old ? -0.16 : 0))],
       Head: [Math.sin(headYaw) * 0.6, Math.cos(headPitch), Math.sin(headPitch) * 0.8],
     };
     // the clothes and hair are painted on the body (scripts/dress-people.py): vertex colours, so they move exactly with the skin
@@ -400,7 +401,18 @@ function Figure({ fig, f, p, leverA = 0 }: { fig: any; f: number; p: number; lev
     }
     return (
       <>
-        <Character body={bodyName} pose={P} position={[px, rootY, pz]} yaw={yawA} scale={sc} outline={false} />
+        <Character body={bodyName} pose={P} position={[px, rootY, pz]} yaw={yawA} scale={sc} outline={false}>
+          {LK ? (
+            <>
+              <StandardMaterial material="skin" base_color={LK.skin} perceptual_roughness={0.7} />
+              <StandardMaterial material="hair" base_color={LK.hair} perceptual_roughness={0.8} />
+              <StandardMaterial material="coat" base_color={LK.coat} perceptual_roughness={0.88} />
+              <StandardMaterial material="vest" base_color={LK.vest} perceptual_roughness={0.75} />
+              <StandardMaterial material="trou" base_color={LK.trou} perceptual_roughness={0.88} />
+              <StandardMaterial material="boot" base_color={LK.boot} perceptual_roughness={0.55} />
+            </>
+          ) : null}
+        </Character>
         {skirt}
       </>
     );

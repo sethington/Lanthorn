@@ -66,7 +66,7 @@ def dress(name):
     ax = np.abs(x)
     m = len(idx)
     reg = np.zeros(m, np.int32)  # 0 skin, 1 hair, 2 coat, 3 vest, 4 trousers, 5 boots, 6 collar
-    arm = (y > hips_y + 0.25) & (ax > sh_x - 0.02)  # arms hang out from the shoulders
+    arm = (ax > sh_x + 0.05 * (hips_y / 1.12)) & (y > hips_y - 0.3 * (hips_y / 1.12))  # the arms: out beyond the shoulder line (the bind pose holds them angled down), from the shoulder to the hand
     torso = (y > hips_y - 0.02) & (y < neck_y + 0.0) & ~arm
     legs = (y < hips_y + 0.02) & ~arm
     hem = (knee_y - 0.18) if o["dress"] else ankle_y + 0.07

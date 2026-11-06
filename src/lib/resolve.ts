@@ -23,6 +23,8 @@ export type Fig = {
   onMachine: boolean;
   walk: [number, number, number, number] | null; // x0, z0, x1, z1 over the scene
   scale: number;
+  /** what they wear and look like, from the book's own description of them */
+  look?: { coat: string; vest: string; trou: string; boot: string; hair: string; skin: string; old: boolean };
   /** what this character does, in the world's 0..1 progress: sit, stand, crouch, walk_to (with a target), reach, use_lever, gesture, look_at, turn */
   acts?: { p0: number; p1: number; do: string; tx?: number; tz?: number }[];
 };
@@ -134,6 +136,45 @@ export const BUILDINGS: [string, RegExp, number, number][] = [
   ["house", /house|cottage|hut|inn\b|tavern|barn|farm|mill\b|cabin|dwelling|village|building/, 1.0, 14],
 ];
 export const buildingKind = (phrase: string): [string, RegExp, number, number] | undefined => BUILDINGS.find((b) => b[1].test(phrase.toLowerCase()));
+
+const COLOURS: [RegExp, string][] = [
+  [/\bblack\b|\bebony\b|\bsable\b/, "#26262b"], [/\bwhite\b|\bivory\b|\bcream\b/, "#e4e0d4"], [/\bgr[ae]y\b|\bsilver\b|\bslate\b/, "#70737a"],
+  [/\bnavy\b|\bdark blue\b/, "#2b3550"], [/\bblue\b/, "#3f5679"], [/\bcrimson\b|\bscarlet\b/, "#7a2430"], [/\bred\b|\bmaroon\b/, "#8d3a32"],
+  [/\bgreen\b|\bolive\b/, "#4a6244"], [/\byellow\b|\bgold(?:en)?\b/, "#c3a24a"], [/\bpurple\b|\bviolet\b|\bplum\b/, "#6d4a82"], [/\bpink\b/, "#c88ba0"],
+  [/\borange\b/, "#b3693a"], [/\btan\b|\bbeige\b|\bkhaki\b|\bbuff\b/, "#a99772"], [/\bbrown\b|\bleather\b/, "#6a5340"],
+];
+const mixHexC = (a: string, b: string, k: number) => {
+  const h = (s: string) => [1, 3, 5].map((i) => parseInt(s.slice(i, i + 2), 16));
+  const x = h(a), y = h(b);
+  return `#${x.map((v, i) => Math.round(v * (1 - k) + y[i] * k).toString(16).padStart(2, "0")).join("")}`;
+};
+/** Who this is, from the book's description of them: which body, how old, what they wear. Seeded by name so the same person always looks the same. */
+export function personLook(ref: string, desc: string, rnd: () => number): { body: "man" | "woman" | "kid"; look: NonNullable<Fig["look"]> } {
+  const t = `${ref.replace(/_/g, " ")} ${desc}`.toLowerCase();
+  const she = /\b(she|her|woman|women|girl|lady|mrs|miss|ms|mother|daughter|queen|wife|madam|aunt|sister|widow|maid|housekeeper|actress|duchess|countess|princess)\b/.test(t);
+  const he = /\b(he|his|him|man|men|boy|gentleman|mr|father|king|husband|uncle|brother|sir|lord|captain|doctor|professor|inspector|sailor|priest)\b/.test(t);
+  const child = /\b(child|children|kid|little (?:boy|girl)|toddler|infant|schoolboy|schoolgirl|eloi|boy|girl)\b/.test(t) && !/\bold\b.*\bman\b/.test(t);
+  const old = /\b(old|elderly|aged|ancient|grey-?haired|white-?haired|silver-?haired|bent|frail|stooped|venerable|withered)\b/.test(t);
+  const body: "man" | "woman" | "kid" = child ? "kid" : she && !he ? "woman" : "man";
+  const nearby = (re: RegExp, words: RegExp): string | null => {
+    const m = re.exec(t);
+    if (!m) return null;
+    const around = t.slice(Math.max(0, m.index - 28), m.index + 36);
+    for (const [c, hex] of COLOURS) if (c.test(around)) return hex;
+    return null;
+  };
+  const pick = <T,>(a: T[]) => a[Math.floor(rnd() * a.length)];
+  const cloth = nearby(/\b(coat|jacket|dress|robe|suit|uniform|gown|cloak|tunic|shirt|clothes|clothing|garb|attire|cassock|frock)\b/, /./)
+    ?? pick(body === "woman" ? ["#7a5590", "#5b6f58", "#7f3f45", "#3f4f6b", "#6d5a4a", "#2f3037"] : ["#6a5340", "#3f4a58", "#4a4a50", "#5a6048", "#5d4a3a", "#2e3036"]);
+  const hairWord = /(black|brown|blond|blonde|golden|flaxen|red|ginger|auburn|grey|gray|white|silver|dark)[- ]?(?:hair|haired|beard|bearded)/.exec(t)?.[1];
+  const hairMap: Record<string, string> = { black: "#1f1b18", brown: "#4a3626", blond: "#c7a65a", blonde: "#c7a65a", golden: "#d6b45c", flaxen: "#d6b45c", red: "#8a3a22", ginger: "#a2481f", auburn: "#6e3320", grey: "#9a9a9a", gray: "#9a9a9a", white: "#e2e0da", silver: "#c4c4c4", dark: "#2a2220" };
+  const hair = old && !hairWord ? "#b9b6b0" : hairMap[hairWord ?? ""] ?? pick(["#4a3626", "#2a2220", "#6a4a2e", "#8a6a3e", "#1f1b18"]);
+  const skin = /\b(pale|fair|white-skinned)\b/.test(t) ? "#ecc9ad" : /\b(dark-skinned|black-skinned|dark skin|ebony)\b/.test(t) ? "#8a5a3c" : /\b(tanned|swarthy|olive|brown-skinned|sunburnt|weathered)\b/.test(t) ? "#c08e66" : pick(["#e8c39d", "#d7b08f", "#c99a73", "#e3bd9f", "#b98458", "#f0d2b3"]);
+  return {
+    body,
+    look: { coat: cloth, vest: mixHexC(cloth, "#d8cba8", 0.45), trou: body === "woman" ? cloth : mixHexC(cloth, "#2a2a2e", 0.55), boot: "#2a211b", hair, skin, old },
+  };
+}
 
 export function matchModel(phrase: string, allowed?: (m: Model) => boolean): Model | null {
   const ws = words(phrase);
@@ -265,9 +306,11 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
       continue;
     }
     const walk = pose === "walking" ? ([sx - 2.4, -1.4, sx + 2.4, -1.4] as [number, number, number, number]) : null;
+    const pl = personLook(sj.ref, bible.characters.find((c) => c.id === sj.ref)?.desc ?? "", rng(hash(`${sj.ref}:look`)));
     figures.push({
       ref: sj.ref,
-      kind,
+      kind: pl.body === "kid" && kind !== "eloi" ? "eloi" : kind === "generic" ? (pl.body === "woman" ? "woman" : "man") : kind,
+      look: pl.look,
       pose,
       x: rider ? 0 : walk ? walk[0] : hero.kind === "time_machine" ? (sx > 0 ? 1.75 : -1.75) : sx,
       z: rider ? 0 : walk ? walk[1] : 0.3,
@@ -543,7 +586,7 @@ export function assetsNeeded(r: Resolved): { kind: string; id: string; res: stri
 }
 
 /** Bump when runtime/scene.tsx changes in a way that alters frames, so cached renders are redone. */
-export const RUNTIME_VERSION = "rt52";
+export const RUNTIME_VERSION = "rt53";
 
 /** Cache key: changes whenever the resolved plan or the runtime does. */
 export function sceneKey(r: Resolved): string {
