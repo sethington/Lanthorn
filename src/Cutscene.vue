@@ -195,6 +195,25 @@ function worldGroup(gi: number): number {
   return -1;
 }
 
+// Keep the places ahead of the reader prepared, so scrolling on finds them ready: the next few that have a picture, two at a time.
+const AHEAD_PLACES = 4;
+const inflight = new Set<string>();
+let pumpAt = 0;
+function pump(gi: number, now: number) {
+  if (now - pumpAt < 700 || gi < 0) return;
+  pumpAt = now;
+  let seen = 0;
+  for (let k = gi; k < groups.length && seen <= AHEAD_PLACES; k++) {
+    if (!usable(k)) continue;
+    seen++;
+    const key = sig(groups[k]);
+    if (preps.has(key) || inflight.size >= 2) continue;
+    inflight.add(key);
+    const done = () => inflight.delete(key);
+    prepare(k).then(done, done);
+  }
+}
+
 let loading = false;
 let wantKey = ""; // the prepare key of the place being made now
 let unlistenProg: UnlistenFn | null = null;
@@ -295,10 +314,11 @@ function step(now: number) {
   const want = gi >= 0 ? worldGroup(gi) : -1;
   const needLoad = want >= 0 && sig(groups[want]) !== loadedSig;
   if (needLoad && !loading) loadWorld(want);
+  pump(want >= 0 ? want : gi, now);
   if (needLoad && ui.controlling) release(); // the reader moved to another place: the camera goes back to following the text
   frame.value = f;
   const loaded = loadedG ? groups.indexOf(loadedG) : -1;
-  if (import.meta.env.DEV) (window as any).__lw = { loaded, loading, want, t: tNow, target };
+  if (import.meta.env.DEV) (window as any).__lw = { loaded, loading, want, t: tNow, target, preps: preps.size, inflight: inflight.size };
   ui.t = f.t;
   ui.beat = f.beatIndex;
   // Black only until the first world is up (never the desktop through the pane). After that nothing fades: shots are camera
