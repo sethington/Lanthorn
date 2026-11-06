@@ -87,6 +87,121 @@ fn rel_ok(rel: &str) -> bool {
     !rel.starts_with('/') && !rel.split('/').any(|p| p == ".." || p.is_empty())
 }
 
+/// The engine's image-based light isn't blurred by a surface's roughness, so a sky with a sun in it makes everything look wet and glittery
+/// (a coat gets mirror highlights; the ground sparkles). The sun is the directional light's job: cap the sky's brightness so the sky
+/// lights things softly. Radiance .hdr (RGBE, run-length coded) in, the same out with every pixel's brightest channel held to `CAP`.
+fn tame_hdri(path: &Path) -> Result<(), String> {
+    const CAP: f32 = 6.0;
+    let mark = path.with_extension("hdr.tamed");
+    if mark.exists() {
+        return Ok(());
+    }
+    let data = std::fs::read(path).map_err(|e| e.to_string())?;
+    // header: lines up to a blank line, then "-Y h +X w"
+    let mut pos = 0usize;
+    let mut header = Vec::new();
+    loop {
+        let end = data[pos..].iter().position(|b| *b == b'\n').ok_or("bad hdr header")? + pos;
+        let line = &data[pos..end];
+        pos = end + 1;
+        if line.is_empty() {
+            break;
+        }
+        header.push(String::from_utf8_lossy(line).to_string());
+    }
+    let end = data[pos..].iter().position(|b| *b == b'\n').ok_or("bad hdr size line")? + pos;
+    let size = String::from_utf8_lossy(&data[pos..end]).to_string();
+    pos = end + 1;
+    let parts: Vec<&str> = size.split_whitespace().collect();
+    if parts.len() != 4 || parts[0] != "-Y" || parts[2] != "+X" {
+        return Err("unsupported hdr orientation".into());
+    }
+    let h: usize = parts[1].parse().map_err(|_| "bad hdr height")?;
+    let w: usize = parts[3].parse().map_err(|_| "bad hdr width")?;
+    let mut px = vec![0u8; w * h * 4];
+    for y in 0..h {
+        let row = &mut px[y * w * 4..(y + 1) * w * 4];
+        if (8..32768).contains(&w) && data.len() > pos + 4 && data[pos] == 2 && data[pos + 1] == 2 && (data[pos + 2] & 0x80) == 0 {
+            pos += 4; // new-style RLE: each channel in turn
+            for c in 0..4 {
+                let mut x = 0;
+                while x < w {
+                    let n = *data.get(pos).ok_or("short hdr")? as usize;
+                    pos += 1;
+                    if n > 128 {
+                        let v = *data.get(pos).ok_or("short hdr")?;
+                        pos += 1;
+                        for _ in 0..(n - 128) {
+                            row[x * 4 + c] = v;
+                            x += 1;
+                        }
+                    } else {
+                        for _ in 0..n {
+                            row[x * 4 + c] = *data.get(pos).ok_or("short hdr")?;
+                            pos += 1;
+                            x += 1;
+                        }
+                    }
+                }
+            }
+        } else {
+            let n = w * 4;
+            row.copy_from_slice(data.get(pos..pos + n).ok_or("short hdr")?);
+            pos += n;
+        }
+    }
+    // cap
+    for p in px.chunks_mut(4) {
+        let e = p[3] as i32 - 136; // value = mantissa/256 * 2^(e-128)
+        if p[3] == 0 {
+            continue;
+        }
+        let scale = (2.0f32).powi(e);
+        let m = p[0].max(p[1]).max(p[2]) as f32 * scale;
+        if m > CAP {
+            let k = CAP / m;
+            let (r, g, b) = (p[0] as f32 * scale * k, p[1] as f32 * scale * k, p[2] as f32 * scale * k);
+            let mx = r.max(g).max(b);
+            if mx <= 1e-32 {
+                p.copy_from_slice(&[0, 0, 0, 0]);
+                continue;
+            }
+            // frexp
+            let ex = mx.log2().floor() as i32 + 1;
+            let f = (2.0f32).powi(-ex) * 256.0;
+            p[0] = (r * f).min(255.0) as u8;
+            p[1] = (g * f).min(255.0) as u8;
+            p[2] = (b * f).min(255.0) as u8;
+            p[3] = (ex + 128) as u8;
+        }
+    }
+    // write: the same header, flat-coded through literal runs (valid RLE)
+    let mut out = Vec::with_capacity(data.len() + h * 16);
+    for l in &header {
+        out.extend_from_slice(l.as_bytes());
+        out.push(b'\n');
+    }
+    out.push(b'\n');
+    out.extend_from_slice(format!("-Y {h} +X {w}\n").as_bytes());
+    for y in 0..h {
+        out.extend_from_slice(&[2, 2, (w >> 8) as u8, (w & 255) as u8]);
+        for c in 0..4 {
+            let mut x = 0;
+            while x < w {
+                let n = (w - x).min(128);
+                out.push(n as u8);
+                for i in 0..n {
+                    out.push(px[(y * w + x + i) * 4 + c]);
+                }
+                x += n;
+            }
+        }
+    }
+    std::fs::write(path, out).map_err(|e| e.to_string())?;
+    std::fs::write(mark, "1").map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 async fn fetch_asset(client: &reqwest::Client, root: &Path, a: &AssetReq) -> Result<(), String> {
     if !safe(&a.id) || !["1k", "2k"].contains(&a.res.as_str()) {
         return Err(format!("bad asset request {}/{}", a.kind, a.id));
@@ -99,6 +214,9 @@ async fn fetch_asset(client: &reqwest::Client, root: &Path, a: &AssetReq) -> Res
         _ => String::new(),
     };
     if dir.join("license.json").exists() && (want.is_empty() || dir.join(&want).exists()) {
+        if a.kind == "hdri" {
+            let _ = tame_hdri(&dir.join(&want)); // (a sky fetched by an earlier build is capped the first time it is used)
+        }
         return Ok(());
     }
     let files: Value = client
@@ -131,6 +249,7 @@ async fn fetch_asset(client: &reqwest::Client, root: &Path, a: &AssetReq) -> Res
             let url = files["hdri"][&a.res]["hdr"]["url"].as_str().ok_or_else(|| format!("no HDR at {} for {}", a.res, a.id))?;
             main = url.rsplit('/').next().unwrap_or("sky.hdr").to_string();
             download(client, url, &dir.join(&main)).await?;
+            let _ = tame_hdri(&dir.join(&main));
         }
         "texture" => {
             for (key, out) in [("Diffuse", "diff.jpg"), ("nor_gl", "nor.jpg"), ("arm", "arm.jpg")] {
