@@ -24,6 +24,17 @@ macro_rules! moon {
 }
 const MOON: &[(&str, &[u8])] = moon!("00", "01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12", "13", "14", "15");
 
+/// The people: Anny bodies (scripts/make-people.sh), written as media/characters/<name>/ next to the downloaded models.
+macro_rules! person {
+    ($($n:literal),*) => { &[$(($n, [
+        ("body.glb", include_bytes!(concat!("../../runtime/characters/", $n, "/body.glb")) as &[u8]),
+        ("body.hull.glb", include_bytes!(concat!("../../runtime/characters/", $n, "/body.hull.glb")) as &[u8]),
+        ("joint.glb", include_bytes!(concat!("../../runtime/characters/", $n, "/joint.glb")) as &[u8]),
+        ("skeleton.json", include_bytes!(concat!("../../runtime/characters/", $n, "/skeleton.json")) as &[u8]),
+    ])),*] };
+}
+const PEOPLE: &[(&str, [(&str, &[u8]); 4])] = person!("man", "woman", "kid");
+
 /// Release builds ship the embedded runtime. Debug builds read it from disk so editing runtime/scene.tsx
 /// takes effect on the next render without a Rust rebuild (tauri dev only watches src-tauri).
 fn runtime_src() -> String {
@@ -171,6 +182,16 @@ pub async fn world_bundle(app: &AppHandle, key: &str, resolved: &str, assets: Ve
             let f = dir.join(format!("moon_{n}.png"));
             if std::fs::metadata(&f).map(|m| m.len() as usize != bytes.len()).unwrap_or(true) {
                 std::fs::write(&f, bytes).map_err(|e| e.to_string())?;
+            }
+        }
+    }
+    for (name, files) in PEOPLE {
+        let dir = asset_root.join("characters").join(name);
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        for (f, bytes) in files {
+            let path = dir.join(f);
+            if std::fs::metadata(&path).map(|m| m.len() as usize != bytes.len()).unwrap_or(true) {
+                std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
             }
         }
     }

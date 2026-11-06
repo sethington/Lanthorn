@@ -7,10 +7,19 @@ import { Capsule3d, Cone, Cuboid, Cylinder, Mesh3d, Plane3d } from "raea/mesh";
 import { AmbientLight, DirectionalLight, PointLight } from "raea/light";
 import { Quat, Transform } from "raea/transform";
 import { Camera3d } from "raea/camera";
+import { Character, held, registerBody } from "raea/character";
+import annyMan from "./media/characters/man/skeleton.json" with { type: "json" };
+import annyWoman from "./media/characters/woman/skeleton.json" with { type: "json" };
+import annyKid from "./media/characters/kid/skeleton.json" with { type: "json" };
 import data from "./scene.json" with { type: "json" };
 
 // Generic runtime: renders any resolved Lanthorn scene (see src/lib/resolve.ts). Pure function of the frame.
 const R: any = data;
+// People are Anny bodies (raea/character): a man, a woman and a child, posed from the same acting values the old mannequin used.
+registerBody(annyMan as any);
+registerBody(annyWoman as any);
+registerBody(annyKid as any);
+const BODIES: Record<string, any> = { man: annyMan, woman: annyWoman, kid: annyKid };
 const N: number = R.frames;
 const [W, H]: [number, number] = R.size;
 
@@ -339,6 +348,31 @@ function Figure({ fig, f, p, leverA = 0 }: { fig: any; f: number; p: number; lev
     </Entity>
   );
 
+  // ---- a person: an Anny body held in the pose the acting values describe
+  {
+    const bodyName = woman ? "woman" : eloi ? "kid" : "man";
+    const skel = BODIES[bodyName];
+    const dirA = (s: number, a: number, side: number): [number, number, number] => [side, -Math.cos(a), -Math.sin(a)]; // a limb hanging from a joint, swung by a (negative = forward)
+    const out = 0.1; // arms hang a little away from the body
+    const aims: Record<string, [number, number, number]> = {
+      RightUpLeg: dirA(0, A.hipL, 0),
+      RightLeg: dirA(0, A.hipL + A.kneeL, 0),
+      LeftUpLeg: dirA(0, A.hipR, 0),
+      LeftLeg: dirA(0, A.hipR + A.kneeR, 0),
+      RightArm: dirA(0, A.shL, -out),
+      RightForeArm: dirA(0, A.shL + A.elL, -out * 0.6),
+      LeftArm: dirA(0, A.shR, out),
+      LeftForeArm: dirA(0, A.shR + A.elR, out * 0.6),
+      Spine1: [0, Math.cos(A.lean), Math.sin(A.lean) * 1.0],
+      Head: [Math.sin(headYaw) * 0.6, Math.cos(headPitch), Math.sin(headPitch) * 0.8],
+    };
+    const tint = woman ? "#7d5a8c" : eloi ? "#b98ad0" : C.coat;
+    return (
+      <Character body={bodyName} pose={held(skel, aims)} position={[px, rootY, pz]} yaw={yawA} scale={sc * (eloi ? 1 : 1)} outline={false}>
+        <StandardMaterial base_color={tint} base_color_texture={null} perceptual_roughness={0.8} />
+      </Character>
+    );
+  }
   return (
     <Entity transform={at(px, rootY, pz, rot(0, yawA)).withScale([sc, sc, sc])}>
       <Leg x={-0.095} hip={A.hipL} knee={A.kneeL} ank={walking ? -A.hipL * 0.4 : seated ? 0.1 : 0} />
