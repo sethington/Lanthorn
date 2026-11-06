@@ -448,6 +448,9 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
     const fig = figures.find((g) => g.ref.toLowerCase() === f || f.includes(g.ref.toLowerCase()) || g.ref.toLowerCase().includes(f));
     if (fig && f !== "scene") {
       const seatedLift = fig.pose === "seated" ? -0.1 : 0;
+      // a wide shot of a person beside a building keeps both in frame: aim between them
+      const bld = (framing as string) === "wide" ? assets.find((a) => a.id.startsWith("bld:")) : undefined;
+      if (bld && !fig.onMachine) return [(fig.x + bld.pos[0]) / 2, (level + seatedLift) * fig.scale, (fig.z + bld.pos[2]) / 2];
       return [fig.onMachine ? 0 : fig.x, (level + seatedLift) * fig.scale, fig.onMachine ? 0.02 : fig.z];
     }
     if (/lever|dial|machine|rod|quartz/.test(f)) return [/lever/.test(f) ? 0.12 : 0, /lever/.test(f) ? 0.75 : 0.85, 0.35];

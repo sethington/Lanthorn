@@ -1077,14 +1077,14 @@ function SunStreak({ c, p, cam }: { c: any; p: number; cam: V3 }) {
   if (vis < 0.01) return null;
   return (
     <>
-      {Array.from({ length: 14 }, (_, k) => {
-        const u = clamp(q - k * 0.03);
+      {Array.from({ length: 44 }, (_, k) => {
+        const u = clamp(q - k * 0.009);
         const pt = skyPoint(cam, c.az + u * 2.6, (c.el + 62 * Math.sin(Math.PI * u)) * D2R, 60);
-        const sz = 2.6 * (1 - k * 0.055) * vis;
+        const sz = 2.2 * (1 - k * 0.019) * vis;
         return (
           <Mesh3d key={k} shadow={false} transform={at(...pt)}>
             <Sphere radius={Math.max(0.1, sz)} />
-            <StandardMaterial base_color="#ffd9a0" unlit emissive={glow(k === 0 ? "#ffcf7a" : "#ff8a3c", 7 - k * 0.45)} />
+            <StandardMaterial base_color="#ffd9a0" unlit emissive={glow(k === 0 ? "#ffcf7a" : "#ff8a3c", Math.max(1.5, 7 - k * 0.14))} />
           </Mesh3d>
         );
       })}
