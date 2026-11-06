@@ -262,6 +262,8 @@ A package is untrusted input, so the app checks everything when it loads one, no
 
 ## Credits and licences
 
+Lanthorn is licensed under the [GNU AGPL-3.0](LICENSE). Copyright (C) 2026 Seth Steele. For other terms, get in touch.
+
 Scenes use CC0 models, skies and textures from [Poly Haven](https://polyhaven.com). 3D rendering is by
 [raea](https://github.com/shinyobjectz/raea) (FSL-1.1-ALv2). A package lists the licence, author and source of every asset
 it bundles in its manifest; the app doesn't display those credits yet.

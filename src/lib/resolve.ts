@@ -68,7 +68,7 @@ export type Resolved = {
   ground: { id: string; tile: number } | null;
   /** water at the edge of the land (the sea, a lake): where the shore runs (z) and what kind of water it is */
   water: { zEdge: number; mood: "calm" | "oily" | "red" | "storm" } | null;
-  room: { w: number; d: number; h: number; floor: string; wall: string } | null;
+  room: RoomR | null;
   fog: { color: string; density: number };
   assets: Placed[];
   hero: { kind: "time_machine" | "none"; figure: boolean; sphinx: boolean };
@@ -256,6 +256,31 @@ function matchPkg(phrase: string, models: Model[]): Model | null {
   return best?.m ?? null;
 }
 
+/** An indoor place: its size, surfaces and what is in it, chosen from what the text says the place is. */
+export type RoomR = {
+  w: number; d: number; h: number; floor: string; wall: string;
+  tile?: number; // metres per repeat of the floor picture
+  wallC?: string; wain?: string | null; trim?: string; ceilC?: string; rug?: string | null;
+  windows?: { x: number; w: number; h: number; y: number }[]; // on the back wall; x as a fraction of the width
+  pictures?: boolean; door?: boolean; style?: string;
+};
+const ROOMS: [string, RegExp, Omit<RoomR, "wall"> & { wall?: string }][] = [
+  ["cellar", /cellar|dungeon|crypt|vault|prison|cell\b|tomb|catacomb|cave|cavern|mine\b|tunnel|basement|sewer/, { w: 7, d: 6, h: 2.9, floor: "cobblestone_floor_01", tile: 1.4, wallC: "#58544d", wain: null, trim: "#3d3a35", ceilC: "#3a3732", rug: null, windows: [{ x: 0.3, w: 0.28, h: 0.2, y: 2.3 }], pictures: false, door: true }],
+  ["church", /church|chapel|cathedral|temple|abbey|monaster|shrine|mosque|minster/, { w: 9, d: 12, h: 7, floor: "stone_tiles", tile: 1.8, wallC: "#bdb5a4", wain: null, trim: "#8e8573", ceilC: "#a79f8d", rug: "#6e1c26", windows: [-0.3, 0, 0.3].map((x) => ({ x, w: 0.5, h: 2.4, y: 3.6 })), pictures: false, door: true }],
+  ["hall", /\\bhall\\b|ballroom|palace|great hall|banquet|throne|gallery|mansion|castle|court\b|assembly rooms?|salon|corridor/, { w: 12, d: 9, h: 5, floor: "marble_tiles", tile: 2, wallC: "#d0c7b3", wain: "#9d9482", trim: "#e7dfcc", ceilC: "#d9d1bf", rug: "#7a1f2b", windows: [-0.3, 0, 0.3].map((x) => ({ x, w: 0.6, h: 1.7, y: 2.5 })), pictures: true, door: true }],
+  ["study", /study|library|office|laborator|workshop|studio|chambers|counting|bookshop|club\b|smoking|den\b/, { w: 7, d: 5.5, h: 3.2, floor: "dark_wooden_planks", tile: 1.6, wallC: "#6f5a45", wain: "#3b2b1d", trim: "#2c2016", ceilC: "#5a4a3a", rug: "#2f4a3a", windows: [{ x: 0.2, w: 0.65, h: 0.95, y: 1.8 }], pictures: true, door: true }],
+  ["kitchen", /kitchen|cottage|farm|hut\b|cabin|barn|stable|hovel|scullery|pantry|dairy|bakery|mill\b/, { w: 6, d: 5, h: 2.8, floor: "plank_flooring_02", tile: 1.5, wallC: "#cdbf9f", wain: null, trim: "#6a5238", ceilC: "#b8a98a", rug: null, windows: [{ x: 0.22, w: 0.5, h: 0.7, y: 1.7 }], pictures: false, door: true }],
+  ["ship", /ship|boat|cabin of|galley|forecastle|steerage|hold\b|deck below|submarine|capsule|train|carriage|coach|compartment/, { w: 5.2, d: 4.2, h: 2.3, floor: "wood_planks_grey", tile: 1.2, wallC: "#8a6c4a", wain: "#5b4630", trim: "#3f3022", ceilC: "#6f5a40", rug: null, windows: [{ x: -0.2, w: 0.34, h: 0.4, y: 1.5 }, { x: 0.2, w: 0.34, h: 0.4, y: 1.5 }], pictures: false, door: true }],
+  ["bedroom", /bedroom|bedchamber|nursery|attic|dormitor|boudoir|sleeping|garret/, { w: 6, d: 5, h: 3, floor: "wood_floor", tile: 1.6, wallC: "#c9b9a3", wain: "#9a846d", trim: "#efe6d6", ceilC: "#ddd2bf", rug: "#4d5f7a", windows: [{ x: 0.2, w: 0.6, h: 0.9, y: 1.75 }], pictures: true, door: true }],
+  ["future", /future|palace of green|porcelain|laborator.*future|metal(?:lic)? (?:hall|room)|machine room|engine room|spaceship|station/, { w: 9, d: 7, h: 4.5, floor: "large_floor_tiles_02", tile: 2, wallC: "#c5d2cf", wain: null, trim: "#8fa7a4", ceilC: "#dfe8e5", rug: null, windows: [-0.28, 0.28].map((x) => ({ x, w: 0.7, h: 1.4, y: 2.4 })), pictures: false, door: true }],
+  ["room", /./, { w: 8, d: 6, h: 3.4, floor: "wood_floor", tile: 1.6, wallC: "#bda98c", wain: "#5c4332", trim: "#4a3426", ceilC: "#a89a82", rug: "#6b2f2a", windows: [-0.24, 0.24].map((x) => ({ x, w: 0.72, h: 0.95, y: 1.75 })), pictures: true, door: true }],
+];
+export function roomFor(text: string): RoomR {
+  const t = text.toLowerCase().replace(/_/g, " ");
+  const hit = ROOMS.find(([, re]) => re.test(t)) ?? ROOMS[ROOMS.length - 1];
+  return { ...hit[2], wall: hit[2].floor, style: hit[0] } as RoomR;
+}
+
 export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number; size?: [number, number]; pkg?: PackageAsset[]; shots?: { shot: Shot; p0: number; p1: number }[]; stage?: { cue: Cue; p0: number; p1: number }[]; acting?: { act: Act; p0: number; p1: number }[]; style?: string; place?: "interior" | "exterior" } = {}): Resolved {
   const pkg = pkgModels(opts.pkg);
   const loc = bible.locations.find((l) => l.id === scene.location);
@@ -417,7 +442,7 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
     zEdge: /lake|river|harbou?r/.test(sceneText) ? -9 : -6,
     mood: /red (?:water|sea)|crimson|scarlet (?:sea|water)|blood/.test(sceneText) ? "red" : /oily|black water|dark water|slick|tar/.test(sceneText) ? "oily" : /storm|rough|gale|tempest|heavy/.test(sceneText + scene.weather) ? "storm" : "calm",
   } : null;
-  const room = kind === "interior" ? { w: 8, d: 6, h: 3.4, floor: "wood_floor", wall: "wood_floor" } : null;
+  const room: RoomR | null = kind === "interior" ? roomFor(`${locText} ${scene.mood ?? ""}`) : null;
 
   // ---- camera: frame the hero (~1.8 m) by framing and move
   const heroH = hero.sphinx ? 5 : 1.9;
@@ -508,6 +533,12 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
       into: sh.into,
     };
   };
+  // a small room (a ship's cabin) has less floor than the props were laid out for: keep everything inside the walls
+  if (room) {
+    const fx = room.w / 2 - 0.55, fz = room.d / 2 - 0.55;
+    for (const a of assets as any[]) { a.pos = [Math.max(-fx, Math.min(fx, a.pos[0])), a.pos[1], Math.max(-fz, Math.min(fz, a.pos[2]))]; }
+    for (const g of figures as any[]) { if (g.onMachine) continue; g.x = Math.max(-fx, Math.min(fx, g.x)); g.z = Math.max(-fz, Math.min(fz, g.z)); }
+  }
   const camShots = opts.shots?.length ? opts.shots.map((x, i) => rigShot(x.shot, x.p0, x.p1, i)) : undefined;
 
   const beats = scene.beats.map((b) => {
@@ -617,7 +648,7 @@ export function assetsNeeded(r: Resolved): { kind: string; id: string; res: stri
 }
 
 /** Bump when runtime/scene.tsx changes in a way that alters frames, so cached renders are redone. */
-export const RUNTIME_VERSION = "rt70";
+export const RUNTIME_VERSION = "rt71";
 
 /** Cache key: changes whenever the resolved plan or the runtime does. */
 export function sceneKey(r: Resolved): string {

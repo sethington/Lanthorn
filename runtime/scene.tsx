@@ -753,7 +753,7 @@ function Rain({ f, heavy }: { f: number; heavy: boolean }) {
 
 function Room({ p = 0 }: { p?: number }) {
   const { w, d, h } = R.room;
-  const wall = { base_color: "#bda98c", perceptual_roughness: 0.95 };
+  const wall = { base_color: R.room.wallC ?? "#bda98c", perceptual_roughness: 0.95 };
   const T = 0.1;
   return (
     <>
@@ -766,7 +766,7 @@ function Room({ p = 0 }: { p?: number }) {
           occlusion_texture={tex(R.room.floor, "arm.jpg")}
           metallic={1}
           perceptual_roughness={1}
-          uv_transform={Affine2.fromScale([w / 1.6, d / 1.6])}
+          uv_transform={Affine2.fromScale([w / (R.room.tile ?? 1.6), d / (R.room.tile ?? 1.6)])}
         />
       </Mesh3d>
       {/* walls and ceiling are thin solid boxes, not planes: a zero-thickness plane lets the sun's shadow map leak through in
@@ -789,7 +789,7 @@ function Room({ p = 0 }: { p?: number }) {
       </Mesh3d>
       <Mesh3d transform={Transform.fromXyz(0, h + T, 0)}>
         <Cuboid half_size={[w / 2 + 2 * T, T, d / 2 + 2 * T]} />
-        <StandardMaterial base_color="#a89a82" perceptual_roughness={1} />
+        <StandardMaterial base_color={R.room.ceilC ?? "#a89a82"} perceptual_roughness={1} />
       </Mesh3d>
       <RoomDressing p={p} />
     </>
@@ -984,10 +984,13 @@ function RoomDressing({ p }: { p: number }) {
   const paneK = night ? 0.35 : dusk ? 1.6 : 3.2;
   const lightC = night ? "#7f98d8" : dusk ? "#ffb070" : "#dbe8ff";
   const lightI = night ? 30_000 : dusk ? 140_000 : 220_000;
-  const wood = { base_color: "#4a3426", perceptual_roughness: 0.6 };
-  const frame = { base_color: "#e8e0cf", perceptual_roughness: 0.7 };
+  const RM = R.room;
+  const wood = { base_color: RM.trim ?? "#4a3426", perceptual_roughness: 0.6 };
+  const frame = { base_color: RM.style === "cellar" ? "#2a2723" : "#e8e0cf", perceptual_roughness: 0.7 };
   const zb = -d / 2;
-  const wins: number[] = [-w * 0.24, w * 0.24];
+  const WIN = (RM.windows ?? [-0.24, 0.24].map((x) => ({ x, w: 0.72, h: 0.95, y: 1.75 })));
+  const wins: number[] = WIN.map((q) => q.x * w);
+  const torch = RM.style === "cellar" || RM.style === "church"; // no daylight worth the name: lit from a flame
   return (
     <>
       {/* skirting and a dado rail all round */}
@@ -1005,49 +1008,60 @@ function RoomDressing({ p }: { p: number }) {
           <StandardMaterial {...wood} />
         </Mesh3d>
       ))}
-      {/* wainscot: a darker panel below the dado */}
-      <Mesh3d transform={Transform.fromXyz(0, 0.55, zb + 0.008)}>
-        <Cuboid half_size={[w / 2, 0.45, 0.008]} />
-        <StandardMaterial base_color="#5c4332" perceptual_roughness={0.75} />
-      </Mesh3d>
+      {/* wainscot: a darker panel below the dado (not in every kind of place) */}
+      {RM.wain !== null && (
+        <Mesh3d transform={Transform.fromXyz(0, 0.55, zb + 0.008)}>
+          <Cuboid half_size={[w / 2, 0.45, 0.008]} />
+          <StandardMaterial base_color={RM.wain ?? "#5c4332"} perceptual_roughness={0.75} />
+        </Mesh3d>
+      )}
+      {torch && (
+        <PointLight transform={Transform.fromXyz(-w * 0.3, 1.8, zb + 0.6)} intensity={90_000} color="#ff9a4a" range={14} />
+      )}
       {/* two windows on the back wall: a frame, a pane of sky, and the light it lets in */}
       {wins.map((x, i) => (
         <Entity key={`w${i}`} transform={Transform.fromXyz(0, 0, 0)}>
-          <Mesh3d transform={Transform.fromXyz(x, 1.75, zb + 0.03)}>
-            <Cuboid half_size={[0.72, 0.95, 0.025]} />
+          <Mesh3d transform={Transform.fromXyz(x, WIN[i].y, zb + 0.03)}>
+            <Cuboid half_size={[WIN[i].w + 0.1, WIN[i].h + 0.1, 0.025]} />
             <StandardMaterial {...frame} />
           </Mesh3d>
-          <Mesh3d transform={Transform.fromXyz(x, 1.75, zb + 0.062)}>
-            <Cuboid half_size={[0.62, 0.85, 0.01]} />
+          <Mesh3d transform={Transform.fromXyz(x, WIN[i].y, zb + 0.062)}>
+            <Cuboid half_size={[WIN[i].w - 0.0, WIN[i].h, 0.01]} />
             <StandardMaterial base_color={paneC} unlit emissive={glow(paneC, paneK)} />
           </Mesh3d>
-          <Mesh3d transform={Transform.fromXyz(x, 1.75, zb + 0.075)}>
-            <Cuboid half_size={[0.02, 0.85, 0.012]} />
+          <Mesh3d transform={Transform.fromXyz(x, WIN[i].y, zb + 0.075)}>
+            <Cuboid half_size={[0.02, WIN[i].h, 0.012]} />
             <StandardMaterial {...frame} />
           </Mesh3d>
-          <Mesh3d transform={Transform.fromXyz(x, 1.75, zb + 0.075)}>
-            <Cuboid half_size={[0.62, 0.02, 0.012]} />
+          <Mesh3d transform={Transform.fromXyz(x, WIN[i].y, zb + 0.075)}>
+            <Cuboid half_size={[WIN[i].w, 0.02, 0.012]} />
             <StandardMaterial {...frame} />
           </Mesh3d>
-          <PointLight transform={Transform.fromXyz(x, 1.9, zb + 0.5)} intensity={lightI} color={lightC} range={12} />
+          <PointLight transform={Transform.fromXyz(x, WIN[i].y + 0.15, zb + 0.5)} intensity={torch ? lightI * 0.25 : lightI} color={lightC} range={12} />
         </Entity>
       ))}
       {/* a door on the right wall */}
-      <Mesh3d transform={Transform.fromXyz(w / 2 - 0.04, 1.05, d * 0.2)}>
-        <Cuboid half_size={[0.03, 1.05, 0.5]} />
-        <StandardMaterial {...wood} />
-      </Mesh3d>
-      <Mesh3d transform={Transform.fromXyz(w / 2 - 0.07, 1.0, d * 0.2 + 0.38)}>
-        <Sphere radius={0.04} />
-        <StandardMaterial {...BRASS} />
-      </Mesh3d>
-      {/* a rug under the middle of the room */}
-      <Mesh3d transform={Transform.fromXyz(0, 0.006, 0.2)}>
-        <Cuboid half_size={[Math.min(2.2, w * 0.3), 0.006, Math.min(1.6, d * 0.28)]} />
-        <StandardMaterial base_color="#6b2f2a" perceptual_roughness={1} />
-      </Mesh3d>
+      {RM.door !== false && (
+        <>
+          <Mesh3d transform={Transform.fromXyz(w / 2 - 0.04, RM.h > 4 ? 1.5 : 1.05, d * 0.2)}>
+            <Cuboid half_size={[0.03, RM.h > 4 ? 1.5 : 1.05, RM.h > 4 ? 0.8 : 0.5]} />
+            <StandardMaterial {...wood} />
+          </Mesh3d>
+          <Mesh3d transform={Transform.fromXyz(w / 2 - 0.07, 1.0, d * 0.2 + (RM.h > 4 ? 0.65 : 0.38))}>
+            <Sphere radius={0.04} />
+            <StandardMaterial {...BRASS} />
+          </Mesh3d>
+        </>
+      )}
+      {/* a rug under the middle of the room (some places have none) */}
+      {RM.rug !== null && (
+        <Mesh3d transform={Transform.fromXyz(0, 0.006, 0.2)}>
+          <Cuboid half_size={[Math.min(RM.style === "church" ? 1.1 : 2.2, w * 0.3), 0.006, RM.style === "church" ? d * 0.4 : Math.min(1.6, d * 0.28)]} />
+          <StandardMaterial base_color={RM.rug ?? "#6b2f2a"} perceptual_roughness={1} />
+        </Mesh3d>
+      )}
       {/* pictures on the left wall */}
-      {[-0.22, 0.2].map((z, i) => (
+      {RM.pictures !== false && [-0.22, 0.2].map((z, i) => (
         <Mesh3d key={`p${i}`} transform={Transform.fromXyz(-w / 2 + 0.03, 1.75, d * z)}>
           <Cuboid half_size={[0.02, 0.3, 0.22 + i * 0.08]} />
           <StandardMaterial base_color={i ? "#2f3a2c" : "#3a2f26"} perceptual_roughness={0.5} />

@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lanthorn — Read by lantern light</title>
+<meta name="description" content="Lanthorn is a reader that projects each scene of your book as a living 3D world beside the page.">
+<meta property="og:title" content="Lanthorn — Read by lantern light">
+<meta property="og:description" content="A reader that projects each scene of your book as a living 3D world beside the page.">
+<style>
+  :root { --bg:#0e0b08; --fg:#f1e6d0; --dim:#a8977a; --glow:#ffb95a; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; }
+  body {
+    background:
+      radial-gradient(60vmax 60vmax at 50% 38%, rgba(255,185,90,.22), rgba(255,185,90,.06) 40%, transparent 70%),
+      var(--bg);
+    color:var(--fg);
+    font-family:Georgia,"Iowan Old Style","Palatino Linotype",serif;
+    display:flex; align-items:center; justify-content:center;
+    padding:0 16px; text-align:center;
+  }
+  main { max-width:34rem; }
+  .flame {
+    width:14px; height:22px; margin:0 auto 28px; border-radius:50% 50% 50% 50% / 65% 65% 35% 35%;
+    background:radial-gradient(circle at 50% 70%, #fff4d0, var(--glow) 60%, transparent 75%);
+    box-shadow:0 0 40px 14px rgba(255,185,90,.45);
+    animation:flicker 3.2s ease-in-out infinite;
+  }
+  @keyframes flicker {
+    0%,100% { opacity:1; transform:scale(1) }
+    30% { opacity:.85; transform:scale(.94,1.05) }
+    60% { opacity:.95; transform:scale(1.04,.97) }
+  }
+  h1 { font-size:clamp(2.6rem,9vw,4rem); font-weight:400; letter-spacing:.04em; margin:0 0 .4rem; }
+  .tag { font-size:clamp(1.15rem,3.6vw,1.45rem); color:var(--glow); font-style:italic; margin:0 0 1.6rem; }
+  p { color:var(--dim); line-height:1.6; margin:0 0 1.8rem; font-size:1.05rem; }
+  a { color:var(--fg); text-decoration:none; border-bottom:1px solid var(--glow); padding-bottom:2px; }
+  a:hover { color:var(--glow); }
+  small { display:block; margin-top:2.4rem; color:#6d6150; font-size:.85rem; }
+  @media (prefers-reduced-motion:reduce) { .flame { animation:none } }
+</style>
+</head>
+<body>
+<main>
+  <div class="flame" aria-hidden="true"></div>
+  <h1>Lanthorn</h1>
+  <div class="tag">Read by lantern light.</div>
+  <p>A reader that works out what each passage looks and sounds like, then builds it as a living 3D scene beside the page. Sky, weather, people and sound follow wherever you are in the text.</p>
+  <a href="https://github.com/sethington/lanthorn">View on GitHub</a>
+  <small>Early, in active development. macOS.</small>
+</main>
+</body>
+</html>
