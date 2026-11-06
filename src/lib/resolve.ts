@@ -121,7 +121,28 @@ const words = (s: string) =>
     .map((w) => (w.length > 3 ? w.replace(/(es|s)$/, "") : w));
 
 const POLY_BUDGET = 600_000;
-const ACTS_KNOWN = ["walk_to", "sit", "stand", "reach", "use_lever", "look_at", "turn", "gesture", "crouch"];
+const ACTS_KNOWN = ["walk_to", "sit", "stand", "reach", "use_lever", "look_at", "turn", "gesture", "crouch", "wave", "point", "drink", "sing", "cheer", "slam", "clap", "shrug", "nod", "bow", "cover_face", "draw", "shake_fist", "beckon", "think", "laugh", "plead"];
+/** What a described action looks like when played: the first that matches (specific before general). */
+const ACTION_WORDS: [string, RegExp][] = [
+  ["sing", /\b(sing|sings|sang|singing|song|songs|chant|chants|chorus|hum|hums|shanty|pipe up|pipes up|bursts? into)\b/],
+  ["drink", /\b(drink|drinks|drank|drinking|swig|swigs|quaff|quaffs|gulp|gulps|sip|sips|toast|rum|ale|grog)\b/],
+  ["draw", /\b(draw|draws|drew|unsheath\w*|brandish\w*|clasp-knife|knife|sword|cutlass|pistol|aims?|levels?)\b/],
+  ["slam", /\b(slap|slaps|slapped|slam|slams|slammed|bang|bangs|thump|thumps|pound|pounds|rap|raps|knock|knocks)\b/],
+  ["shake_fist", /\b(threaten\w*|menac\w*|fist|snarl\w*|rage|rages|fury|furious|angry|curse|curses|oath|swears?|growl\w*)\b/],
+  ["cheer", /\b(cheer\w*|shout\w*|roar\w*|hurrah|huzza\w*|exult\w*|triumph\w*|celebrat\w*|yell\w*)\b/],
+  ["clap", /\b(clap|claps|clapped|applaud\w*)\b/],
+  ["laugh", /\b(laugh\w*|chuckl\w*|guffaw\w*|giggl\w*)\b/],
+  ["cover_face", /\b(weep\w*|sob\w*|cries|cry|cover\w* (his|her) (face|eyes)|hide\w* (his|her) face|terrified|frighten\w*)\b/],
+  ["plead", /\b(plead\w*|beg|begs|begged|implor\w*|entreat\w*)\b/],
+  ["point", /\b(point|points|pointed|pointing|indicat\w*)\b/],
+  ["beckon", /\b(beckon\w*|summon\w*|motion\w* (him|her|them))\b/],
+  ["shrug", /\b(shrug\w*)\b/],
+  ["nod", /\b(nod|nods|nodded|agree\w*)\b/],
+  ["bow", /\b(bow|bows|bowed|curtsy|curtsies|salut\w*)\b/],
+  ["think", /\b(think|thinks|ponder\w*|muse|muses|wonder\w*|consider\w*)\b/],
+  ["wave", /\b(wave|waves|waved|waving|farewell|greet\w*)\b/],
+];
+export const actionFor = (text: string): string | null => ACTION_WORDS.find(([, re]) => re.test(text.toLowerCase()))?.[0] ?? null;
 
 /** Best catalog model for a phrase, or null. Heavy meshes are skipped. */
 /** Buildings the runtime builds itself (Manifold solids): the catalogue has none. */
@@ -355,8 +376,20 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
 
   // ---- acting: each character's moves, with where they walk to resolved to metres
   for (const fg of figures) {
-    const mine = (opts.acting ?? []).filter((a) => a.act.who === fg.ref && ACTS_KNOWN.includes(a.act.do));
-    if (!mine.length) continue;
+    const mine = (opts.acting ?? []).filter((a) => a.act.who === fg.ref && ACTS_KNOWN.includes(a.act.do)).map((a) => {
+      if (a.act.do !== "gesture") return a;
+      // a plain gesture is played as what the scene says is happening at that sentence (a slap, a toast, a song), else as talking with the hands
+      const near = (scene.beats ?? []).filter((b) => b.at <= a.act.at).sort((x, y) => y.at - x.at)[0];
+      const sj = scene.subjects.find((x) => x.ref === fg.ref);
+      const what = actionFor(`${near && near.at === a.act.at ? near.action : ""} ${sj?.action ?? ""}`);
+      return what ? { ...a, act: { ...a.act, do: what } } : a;
+    });
+    if (!mine.length) {
+      const sj = scene.subjects.find((x) => x.ref === fg.ref);
+      const what = sj ? actionFor(`${sj.action} ${sj.pose}`) : null;
+      if (what && fg.pose === "standing") fg.acts = [{ p0: 0.05, p1: 0.95, do: what }];
+      continue;
+    }
     fg.acts = mine.map(({ act, p0, p1 }) => {
       let tx: number | undefined;
       let tz: number | undefined;
@@ -650,7 +683,7 @@ export function assetsNeeded(r: Resolved): { kind: string; id: string; res: stri
 }
 
 /** Bump when runtime/scene.tsx changes in a way that alters frames, so cached renders are redone. */
-export const RUNTIME_VERSION = "rt79";
+export const RUNTIME_VERSION = "rt81";
 
 /** Cache key: changes whenever the resolved plan or the runtime does. */
 export function sceneKey(r: Resolved): string {

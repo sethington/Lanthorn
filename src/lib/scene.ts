@@ -66,7 +66,7 @@ export type Line = { at: number; speaker: string; kind: "dialogue" | "thought" }
 /** What a character does, starting at a sentence. */
 export type Act = { at: number; who: string; do: string; to?: string };
 
-export const ACTS = ["walk_to", "sit", "stand", "reach", "use_lever", "look_at", "turn", "gesture", "crouch"] as const;
+export const ACTS = ["walk_to", "sit", "stand", "reach", "use_lever", "look_at", "turn", "gesture", "crouch", "wave", "point", "drink", "sing", "cheer", "slam", "clap", "shrug", "nod", "bow", "cover_face", "draw", "shake_fist", "beckon", "think", "laugh", "plead"] as const;
 
 export type Chunk = { scenes: Scene[]; bible: Bible };
 
@@ -89,7 +89,7 @@ Schema:
 "audio":{"bed":"<=5 words ambient","spots":[{"at":<sentence id>,"sound":"<=4 words"}]},
 "shots":[{"from":<sentence id>,"framing":"wide|medium|close|extreme_close","angle":"eye|low|high|over_shoulder","focus":"<character id|prop word|scene>","move":"static|push|pull|orbit|drift|pan","into":"cut|dissolve|fade"}],
 "lines":[{"at":<sentence id>,"speaker":"<character id>","kind":"dialogue|thought"}],
-"acting":[{"at":<sentence id>,"who":"<character id>","do":"walk_to|sit|stand|reach|use_lever|look_at|turn|gesture|crouch","to":"left|center|right|back|front|machine|<character id>"}],
+"acting":[{"at":<sentence id>,"who":"<character id>","do":"walk_to|sit|stand|reach|use_lever|look_at|turn|crouch|wave|point|drink|sing|cheer|slam|clap|shrug|nod|bow|cover_face|draw|shake_fist|beckon|think|laugh|plead|gesture","to":"left|center|right|back|front|machine|<character id>"}],
 "stage":[{"k":"moon|sun|grow|streak|flash|cam|quake|creature|dim","at":<sentence id>,"to":<sentence id>,"what":"<=3 words","how":"<exact word from the list>","amount":0-1}],
 "confidence":0-1}]}
 Rules:
@@ -100,7 +100,7 @@ Rules:
 - beats/spots anchor to sentence ids inside the scene. Only what the text states or directly implies.
 - Direct it like a film. shots: first shot at scene.from establishes (wide); new shot every 2-5 sentences or on a change of focus; close on dialogue/emotion; into:fade only across time jumps, dissolve for soft changes, else cut.
 - lines: one entry per sentence that is quoted speech or thought, naming the speaker. Omit narration.
-- acting: only visible actions the text states; at = sentence where it starts; to = where or toward whom.
+- acting: only visible actions the text states; pick the most specific verb (a toast is drink, a song is sing, a slap on the table is slam; gesture only for plain talking with the hands) so people do not all move alike; at = sentence where it starts; to = where or toward whom.
 - stage: be bold and playful: make the world perform the text, not just sit there. Use the EXACT how words below, nothing else. Cue every striking event the text names, in every scene; 1-6 per scene; to > at by 2-5 sentences so it plays long enough to be seen.
   moon: how "new>full" | "full>new" | "crescent>full" (the moon's phases change, or it rises/sets). what unused.
   sun: how "streak" (days racing across the sky) | "red" (a huge red/dying sun hangs on the horizon).

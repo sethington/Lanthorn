@@ -214,6 +214,18 @@ function exprOf(mood: string): { tilt: number; lift: number; smile: number; open
 const EXPR = exprOf(R.mood);
 
 /** Extra people the judge asked for: stand about the real ones, a few paces out, in their own clothes. Same every frame. */
+/** The extra people stand where they were put for this shot, not where the camera happens to be this frame: they must not slide through the room as it moves (or as the viewer drags it). */
+const CROWD: { key: string; cam: V3 | null; look: V3 | null } = { key: "", cam: null, look: null };
+function crowdAnchor(shotIdx: number, dirShot: any, takenOver: boolean, cam: V3, look: V3): [V3, V3] {
+  const key = `${(R as any).id}|${shotIdx}`;
+  if (!takenOver && (key !== CROWD.key || !CROWD.cam)) {
+    CROWD.key = key;
+    CROWD.cam = dirShot ? ([0, 1, 2].map((i) => (dirShot.from[i] + dirShot.to[i]) / 2) as V3) : [cam[0], cam[1], cam[2]];
+    CROWD.look = dirShot ? ([0, 1, 2].map((i) => (dirShot.lookFrom[i] + dirShot.lookTo[i]) / 2) as V3) : [look[0], look[1], look[2]];
+  }
+  if (!CROWD.cam) { CROWD.cam = [cam[0], cam[1], cam[2]]; CROWD.look = [look[0], look[1], look[2]]; }
+  return [CROWD.cam, CROWD.look as V3];
+}
 function crowdFigs(cam: V3, look: V3): any[] {
   const base = (R.figures as any[]).find((x) => !x.onMachine);
   if (!base || crowdN <= 0) return [];
@@ -233,6 +245,7 @@ function crowdFigs(cam: V3, look: V3): any[] {
   }
   return out;
 }
+const GESTS = new Set(["gesture", "wave", "point", "drink", "sing", "cheer", "slam", "clap", "shrug", "nod", "bow", "cover_face", "draw", "shake_fist", "beckon", "think", "laugh", "plead"]);
 function Figure({ fig, f, p, leverA = 0 }: { fig: any; f: number; p: number; leverA?: number }) {
   const eloi = fig.kind === "eloi";
   const woman = fig.kind === "woman";
@@ -254,7 +267,7 @@ function Figure({ fig, f, p, leverA = 0 }: { fig: any; f: number; p: number; lev
   let yawA: number = fig.yaw;
   let reachR = 0;
   let lever = 0;
-  let wave = 0;
+  let ges: { k: string; e: number } | null = null; // the action playing now (sing, drink, slam, point, ...), and how strongly
   let look = 0;
   for (const a of acts) {
     if (p < a.p0) break;
@@ -286,7 +299,7 @@ function Figure({ fig, f, p, leverA = 0 }: { fig: any; f: number; p: number; lev
     } else if (a.do === "look_at") look = env * (a.tx !== undefined && a.tx < ax ? -1 : 1);
     else if (a.do === "reach") reachR = env;
     else if (a.do === "use_lever") lever = env;
-    else if (a.do === "gesture") wave = env;
+    else if (GESTS.has(a.do) && env > 0.001) ges = { k: a.do === "gesture" ? "talk" : a.do, e: env };
   }
   const walking = pose === "walking" || (from === "walking" && k < 0.5);
   const seated = pose === "seated" || (from === "seated" && k < 0.5);
@@ -322,9 +335,39 @@ function Figure({ fig, f, p, leverA = 0 }: { fig: any; f: number; p: number; lev
   A.shR += -1.35 * reachR - 0.9 * lever;
   A.elR += -0.25 * reachR + 0.3 * lever;
   A.lean += -0.1 * lever + 0.04 * reachR;
-  if (wave > 0.001) {
-    A.shR = mix(A.shR, -2.4 + Math.sin(f * 0.4) * 0.35, wave);
-    A.elR = mix(A.elR, -1.1 + Math.sin(f * 0.4) * 0.4, wave);
+  let gHead = 0; // what an action does to the head (negative looks up)
+  if (ges) {
+    // every figure acts in its own way: which hand, how fast, where in the beat
+    let hs = 7;
+    for (let i = 0; i < String(fig.ref).length; i++) hs = (hs * 31 + String(fig.ref).charCodeAt(i)) >>> 0;
+    const rightHand = (hs & 1) === 0, fr = 0.8 + (hs % 7) * 0.07, t = f * 0.05 * fr + (hs % 13), e = ges.e;
+    const arm = (sh: number, el: number, w = e) => {
+      if (rightHand) { A.shR = mix(A.shR, sh, w); A.elR = mix(A.elR, el, w); } else { A.shL = mix(A.shL, sh, w); A.elL = mix(A.elL, el, w); }
+    };
+    const other = (sh: number, el: number, w = e) => {
+      if (rightHand) { A.shL = mix(A.shL, sh, w); A.elL = mix(A.elL, el, w); } else { A.shR = mix(A.shR, sh, w); A.elR = mix(A.elR, el, w); }
+    };
+    const both = (sh: number, el: number, w = e) => { arm(sh, el, w); other(sh, el, w); };
+    switch (ges.k) {
+      case "wave": arm(-2.4 + Math.sin(f * 0.4 * fr) * 0.35, -1.1 + Math.sin(f * 0.4 * fr) * 0.4); break;
+      case "talk": arm(-1.0 + Math.sin(t * 1.7) * 0.18, -1.0 + Math.sin(t * 2.3) * 0.3, 0.85 * e); gHead += Math.sin(t * 2) * 0.04 * e; break;
+      case "point": arm(-1.55, -0.12); A.lean += 0.04 * e; break;
+      case "drink": arm(-1.15, -2.2 + Math.sin(t * 0.9) * 0.1); gHead -= 0.2 * e; break;
+      case "sing": arm(-1.5 + Math.sin(t * 2.2) * 0.5, -0.8); other(-0.6 + Math.sin(t * 2.2 + 1) * 0.3, -0.5, 0.8 * e); A.lean += -0.06 * e + Math.sin(t * 1.1) * 0.03 * e; gHead -= 0.14 * e; break;
+      case "cheer": both(-2.5 + Math.sin(t * 5) * 0.15, -0.5); A.lean += -0.05 * e; gHead -= 0.15 * e; break;
+      case "slam": { const b = Math.pow(Math.max(0, Math.sin(t * 1.6)), 6); arm(-1.7 + 1.3 * b, -0.5); A.lean += 0.08 * b * e; break; }
+      case "clap": both(-1.2, -1.6 + Math.sin(t * 7) * 0.35); break;
+      case "shrug": both(-0.35, -1.0 + Math.sin(t) * 0.05); A.lean += -0.03 * e; break;
+      case "nod": gHead += Math.sin(t * 2.5) * 0.16 * e; break;
+      case "bow": A.lean += 0.55 * e; gHead += 0.2 * e; break;
+      case "cover_face": arm(-1.8, -2.4); gHead += 0.2 * e; break;
+      case "draw": arm(-1.8, -0.35); A.lean += 0.05 * e; break;
+      case "shake_fist": arm(-2.1 + Math.sin(f * 0.5) * 0.15, -1.3 + Math.sin(f * 0.5) * 0.2); A.lean += 0.05 * e; break;
+      case "beckon": arm(-1.35, -1.3 + Math.sin(t * 3.5) * 0.45); break;
+      case "think": arm(-1.25, -2.45); gHead += 0.12 * e; break;
+      case "laugh": A.lean += -0.08 * e + Math.sin(f * 0.6) * 0.05 * e; gHead -= 0.2 * e; both(-0.25, -0.9, 0.5 * e); break;
+      case "plead": both(-1.1, -2.0); break;
+    }
   }
   const bob = walking ? Math.abs(Math.cos(ph)) * 0.03 : Math.sin(f * 0.05) * 0.004;
   const sway = walking ? Math.sin(ph) * 0.02 : Math.sin(f * 0.03) * 0.008;
@@ -336,7 +379,7 @@ function Figure({ fig, f, p, leverA = 0 }: { fig: any; f: number; p: number; lev
   const bt = (f + (fig.x * 37 + 11) * 13) % (96 + ((fig.z * 29) | 0 & 15));
   const bl = bt < 5 ? Math.sin((Math.PI * bt) / 5) : 0;
   const headYaw = Math.sin(f * 0.02 + 1) * 0.14 + (seated ? 0 : -0.05) + look * 0.8;
-  const headPitch = seated ? 0.12 + 0.08 * Math.abs(leverA) : 0.03 + Math.sin(f * 0.031) * 0.02;
+  const headPitch = (seated ? 0.12 + 0.08 * Math.abs(leverA) : 0.03 + Math.sin(f * 0.031) * 0.02) + gHead;
   const tailSwing = 0.12 + (walking ? 0.25 * Math.abs(sw) : 0) + Math.sin(f * 0.05) * 0.02;
 
   // A deliberate, stylised figure: smooth clay-like ellipsoids that overlap at the joints (so there are no seams), matte colour, simple shapes
@@ -1731,7 +1774,7 @@ function Scene() {
       )}
       {R.hero.kind === "time_machine" ? <Machine p={p} f={f} /> : null}
       {(R.figures as any[]).filter((x) => !x.onMachine).map((x, i) => <Figure key={i} fig={x} f={f} p={p} />)}
-      {crowdFigs(camS, lookS).map((x: any, i: number) => <Figure key={`c${i}`} fig={x} f={f} p={p} />)}
+      {crowdFigs(...crowdAnchor(shotIdx, dirShot, takenOver, camS, lookS)).map((x: any, i: number) => <Figure key={`c${i}`} fig={x} f={f} p={p} />)}
       {R.hero.sphinx ? <Sphinx /> : null}
       {heavyWx ? <Rain f={f} heavy={R.weather === "storm"} /> : null}
 
