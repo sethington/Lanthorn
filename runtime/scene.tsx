@@ -1473,6 +1473,8 @@ function Scene() {
       const k = 1 + 1.1 * widenS;
       camS = [lookS[0] + back[0] * k, lookS[1] + back[1] * k + 0.4 * widenS, lookS[2] + back[2] * k];
       fovS += 7 * widenS;
+      // indoors the lens never goes out through a wall
+      if (R.room) camS = [Math.max(-R.room.w / 2 + 0.3, Math.min(R.room.w / 2 - 0.3, camS[0])), Math.max(0.3, Math.min(R.room.h - 0.3, camS[1])), Math.max(-R.room.d / 2 + 0.3, Math.min(R.room.d / 2 - 0.3, camS[2]))];
     }
     // the camera never sits inside or against a placed thing: unless it is looking at that thing, keep clear of it
     for (const a of R.assets as any[]) {

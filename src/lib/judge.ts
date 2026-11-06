@@ -87,6 +87,7 @@ export function applyVerdict(key: string, kind: string, v: Verdict, groupKey?: s
   m.done[key] = 1;
   const s = (m.stats[kind] ??= { ok: 0, bad: 0 });
   if (v.ok) s.ok++; else s.bad++;
+  if (flipped) { delete m.widen[key]; delete m.done[key]; save(); return true; } // wrong kind of place: it is made again and judged afresh, not widened
   if (!v.ok) {
     if (v.issues.includes("too_dark")) { (m.bright ??= {})[key] = Math.min(1, (m.bright[key] ?? 0) + 0.5); } // a murky frame is lifted, not just widened
     if (v.issues.some((i) => i === "too_close" || i === "clipped" || i === "empty")) m.widen[key] = Math.min(1.5, (m.widen[key] ?? 0) + 0.55);
