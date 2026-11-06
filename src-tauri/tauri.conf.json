@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Lanthorn",
   "version": "0.1.0",
-  "identifier": "com.seth.lanthorn",
+  "identifier": "org.lanthorn",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",

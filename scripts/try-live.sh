@@ -1,7 +1,7 @@
 #!/bin/sh
 # Render one frame of a cached live scene with the CURRENT runtime/scene.tsx, headless (no app needed).
 #   scripts/try-live.sh <cache live dir> <out.png> [frame] [keys,comma,separated]
-# keys orbit the camera (ArrowRight x frames), e.g.  scripts/try-live.sh ~/Library/Caches/com.seth.lanthorn/live/rt7-s1-110l1t7-cut /tmp/a.png 60 ArrowRight
+# keys orbit the camera (ArrowRight x frames), e.g.  scripts/try-live.sh ~/Library/Caches/org.lanthorn/live/rt7-s1-110l1t7-cut /tmp/a.png 60 ArrowRight
 set -e
 SRC=$1; OUT=$2; FRAME=${3:-5}; KEYS=${4:-}
 # never copy from an empty or wrong directory (an empty $SRC once meant "/.": the whole disk)
