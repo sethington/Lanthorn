@@ -8,6 +8,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import Progress from "./Progress.vue";
 import { api } from "./lib/api";
 import { Player, buildTimeline, type Frame, type Timeline } from "./lib/director";
+import { makeProps } from "./lib/props";
 import { assetsNeeded, resolveScene, sceneKey, type Resolved } from "./lib/resolve";
 import type { Bible, Scene } from "./lib/scene";
 import type { PackageAsset } from "./lib/book";
@@ -154,11 +155,20 @@ function prepare(gi: number): Promise<Prep> {
         return { act, p0: (t0 - g.t0) / span, p1: (t1 - g.t0) / span };
       });
     });
-    const r: Resolved = resolveScene(whole, props.bible, { pkg: props.pkg, size: SIZE, shots, stage, acting, style: props.styleFor?.(rep), place: placeFor(key0), roomStyle: styleOf(key0) });
-    r.live = true;
-    r.t0 = 0;
-    prepKeyOf.set(key0, `${sceneKey(r)}-cut`);
-    p = api.sceneWorld(`${sceneKey(r)}-cut`, JSON.stringify(r), assetsNeeded(r));
+    const ropts = { pkg: props.pkg, size: SIZE, shots, stage, acting, style: props.styleFor?.(rep), place: placeFor(key0), roomStyle: styleOf(key0) };
+    p = (async () => {
+      let r: Resolved = resolveScene(whole, props.bible, ropts);
+      // props the library has no model for: the language model draws them from basic shapes (kept for next time)
+      const missing = r.unresolved.filter((u) => !u.startsWith("place:"));
+      if (missing.length) {
+        const procs = await makeProps(missing);
+        if (Object.keys(procs).length) r = resolveScene(whole, props.bible, { ...ropts, procs });
+      }
+      r.live = true;
+      r.t0 = 0;
+      prepKeyOf.set(key0, `${sceneKey(r)}-cut`);
+      return api.sceneWorld(`${sceneKey(r)}-cut`, JSON.stringify(r), assetsNeeded(r));
+    })();
     p.catch(() => preps.delete(key0)); // a failed prepare may be retried
     preps.set(key0, p);
   }

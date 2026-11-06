@@ -938,6 +938,22 @@ function makeBuilding(kind: string): BPart[] {
   }
   return [{ shape: MF.box(4, 3, 4).move(0, 1.5, 0), color: PLASTER }];
 }
+/** A prop drawn from basic shapes (src/lib/props.ts): the parts are in metres, standing on the floor. */
+function ProcProp({ a }: { a: any }) {
+  return (
+    <Entity transform={at(a.pos[0], a.pos[1], a.pos[2], rot(0, a.rotY, 0))}>
+      {(a.parts as any[]).map((q, i) => {
+        const t = q.r ? at(q.p[0], q.p[1], q.p[2], rot(q.r[0], q.r[1], q.r[2])) : at(q.p[0], q.p[1], q.p[2]);
+        return (
+          <Mesh3d key={i} transform={t}>
+            {q.s === "box" ? <Cuboid half_size={[q.d[0] / 2, q.d[1] / 2, q.d[2] / 2]} /> : q.s === "cyl" ? <Cylinder radius={q.d[0]} half_height={q.d[1] / 2} /> : q.s === "sphere" ? <Sphere radius={q.d[0]} /> : <Cone radius={q.d[0]} height={q.d[1]} />}
+            <StandardMaterial base_color={q.c} metallic={q.m ? 1 : 0} perceptual_roughness={q.m ? 0.35 : 0.85} />
+          </Mesh3d>
+        );
+      })}
+    </Entity>
+  );
+}
 function Building({ a }: { a: any }) {
   const kind = String(a.id).slice(4);
   const parts = (BLD[kind] ??= makeBuilding(kind));
@@ -1768,6 +1784,8 @@ function Scene() {
       {R.assets.map((a: any, i: number) =>
         String(a.id).startsWith("bld:") ? (
           <Building key={i} a={a} />
+        ) : String(a.id).startsWith("proc:") ? (
+          <ProcProp key={i} a={a} />
         ) : (
           <Model key={i} src={media(a.file)} position={a.pos} rotation={[0, a.rotY, 0]} scale={a.scale} />
         ),

@@ -11,7 +11,7 @@ type Tagged = { id: string; name: string; tags: string[]; cats: string[] };
 const MODELS = catalog.models as Model[];
 const HDRIS = catalog.hdris as Tagged[];
 
-export type Placed = { id: string; file: string; pos: [number, number, number]; rotY: number; scale: number; label: string };
+export type Placed = { id: string; file: string; pos: [number, number, number]; rotY: number; scale: number; label: string; parts?: import("./props").Part[] };
 type SkyRef = { id: string; file: string };
 export type Fig = {
   ref: string;
@@ -304,7 +304,7 @@ export function roomFor(text: string, forced?: string): RoomR {
   return { ...hit[2], wall: hit[2].floor, style: hit[0] } as RoomR;
 }
 
-export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number; size?: [number, number]; pkg?: PackageAsset[]; shots?: { shot: Shot; p0: number; p1: number }[]; stage?: { cue: Cue; p0: number; p1: number }[]; acting?: { act: Act; p0: number; p1: number }[]; style?: string; place?: "interior" | "exterior"; roomStyle?: string } = {}): Resolved {
+export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number; size?: [number, number]; pkg?: PackageAsset[]; shots?: { shot: Shot; p0: number; p1: number }[]; stage?: { cue: Cue; p0: number; p1: number }[]; acting?: { act: Act; p0: number; p1: number }[]; style?: string; place?: "interior" | "exterior"; roomStyle?: string; procs?: Record<string, import("./props").Part[]> } = {}): Resolved {
   const pkg = pkgModels(opts.pkg);
   const loc = bible.locations.find((l) => l.id === scene.location);
   const locText = `${scene.location} ${loc?.desc ?? ""}`;
@@ -451,7 +451,12 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
     }
     const m = pm ?? matchModel(p, sizeOk(30));
     if (m && !assets.some((a) => a.id === m.id) && assets.length < 14) place(m, (r() - 0.5) * 10, -2 - r() * 7, undefined, p);
-    else if (!m && !/tree|bush|rock|hill|sky|building|tower|garden/.test(p.toLowerCase())) unresolved.push(p);
+    else if (!m && !/tree|bush|rock|hill|sky|building|tower|garden/.test(p.toLowerCase())) {
+      // no model in the library: a prop the language model has drawn from basic shapes, or reported as missing
+      const parts = opts.procs?.[p.toLowerCase()];
+      if (parts && assets.length < 14) assets.push({ id: `proc:${p.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`, file: "", pos: [(r() - 0.5) * 5, 0, -0.5 - r() * 3], rotY: r() * Math.PI * 2, scale: 1, label: p, parts });
+      else unresolved.push(p);
+    }
   }
 
   // explicit placement from a hand-made scene: exactly where the author put it
@@ -674,7 +679,7 @@ export function assetsNeeded(r: Resolved): { kind: string; id: string; res: stri
   const out = new Map<string, { kind: string; id: string; res: string }>();
   const add = (kind: string, id: string, res: string) => out.set(`${kind}:${id}`, { kind, id, res });
   for (const s of [r.sky.night, r.sky.dawn, r.sky.day, r.sky.dusk]) add("hdri", s.id, "1k");
-  for (const a of r.assets) if (!a.id.startsWith("pkg:") && !a.id.startsWith("bld:")) add("model", a.id, "1k"); // bundled models are already on disk; buildings are built in the runtime
+  for (const a of r.assets) if (!a.id.startsWith("pkg:") && !a.id.startsWith("bld:") && !a.id.startsWith("proc:")) add("model", a.id, "1k"); // bundled models are already on disk; buildings are built in the runtime
   for (const c of r.stage ?? []) for (const it of c.items ?? []) if (it.file && !it.tower) add("model", it.id, "1k"); // towers and creatures are built in the runtime
   if (r.ground) add("texture", r.ground.id, "1k");
   if (r.room) add("texture", r.room.floor, "1k");
@@ -683,7 +688,7 @@ export function assetsNeeded(r: Resolved): { kind: string; id: string; res: stri
 }
 
 /** Bump when runtime/scene.tsx changes in a way that alters frames, so cached renders are redone. */
-export const RUNTIME_VERSION = "rt81";
+export const RUNTIME_VERSION = "rt82";
 
 /** Cache key: changes whenever the resolved plan or the runtime does. */
 export function sceneKey(r: Resolved): string {
