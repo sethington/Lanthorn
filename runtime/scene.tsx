@@ -927,8 +927,8 @@ function Sea({ elev, sunPos, night, sunColor, weather }: { elev: number; sunPos:
   const W = R.water;
   const storm = W.mood === "storm" || /storm|rain|hail/.test(weather);
   // [deep, sky/reflection, haze] by the kind of water and the light
-  let deep = night ? "#04080f" : elev < 10 ? "#1c3040" : "#1f5568";
-  let skyc = night ? "#141c30" : elev < 10 ? "#8d7b86" : "#a6bccd"; // (a low sun gives a muted mauve, not orange: the sky above is rarely as warm as the sun)
+  let deep = night ? "#0b1626" : elev < 10 ? "#1c3040" : "#1f5568";
+  let skyc = night ? "#2a3652" : elev < 10 ? "#8d7b86" : "#a6bccd"; // (a low sun gives a muted mauve, not orange: the sky above is rarely as warm as the sun)
   if (storm) { deep = night ? "#05080c" : "#232c34"; skyc = night ? "#11161e" : "#69737d"; }
   if (W.mood === "oily") { deep = night ? "#030605" : "#08110f"; skyc = night ? "#0f1a16" : "#3c5a4a"; }
   if (W.mood === "red") { deep = night ? "#1a0505" : "#4a0f0d"; skyc = night ? "#2a0d0d" : "#b04632"; }
@@ -1079,12 +1079,14 @@ function SunStreak({ c, p, cam }: { c: any; p: number; cam: V3 }) {
     <>
       {Array.from({ length: 44 }, (_, k) => {
         const u = clamp(q - k * 0.009);
-        const pt = skyPoint(cam, c.az + u * 2.6, (c.el + 62 * Math.sin(Math.PI * u)) * D2R, 60);
+        const el = c.el + 62 * Math.sin(Math.PI * u);
+        if (el < 1.5) return null; // below the horizon the sun is gone, not drawn over the sea
+        const pt = skyPoint(cam, c.az + u * 2.6, el * D2R, 60);
         const sz = 2.2 * (1 - k * 0.019) * vis;
         return (
           <Mesh3d key={k} shadow={false} transform={at(...pt)}>
             <Sphere radius={Math.max(0.1, sz)} />
-            <StandardMaterial base_color="#ffd9a0" unlit emissive={glow(k === 0 ? "#ffcf7a" : "#ff8a3c", Math.max(1.5, 7 - k * 0.14))} />
+            <StandardMaterial base_color="#fff3d0" unlit emissive={glow(k === 0 ? "#fff0c0" : "#ffb04a", Math.max(2, 9 - k * 0.16))} />
           </Mesh3d>
         );
       })}
