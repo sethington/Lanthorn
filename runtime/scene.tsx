@@ -401,7 +401,7 @@ function Figure({ fig, f, p, leverA = 0 }: { fig: any; f: number; p: number; lev
     }
     return (
       <>
-        <Character body={bodyName} pose={P} position={[px, rootY, pz]} yaw={yawA} scale={sc} outline={false}>
+        <Character body={bodyName} name={`${bodyName}-${String(fig.ref).replace(/[^a-z0-9]/gi, "")}-${Math.round((fig.x + 50) * 10)}`} pose={P} position={[px, rootY, pz]} yaw={yawA} scale={sc} outline={false}>
           {LK ? (
             <>
               <StandardMaterial material="skin" base_color={LK.skin} perceptual_roughness={1} metallic={0} reflectance={0.02} />
