@@ -1,5 +1,5 @@
 import { AbsoluteFill, Composition, registerRoot, staticFile, useCurrentFrame, useGameState, type FrameInput } from "raea";
-import { Bloom, DepthOfField, Entity, Environment, Fog, Grade, Look, Model, Outline, Shadows, Sphere, ToneMapping, Torus } from "raea/3d";
+import { Bloom, DepthOfField, Entity, Environment, Fog, Grade, Look, Model, Outline, Shadows, Sphere, ToneMapping, Torus, crossSection, manifold } from "raea/3d";
 import { LinearRgba, Srgba } from "raea/color";
 import { Affine2 } from "raea/math";
 import { StandardMaterial } from "raea/pbr";
@@ -761,6 +761,120 @@ function Room({ p = 0 }: { p?: number }) {
   );
 }
 
+// ---- buildings: the catalogue has none, so they are modelled here as Manifold solids (a box with its windows cut out, a roof, a spire...),
+// built once per kind and drawn as a few meshes. Kinds: house, tower, church, ruin, obelisk, pyramid, cyclopean, city.
+const MF: any = manifold;
+const XS: any = crossSection;
+type BPart = { shape: any; color: string; rough?: number };
+const BLD: Record<string, BPart[]> = {};
+const seedN = (n: number) => { let s = (n * 9301 + 49297) % 233280; return () => ((s = (s * 9301 + 49297) % 233280) / 233280); };
+function windowsOn(w: number, d: number, ys: number[], xs: number[], ww = 0.7, wh = 1.1): any[] {
+  const cuts: any[] = [];
+  for (const y of ys) for (const x of xs) { cuts.push(MF.box(ww, wh, 1).move(x, y, d / 2)); cuts.push(MF.box(ww, wh, 1).move(x, y, -d / 2)); }
+  for (const y of ys) for (const z of xs.map((x) => x * (d / w))) { cuts.push(MF.box(1, wh, ww).move(w / 2, y, z)); cuts.push(MF.box(1, wh, ww).move(-w / 2, y, z)); }
+  return cuts;
+}
+function gable(w: number, d: number, h: number, rise: number): any {
+  const tri = XS.polygon([[-w / 2 - 0.3, 0], [w / 2 + 0.3, 0], [0, rise]]);
+  return MF.extrude(tri, d + 0.6).move(0, 0, -(d + 0.6) / 2).move(0, h, 0);
+}
+function tallBox(w: number, d: number, h: number, floors: number, cols: number, slit = false): any {
+  const body = MF.box(w, h, d).move(0, h / 2, 0);
+  const ys = Array.from({ length: floors }, (_, i) => 2.2 + ((h - 4) * i) / Math.max(1, floors - 1));
+  const xs = Array.from({ length: cols }, (_, i) => (cols === 1 ? 0 : -w / 2 + 0.9 + ((w - 1.8) * i) / (cols - 1)));
+  return MF.difference(body, ...windowsOn(w, d, ys, xs, slit ? 0.3 : 0.7, slit ? 1.4 : 1.1));
+}
+function crenels(w: number, d: number, y: number): any {
+  const bits: any[] = [];
+  const n = 5;
+  for (let i = 0; i < n; i++) {
+    const u = -w / 2 + 0.3 + ((w - 0.6) * i) / (n - 1);
+    bits.push(MF.box(0.5, 0.7, 0.5).move(u, y + 0.35, d / 2 - 0.25), MF.box(0.5, 0.7, 0.5).move(u, y + 0.35, -d / 2 + 0.25));
+    const v = -d / 2 + 0.3 + ((d - 0.6) * i) / (n - 1);
+    bits.push(MF.box(0.5, 0.7, 0.5).move(w / 2 - 0.25, y + 0.35, v), MF.box(0.5, 0.7, 0.5).move(-w / 2 + 0.25, y + 0.35, v));
+  }
+  return MF.union(...bits);
+}
+function makeBuilding(kind: string): BPart[] {
+  const STONE = "#8f877a", PLASTER = "#cdbb9f", ROOF = "#7a3e30", DARK = "#4b4036";
+  if (kind === "house") {
+    const w = 6, d = 4.6, h = 3;
+    let body = MF.box(w, h, d).move(0, h / 2, 0);
+    const cuts: any[] = [MF.box(1.0, 2.0, 1).move(0, 1.0, d / 2)];
+    for (const x of [-1.8, 1.8]) { cuts.push(MF.box(0.9, 1.1, 1).move(x, 1.7, d / 2), MF.box(0.9, 1.1, 1).move(x, 1.7, -d / 2)); }
+    body = MF.difference(body, ...cuts);
+    const chim = MF.box(0.6, 2.2, 0.6).move(1.6, h + 1.0, -0.6);
+    return [{ shape: body, color: PLASTER }, { shape: gable(w, d, h, 2.0), color: ROOF }, { shape: chim, color: DARK }];
+  }
+  if (kind === "tower") {
+    const w = 4.6, h = 15;
+    return [{ shape: tallBox(w, w, h, 4, 1, true), color: STONE }, { shape: crenels(w, w, h), color: STONE }, { shape: MF.box(w + 0.5, 0.4, w + 0.5).move(0, h, 0), color: DARK }];
+  }
+  if (kind === "church") {
+    const nw = 6, nd = 11, nh = 5;
+    let nave = MF.box(nw, nh, nd).move(0, nh / 2, 0);
+    const cuts: any[] = [];
+    for (const z of [-3.5, 0, 3.5]) { cuts.push(MF.box(1, 2.2, 0.9).move(nw / 2, 2.8, z), MF.box(1, 2.2, 0.9).move(-nw / 2, 2.8, z)); }
+    nave = MF.difference(nave, ...cuts);
+    const sw = 3.2, sh = 14;
+    const steeple = MF.difference(MF.box(sw, sh, sw).move(0, sh / 2, nd / 2 + sw / 2 - 0.5), MF.box(0.5, 1.8, 1).move(0, sh - 3, nd / 2 + sw - 0.5), MF.box(1, 1.8, 0.5).move(0, sh - 3, nd / 2 + sw / 2 - 0.5));
+    const spire = MF.cone(sw * 0.62, 0, 5).rotate(-90, 0, 0).move(0, sh, nd / 2 + sw / 2 - 0.5);
+    return [{ shape: nave, color: STONE }, { shape: gable(nw, nd, nh, 3), color: "#4f4a47" }, { shape: steeple, color: STONE }, { shape: spire, color: "#4f4a47" }];
+  }
+  if (kind === "ruin") {
+    const w = 5, h = 12;
+    const rnd = seedN(7);
+    const wall = MF.difference(tallBox(w, w, h, 3, 1, true), MF.box(w * 1.2, 6, w * 0.7).rotate(0, 0, 18).move(0, h - 1, w * 0.35), MF.box(2.2, 5, w * 2).move(1.2, h - 3, 0));
+    const rubble: any[] = [];
+    for (let i = 0; i < 9; i++) rubble.push(MF.box(0.6 + rnd() * 1.2, 0.4 + rnd() * 0.8, 0.6 + rnd() * 1.2).rotate(rnd() * 40, rnd() * 90, rnd() * 40).move((rnd() - 0.5) * 9, 0.4, (rnd() - 0.2) * 7));
+    return [{ shape: wall, color: "#7f776a" }, { shape: MF.union(...rubble), color: "#6e675c" }];
+  }
+  if (kind === "obelisk") {
+    const hh = 18;
+    const shaft = MF.hull([[-1, 0, -1], [1, 0, -1], [1, 0, 1], [-1, 0, 1], [-0.55, hh, -0.55], [0.55, hh, -0.55], [0.55, hh, 0.55], [-0.55, hh, 0.55]]);
+    const cap = MF.hull([[-0.55, hh, -0.55], [0.55, hh, -0.55], [0.55, hh, 0.55], [-0.55, hh, 0.55], [0, hh + 1.4, 0]]);
+    return [{ shape: shaft, color: "#2e2c2a", rough: 0.35 }, { shape: cap, color: "#2e2c2a", rough: 0.35 }, { shape: MF.box(3, 0.5, 3).move(0, 0.25, 0), color: DARK }];
+  }
+  if (kind === "pyramid") {
+    return [{ shape: MF.hull([[-14, 0, -14], [14, 0, -14], [14, 0, 14], [-14, 0, 14], [0, 18, 0]]), color: "#c9ad7c" }];
+  }
+  if (kind === "cyclopean") {
+    // vast masonry that is not quite right: blocks of the wrong size at the wrong angles, slick and green-black
+    const rnd = seedN(13);
+    const blocks: any[] = [];
+    for (let i = 0; i < 14; i++) {
+      const bw = 3 + rnd() * 7, bh = 2 + rnd() * 9, bd = 3 + rnd() * 7;
+      blocks.push(MF.box(bw, bh, bd).rotate((rnd() - 0.5) * 16, rnd() * 90, (rnd() - 0.5) * 16).move((rnd() - 0.5) * 24, bh / 2 + rnd() * 5, (rnd() - 0.5) * 18));
+    }
+    return [{ shape: MF.union(...blocks), color: "#4b5a4c", rough: 0.35 }];
+  }
+  if (kind === "city") {
+    const rnd = seedN(29);
+    const parts: BPart[] = [];
+    const towers: any[] = [];
+    for (let i = 0; i < 8; i++) {
+      const w = 5 + rnd() * 4, h = 14 + rnd() * 26;
+      towers.push(tallBox(w, w, h, Math.round(h / 3), 2).move((i - 3.5) * 9 + (rnd() - 0.5) * 3, 0, (rnd() - 0.5) * 8));
+    }
+    parts.push({ shape: MF.union(...towers), color: "#7e8793", rough: 0.5 });
+    return parts;
+  }
+  return [{ shape: MF.box(4, 3, 4).move(0, 1.5, 0), color: PLASTER }];
+}
+function Building({ a }: { a: any }) {
+  const kind = String(a.id).slice(4);
+  const parts = (BLD[kind] ??= makeBuilding(kind));
+  return (
+    <Entity transform={Transform.fromXyz(a.pos[0], a.pos[1], a.pos[2]).withRotation(Quat.fromEuler("XYZ", 0, a.rotY, 0)).withScale([a.scale, a.scale, a.scale])}>
+      {parts.map((pt, i) => (
+        <Mesh3d key={i} shape={pt.shape} name={`bld-${kind}-${i}`}>
+          <StandardMaterial base_color={pt.color} perceptual_roughness={pt.rough ?? 0.92} />
+        </Mesh3d>
+      ))}
+    </Entity>
+  );
+}
+
 /** What makes a room a room: skirting and a dado, windows with the day (or the night) in them, a door, a rug, pictures. The window light comes from the time of day. */
 function RoomDressing({ p }: { p: number }) {
   const { w, d, h } = R.room;
@@ -1394,9 +1508,13 @@ function Scene() {
       ) : null}
       {R.room ? <Room p={p} /> : null}
 
-      {R.assets.map((a: any, i: number) => (
-        <Model key={i} src={media(a.file)} position={a.pos} rotation={[0, a.rotY, 0]} scale={a.scale} />
-      ))}
+      {R.assets.map((a: any, i: number) =>
+        String(a.id).startsWith("bld:") ? (
+          <Building key={i} a={a} />
+        ) : (
+          <Model key={i} src={media(a.file)} position={a.pos} rotation={[0, a.rotY, 0]} scale={a.scale} />
+        ),
+      )}
       {R.hero.kind === "time_machine" ? <Machine p={p} f={f} /> : null}
       {(R.figures as any[]).filter((x) => !x.onMachine).map((x, i) => <Figure key={i} fig={x} f={f} p={p} />)}
       {R.hero.sphinx ? <Sphinx /> : null}

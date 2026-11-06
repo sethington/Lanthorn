@@ -119,6 +119,20 @@ const POLY_BUDGET = 600_000;
 const ACTS_KNOWN = ["walk_to", "sit", "stand", "reach", "use_lever", "look_at", "turn", "gesture", "crouch"];
 
 /** Best catalog model for a phrase, or null. Heavy meshes are skipped. */
+/** Buildings the runtime builds itself (Manifold solids): the catalogue has none. */
+export const BUILDINGS: [string, RegExp, number, number][] = [
+  // kind, words, scale, distance behind the action (m)
+  ["church", /church|chapel|cathedral|temple|abbey|monaster/, 1.3, 16],
+  ["ruin", /\bruin|ruined|crumbl|fallen (?:wall|tower)|broken (?:wall|tower)/, 1.1, 14],
+  ["tower", /tower|lighthouse|spire|keep\b|turret|castle|fortress/, 1.2, 18],
+  ["pyramid", /pyramid|ziggurat/, 1.8, 40],
+  ["obelisk", /obelisk|monolith|pillar of stone|standing stone/, 1.0, 12],
+  ["cyclopean", /cyclopean|r'lyeh|titan blocks|vast (?:masonry|city)|sunken city|non-euclid/, 1.6, 30],
+  ["city", /\bcity\b|skyscraper|skyline|metropolis|towns?\b/, 1.0, 34],
+  ["house", /house|cottage|hut|inn\b|tavern|barn|farm|mill\b|cabin|dwelling|village|building/, 1.0, 14],
+];
+export const buildingKind = (phrase: string): [string, RegExp, number, number] | undefined => BUILDINGS.find((b) => b[1].test(phrase.toLowerCase()));
+
 export function matchModel(phrase: string, allowed?: (m: Model) => boolean): Model | null {
   const ws = words(phrase);
   if (!ws.length) return null;
@@ -318,7 +332,14 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
   const heroish = /machine|lever|quartz|dial|saddle|traveller|rod/;
   for (const p of scene.props) {
     if (heroish.test(p.toLowerCase())) continue;
-    const m = matchPkg(p, pkg.models) ?? matchModel(p, sizeOk(30));
+    const pm = matchPkg(p, pkg.models);
+    const bk = !pm && kind === "exterior" ? buildingKind(p) : undefined;
+    if (bk && assets.length < 14 && !assets.some((a) => a.id === `bld:${bk[0]}`)) {
+      // no model for it: the runtime builds it
+      assets.push({ id: `bld:${bk[0]}`, file: "", pos: [(r() - 0.5) * 22, 0, -bk[3] - r() * 8], rotY: (r() - 0.5) * 1.2, scale: bk[2] * (0.9 + r() * 0.3), label: p });
+      continue;
+    }
+    const m = pm ?? matchModel(p, sizeOk(30));
     if (m && !assets.some((a) => a.id === m.id) && assets.length < 14) place(m, (r() - 0.5) * 10, -2 - r() * 7, undefined, p);
     else if (!m && !/tree|bush|rock|hill|sky|building|tower|garden/.test(p.toLowerCase())) unresolved.push(p);
   }
@@ -504,7 +525,7 @@ export function assetsNeeded(r: Resolved): { kind: string; id: string; res: stri
   const out = new Map<string, { kind: string; id: string; res: string }>();
   const add = (kind: string, id: string, res: string) => out.set(`${kind}:${id}`, { kind, id, res });
   for (const s of [r.sky.night, r.sky.dawn, r.sky.day, r.sky.dusk]) add("hdri", s.id, "1k");
-  for (const a of r.assets) if (!a.id.startsWith("pkg:")) add("model", a.id, "1k"); // bundled models are already on disk
+  for (const a of r.assets) if (!a.id.startsWith("pkg:") && !a.id.startsWith("bld:")) add("model", a.id, "1k"); // bundled models are already on disk; buildings are built in the runtime
   for (const c of r.stage ?? []) for (const it of c.items ?? []) if (it.file && !it.tower) add("model", it.id, "1k"); // towers and creatures are built in the runtime
   if (r.ground) add("texture", r.ground.id, "1k");
   if (r.room) add("texture", r.room.floor, "1k");
@@ -513,7 +534,7 @@ export function assetsNeeded(r: Resolved): { kind: string; id: string; res: stri
 }
 
 /** Bump when runtime/scene.tsx changes in a way that alters frames, so cached renders are redone. */
-export const RUNTIME_VERSION = "rt49";
+export const RUNTIME_VERSION = "rt50";
 
 /** Cache key: changes whenever the resolved plan or the runtime does. */
 export function sceneKey(r: Resolved): string {
