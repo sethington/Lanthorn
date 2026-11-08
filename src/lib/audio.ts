@@ -2,6 +2,7 @@
 // No downloads, no licences: everything is synthesised from the scene's audio/mood/weather fields.
 // Generated or sampled sound can replace recipes later behind the same interface (docs/spec.md).
 
+import { makeSounds, type Recipe } from "./sounds";
 import { ref } from "vue";
 import type { Scene } from "./scene";
 
@@ -348,6 +349,56 @@ class Engine {
     }
   }
 
+  /** a sound the language model wrote (src/lib/sounds.ts) */
+  private play(r: Recipe) {
+    const ctx = this.ctx!;
+    const t0 = ctx.currentTime + 0.02;
+    for (const l of r.layers) {
+      for (let i = 0; i < l.n; i++) {
+        const t = t0 + l.at + i * l.gap + (Math.random() - 0.5) * 2 * l.jitter;
+        const g = ctx.createGain();
+        let src: AudioScheduledSourceNode;
+        if (l.src === "white" || l.src === "pink" || l.src === "brown") {
+          const b = ctx.createBufferSource();
+          b.buffer = this.noise![l.src];
+          b.start(t, Math.random() * 3);
+          src = b;
+        } else {
+          const o = ctx.createOscillator();
+          o.type = l.src;
+          o.frequency.setValueAtTime(l.f0 ?? 440, t);
+          if (l.f1 != null) o.frequency.exponentialRampToValueAtTime(Math.max(1, l.f1), t + l.dur);
+          o.start(t);
+          src = o;
+        }
+        let node: AudioNode = src;
+        if (l.filter) {
+          const fl = this.filter(l.filter.type, l.filter.f, l.filter.q ?? 0.8);
+          if (l.filter.f1 != null) fl.frequency.setValueAtTime(l.filter.f, t), fl.frequency.exponentialRampToValueAtTime(Math.max(20, l.filter.f1), t + l.dur);
+          node.connect(fl);
+          node = fl;
+        }
+        node.connect(g).connect(this.master);
+        if (l.verb) g.connect(this.reverb);
+        this.env(g, t, l.peak, Math.min(l.attack, l.dur), l.dur);
+        src.stop(t + l.attack + l.dur + 0.1);
+      }
+    }
+  }
+
+  private recipes = new Map<string, Recipe>();
+  private asking = new Set<string>();
+  /** ask ahead for the sounds a scene names that have no recipe, so they are ready by the cue */
+  private prepare(scene: Scene) {
+    const need = scene.audio.spots.map((sp) => sp.sound.toLowerCase()).filter((p) => p && !this.classifySpot(p) && !this.recipes.has(p) && !this.asking.has(p));
+    if (!need.length) return;
+    need.forEach((p) => this.asking.add(p));
+    makeSounds(need).then((got) => {
+      for (const [p, r] of Object.entries(got)) this.recipes.set(p, r);
+      need.forEach((p) => { if (!got[p]) this.asking.delete(p); }); // (failed: asked again next time)
+    });
+  }
+
   private classifySpot(text: string): string | null {
     const s = text.toLowerCase();
     if (has(s, /thunder|rumble/)) return "thunder";
@@ -368,6 +419,7 @@ class Engine {
     this.last = { scene, sid, progress };
     if (!this.ctx || !soundOn.value || this.ctx.state !== "running") { this.lastSid = sid; return; }
     const ctx = this.ctx;
+    if (scene) this.prepare(scene);
 
     // bed: crossfade on a scene change; non-visual scenes keep the current bed
     if (scene && scene.visual) {
@@ -392,7 +444,9 @@ class Engine {
       for (const sp of scene.audio.spots) {
         if (sp.at > this.lastSid && sp.at <= sid && ctx.currentTime - this.lastSpotAt > 0.35) {
           const kind = this.classifySpot(sp.sound);
+          const rec = kind ? null : this.recipes.get(sp.sound.toLowerCase());
           if (kind) { this.spot(kind); this.lastSpotAt = ctx.currentTime; }
+          else if (rec) { this.play(rec); this.lastSpotAt = ctx.currentTime; }
           else if (!this.unresolved.has(sp.sound)) this.unresolved.add(sp.sound);
         }
       }
