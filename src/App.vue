@@ -5,7 +5,7 @@ import Settings from "./Settings.vue";
 import Cutscene from "./Cutscene.vue";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { api } from "./lib/api";
-import { engine, setSound, soundLevel, soundOn } from "./lib/audio";
+import { engine, setSound, soundLevel, soundOn, soundReady } from "./lib/audio";
 import { lastModel, modelBadge, reloadSettings } from "./lib/state";
 import { LEGACY_PROMPT_VERSIONS, PROMPT_VERSION, SYSTEM, buildUser, endState, extractJson, validateChunk, type Bible, type Scene as LlmScene } from "./lib/scene";
 import type { Book } from "./lib/book";
@@ -694,9 +694,9 @@ onMounted(async () => {
   api.cachePrune(RUNTIME_VERSION, 3 * 1024 ** 3).catch(() => {}); // drops the old baked-frame cache and prepared scenes from older engine versions
   if (soundOn.value) {
     // browsers only start audio after a user gesture: resume on the first one
-    const kick = () => { setSound(true); window.removeEventListener("pointerdown", kick); window.removeEventListener("keydown", kick); };
-    window.addEventListener("pointerdown", kick);
-    window.addEventListener("keydown", kick);
+    const evs = ["pointerdown", "mousedown", "click", "keydown", "touchstart", "wheel"];
+    const kick = async () => { await setSound(true); if (soundReady.value) evs.forEach((e) => window.removeEventListener(e, kick)); };
+    evs.forEach((e) => window.addEventListener(e, kick, { passive: true }));
   }
   debugLog("boot", { ua: navigator.userAgent, w: innerWidth, h: innerHeight, tauri: "__TAURI_INTERNALS__" in window });
   timers.push(window.setInterval(
@@ -737,7 +737,7 @@ function setEl(el: unknown, i: number) {
   <div class="topbar">
     <button v-if="view === 'reader'" class="pill" title="Your books (⌘O)" @click="view = 'library'">Library</button>
     <button v-if="view === 'reader'" class="pill" :class="{ on: showDetails }" title="Scene details" @click="toggleDetails">Details<template v-if="llmScenes.length"> · {{ llmScenes.length }}</template></button>
-    <button v-if="view === 'reader'" class="pill" :class="{ on: soundOn }" :title="soundOn ? 'Sound on: click to mute' : 'Turn sound on'" @click="setSound(!soundOn)">Sound {{ soundOn ? "on" : "off" }}</button>
+    <button v-if="view === 'reader'" class="pill" :class="{ on: soundOn }" :title="soundOn ? 'Sound on: click to mute' : 'Turn sound on'" @click="setSound(!soundOn)">Sound {{ !soundOn ? "off" : soundReady ? "on" : "on · click to start" }}</button>
     <button class="pill" :title="view === 'settings' ? 'Back to reading' : 'Model settings'" @click="view = view === 'settings' ? 'reader' : 'settings'; if (view === 'reader') reloadSettings()">{{ modelBadge }}</button>
   </div>
   <Settings v-if="view === 'settings'" @close="view = book ? 'reader' : 'library'; reloadSettings()" />

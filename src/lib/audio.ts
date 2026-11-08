@@ -14,6 +14,7 @@ const write = (k: string, v: string) => {
   try { localStorage.setItem(k, v); } catch { /* optional */ }
 };
 
+export const soundReady = ref(false); // the audio context is actually running (the browser starts it only after a gesture)
 export const soundOn = ref(read(KEY_ON, "0") === "1");
 export const soundVolume = ref(Math.min(1, Math.max(0, Number(read(KEY_VOL, "0.6")) || 0.6)));
 export const soundLevel = ref(0); // RMS of what's coming out, 0..1 (for the UI and for checking it's alive)
@@ -46,17 +47,22 @@ class Engine {
       comp.ratio.value = 4;
       this.analyser = ctx.createAnalyser();
       this.analyser.fftSize = 1024;
-      this.master.connect(comp).connect(this.analyser).connect(ctx.destination);
+      // the beds are synthesized quiet (a bed alone measured ~0.005 RMS, inaudible on laptop speakers): make up the level after the compressor
+      const makeup = ctx.createGain();
+      makeup.gain.value = 5;
+      this.master.connect(comp).connect(makeup).connect(this.analyser).connect(ctx.destination);
       this.noise = { white: this.makeNoise("white"), pink: this.makeNoise("pink"), brown: this.makeNoise("brown") };
       this.reverb = ctx.createConvolver();
       this.reverb.buffer = this.makeImpulse(2.6);
       const wet = ctx.createGain();
       wet.gain.value = 0.35;
       this.reverb.connect(wet).connect(this.master);
+      ctx.onstatechange = () => { soundReady.value = ctx.state === "running"; };
       this.startMeter();
     }
     this.setVolume(soundVolume.value);
-    await this.ctx.resume();
+    await this.ctx.resume().catch(() => {});
+    soundReady.value = this.ctx.state === "running";
     // start the bed for wherever the reader already is
     if (this.last) this.onPosition(this.last.scene, this.last.sid, this.last.progress);
   }
