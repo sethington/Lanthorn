@@ -17,7 +17,7 @@ export type BoardTree = { nodes: { id: string; label: string; parent?: string }[
 export type BoardTimeline = { events: { label: string; at: number }[]; from?: string; to?: string };
 export type BoardItem = { t: "eq"; tex: string } | ({ t: "plot" } & BoardPlot) | { t: "note"; s: string } | ({ t: "map" } & BoardMap) | ({ t: "tree" } & BoardTree) | ({ t: "timeline" } & BoardTimeline);
 export type BoardStep = { at: number; say?: string; items: BoardItem[] };
-export type Board = { steps: BoardStep[] };
+export type Board = { steps: BoardStep[]; /** drawn small in a corner over a normal scene instead of replacing it */ inset?: boolean };
 
 export type Scene = {
   /** set for passages drawn as a board instead of a world */
@@ -108,7 +108,7 @@ Schema:
 "confidence":0-1}]}
 "board":{"steps":[{"at":<sentence id>,"say":"<=8 words","items":[{"t":"eq","tex":"<LaTeX>"},{"t":"plot","fns":[{"expr":"<JS expression in x, e.g. x*x - 2*x, Math.sin(x)>","label":"f"}],"x":[min,max],"y":[min,max],"marks":[{"x":<number>,"label":"c"}],"chord":[x1,x2],"tangent":<x>},{"t":"note","s":"<=14 words"},{"t":"map","title":"<=4 words","points":[{"id":"a","name":"<place>","x":0-100,"y":0-100}],"route":["a","b"]},{"t":"tree","nodes":[{"id":"n1","label":"<name>","parent":"<id or omit>"}]},{"t":"timeline","events":[{"label":"<=4 words","at":0-100}],"from":"<label>","to":"<label>"}]}]}   (ONLY for mathematical, scientific, technical or structural passages)
 Rules:
-- BOARD: a theorem, proof, derivation, formula, algorithm or data passage is not a place: set visual:true, kind:"board", location:"board", no subjects, and give "board" with 2-8 steps. Each step "at" is the sentence where it appears; items show in order: eq (one LaTeX equation, display style, no $ signs), plot (a function drawn with optional marked points, a chord between two x values, a tangent at x; draw what the text describes, e.g. a theorem about a function gets a plot of an example function), note (a plain caption). A plot stays on screen until the next plot. Equations are exactly what the text states, step by step as it derives them. Also a board (kind:"board"): a journey through named real places (map: x east, y south, put places where they really lie relative to each other; route lists the places in the order travelled), a genealogy or any hierarchy (tree), a run of dated events or stages (timeline). Maps, trees and timelines stay on screen until the next one; a map's route is drawn only as far as the step reached. Narrative prose with people in a scene keeps its normal scene.
+- BOARD: a theorem, proof, derivation, formula, algorithm or data passage is not a place: set visual:true, kind:"board", location:"board", no subjects, and give "board" with 2-8 steps. Each step "at" is the sentence where it appears; items show in order: eq (one LaTeX equation, display style, no $ signs), plot (a function drawn with optional marked points, a chord between two x values, a tangent at x; draw what the text describes, e.g. a theorem about a function gets a plot of an example function), note (a plain caption). A plot stays on screen until the next plot. Equations are exactly what the text states, step by step as it derives them. Also a board (kind:"board"): a journey through named real places (map: x east, y south, put places where they really lie relative to each other; route lists the places in the order travelled), a genealogy or any hierarchy (tree), a run of dated events or stages (timeline). Maps, trees and timelines stay on screen until the next one; a map's route is drawn only as far as the step reached. Narrative prose with people in a scene keeps its normal scene; when such a scene is a journey or turns on a family or sequence, ALSO give it a \"board\" with \"inset\":true (a map or tree or timeline shown small in a corner while the scene plays) and keep visual:true with its normal fields.
 - Scenes contiguous, cover every given sentence, ordered, no overlap. New scene on location, time-jump, or mood change.
 - visual:false for dialogue/exposition with nothing to draw; keep other fields minimal.
 - kind timelapse: passage describes accelerated time. abstract: sensation/emotion, no concrete objects.
@@ -232,7 +232,7 @@ function normBoard(raw: any, from: number, to: number): Board | undefined {
     if (items.length) steps.push({ at, say: typeof st?.say === "string" ? st.say.slice(0, 80) : undefined, items });
   }
   steps.sort((a, b) => a.at - b.at);
-  return steps.length ? { steps } : undefined;
+  return steps.length ? { steps, ...(raw.inset === true ? { inset: true } : {}) } : undefined;
 }
 
 /** Validate against the chunk's sentence range; repair what's safe, throw on what isn't. */

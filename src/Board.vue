@@ -6,7 +6,7 @@ import katex from "katex";
 import "katex/dist/katex.min.css";
 import type { Board, BoardMap, BoardPlot, BoardTimeline, BoardTree } from "./lib/scene";
 
-const props = defineProps<{ board: Board; sid: number }>();
+const props = defineProps<{ board: Board; sid: number; inset?: boolean }>();
 
 const stepIdx = computed(() => {
   let k = -1;
@@ -144,7 +144,7 @@ const drawing = computed(() => {
 </script>
 
 <template>
-  <div class="board">
+  <div class="board" :class="{ inset }">
     <div v-if="step.say" :key="'h' + stepIdx" class="say">{{ step.say }}</div>
     <svg v-if="drawing" class="plot" :viewBox="`0 0 ${W} ${H}`" preserveAspectRatio="xMidYMid meet">
       <g class="grid">
@@ -202,6 +202,10 @@ const drawing = computed(() => {
 </template>
 
 <style scoped>
+.board.inset { inset: auto 12px 12px auto; width: 46%; height: 42%; border-radius: 12px; padding: 8px 10px; background: rgba(14, 16, 24, 0.82); border: 1px solid #ffffff1a; backdrop-filter: blur(6px); pointer-events: none; gap: 4px; }
+.board.inset .say { font-size: 9px; }
+.board.inset .eqs, .board.inset .notes { display: none; }
+.board.inset .plot { flex: 1 1 auto; }
 .board { position: absolute; inset: 0; background: radial-gradient(120% 90% at 50% 0%, #1b1f2b 0%, #12141c 70%); color: #ece8dc; display: flex; flex-direction: column; gap: 10px; padding: 18px 20px 16px; overflow: hidden; font-family: system-ui, sans-serif; }
 .say { font: 600 11px/1.3 system-ui, sans-serif; letter-spacing: 0.2em; text-transform: uppercase; color: #d8b45a; animation: rise 0.4s ease both; }
 .plot { width: 100%; flex: 0 1 52%; min-height: 0; animation: rise 0.5s ease both; }

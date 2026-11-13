@@ -76,7 +76,7 @@ function build() {
     const span = tl.scenes.find((x) => x.index === i);
     if (!span) return;
     const rep = cur ? props.scenes[cur.scenes.find((k) => props.scenes[k].visual) ?? cur.scenes[0]] : null;
-    if (cur && cur.ch === (sc.ch ?? 0) && (!sc.visual || !!sc.board || !rep || !rep.visual || sameWorld(rep, sc))) {
+    if (cur && cur.ch === (sc.ch ?? 0) && (!sc.visual || (!!sc.board && !sc.board.inset) || !rep || !rep.visual || sameWorld(rep, sc))) {
       cur.scenes.push(i);
       cur.t1 = span.t1;
     } else {
@@ -131,7 +131,7 @@ type Prep = { bundle: string; dir: string };
 const preps = new Map<string, Promise<Prep>>();
 const prepTimes = new Map<string, { resolve: number; llm: number; bundle: number }>(); // dev: where a place's preparation went
 const prepKeyOf = new Map<string, string>(); // group -> the key its world is prepared under (progress events carry it)
-const repOf = (g: Group) => g.scenes.find((i) => props.scenes[i].visual && !props.scenes[i].board);
+const repOf = (g: Group) => g.scenes.find((i) => props.scenes[i].visual && !(props.scenes[i].board && !props.scenes[i].board!.inset));
 function prepare(gi: number, full = true): Promise<Prep> {
   const g0 = groups[gi];
   const key0 = sig(g0);
@@ -569,7 +569,7 @@ onBeforeUnmount(() => clearInterval(beatTimer));
       <div v-if="ui.busy && ui.up" class="busy"><Progress :title="making?.title ?? 'Moving on…'" :detail="making?.detail" :value="making?.value" /></div>
       <div v-if="ui.controlling" class="hint">You have the camera · drag to look · W/S zoom · A/D slide · Esc to follow the text again</div>
       <div v-if="speaker && !ui.controlling" class="who">{{ speaker }}</div>
-      <Board v-if="boardNow" :board="boardNow" :sid="sid" />
+      <Board v-if="boardNow" :board="boardNow" :sid="sid" :inset="!!boardNow.inset" />
     </div>
   </div>
 </template>
