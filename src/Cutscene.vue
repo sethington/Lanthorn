@@ -125,12 +125,15 @@ function onResize() {
 // ---- a group of scenes becomes one world bundle, prepared on demand
 type Prep = { bundle: string; dir: string };
 const preps = new Map<string, Promise<Prep>>();
+const prepTimes = new Map<string, { resolve: number; llm: number; bundle: number }>(); // dev: where a place's preparation went
 const prepKeyOf = new Map<string, string>(); // group -> the key its world is prepared under (progress events carry it)
 const repOf = (g: Group) => g.scenes.find((i) => props.scenes[i].visual);
-function prepare(gi: number): Promise<Prep> {
+function prepare(gi: number, full = true): Promise<Prep> {
   const g0 = groups[gi];
   const key0 = sig(g0);
-  let p = preps.get(key0);
+  // the fast kind (cache only: no waiting for the language model) is kept under its own key so the full one can follow it
+  const pk = full ? key0 : `${key0}|fast`;
+  let p = preps.get(pk);
   if (!p) {
     const g = g0;
     const rep = props.scenes[repOf(g)!];
@@ -158,30 +161,41 @@ function prepare(gi: number): Promise<Prep> {
     });
     const ropts = { pkg: props.pkg, size: SIZE, shots, stage, acting, style: props.styleFor?.(rep), place: placeFor(key0), roomStyle: styleOf(key0), extra: madeFor(key0), seconds: span };
     p = (async () => {
+      const T0 = performance.now();
+      let tLlm = 0;
       let r: Resolved = resolveScene(whole, props.bible, ropts);
+      const tResolve = performance.now() - T0;
       // no recipe fits this place (or the judge named one in its own words): the language model designs the room
       if (r.room) {
         const loc = props.bible.locations.find((l) => l.id === whole.location);
         const forced = styleOf(key0);
         const text = `${whole.location.replace(/_/g, " ")} ${loc?.desc ?? ""} ${whole.mood ?? ""}`;
         if (needsDesign(text, forced)) {
-          const spec = await makeRoom(forced ?? `${loc?.desc ?? whole.location.replace(/_/g, " ")}. Mood: ${whole.mood ?? ""}. Props: ${whole.props.slice(0, 5).join(", ")}`);
+          const tl0 = performance.now();
+          const spec = await makeRoom(forced ?? `${loc?.desc ?? whole.location.replace(/_/g, " ")}. Mood: ${whole.mood ?? ""}. Props: ${whole.props.slice(0, 5).join(", ")}`, !full);
+          tLlm += performance.now() - tl0;
           if (spec) r = resolveScene(whole, props.bible, { ...ropts, roomSpec: spec });
         }
       }
       // props the library has no model for: the language model draws them from basic shapes (kept for next time)
       const missing = r.unresolved.filter((u) => !u.startsWith("place:"));
       if (missing.length) {
-        const procs = await makeProps(missing, Object.fromEntries(madeFor(key0).map((q) => [q.what.toLowerCase(), q.kind])));
+        const tl1 = performance.now();
+        const procs = await makeProps(missing, Object.fromEntries(madeFor(key0).map((q) => [q.what.toLowerCase(), q.kind])), !full);
+        tLlm += performance.now() - tl1;
         if (Object.keys(procs).length) r = resolveScene(whole, props.bible, { ...ropts, procs, roomSpec: r.room?.style === "custom" ? r.room : undefined });
       }
       r.live = true;
       r.t0 = 0;
       prepKeyOf.set(key0, `${sceneKey(r)}-cut`);
-      return api.sceneWorld(`${sceneKey(r)}-cut`, JSON.stringify(r), assetsNeeded(r));
+      if (!full) r = { ...r }; // (a fast one is a different bundle from the full one whenever the drawn pieces differ: the key follows the content)
+      const tb = performance.now();
+      const out = await api.sceneWorld(`${sceneKey(r)}-cut`, JSON.stringify(r), assetsNeeded(r));
+      prepTimes.set(key0, { resolve: Math.round(tResolve), llm: Math.round(tLlm), bundle: Math.round(performance.now() - tb) });
+      return out;
     })();
-    p.catch(() => preps.delete(key0)); // a failed prepare may be retried
-    preps.set(key0, p);
+    p.catch(() => preps.delete(pk)); // a failed prepare may be retried
+    preps.set(pk, p);
   }
   return p;
 }
@@ -217,7 +231,7 @@ function pump(gi: number, now: number) {
 let loading = false;
 let wantKey = ""; // the prepare key of the place being made now
 let unlistenProg: UnlistenFn | null = null;
-const stats = { loads: 0, fails: 0, ms: [] as number[], hitchMax: 0, judged: 0 }; // dev: how loading went (read by the soak test)
+const stats = { loads: 0, fails: 0, ms: [] as number[], hitchMax: 0, judged: 0, detail: [] as { prep: number; engine: number; resolve: number; llm: number; bundle: number }[] }; // dev: how loading went (read by the soak test)
 if (import.meta.env.DEV) (window as any).__lwStats = stats;
 async function loadWorld(i: number) {
   loading = true;
@@ -228,9 +242,13 @@ async function loadWorld(i: number) {
     ui.phase = "assets";
     ui.pDone = 0; ui.pTotal = 0; ui.pWhat = ""; ui.pSince = performance.now();
     wantKey = "";
-    const pp = prepare(i); // (this sets the group's prepare key)
+    // a place already prepared in full (or about to be) loads at once; otherwise it loads from what is in the cache, and the full one follows in the background
+    const full = prepare(i);
+    const early = await Promise.race([full.then((x) => x, () => null), new Promise<null>((r) => setTimeout(() => r(null), 1200))]);
+    const pp = early ? full : prepare(i, false);
     wantKey = prepKeyOf.get(s) ?? "";
     const p = await pp;
+    const tPrep = performance.now() - tStart;
     ui.phase = "engine"; ui.pSince = performance.now();
     await api.worldCmd({ cmd: "load", bundle: p.bundle, dir: p.dir, w: SIZE[0], h: SIZE[1] });
     // wait until the engine says that load is done (it can take a second or two)
@@ -245,6 +263,7 @@ async function loadWorld(i: number) {
     loadedSig = s;
     stats.loads++;
     stats.ms.push(Math.round(performance.now() - tStart));
+    { const pt = prepTimes.get(s) ?? { resolve: 0, llm: 0, bundle: 0 }; stats.detail.push({ prep: Math.round(tPrep), engine: Math.round(performance.now() - tStart - tPrep), ...pt }); }
     loadedG = groups.find((g) => sig(g) === s) ?? null;
     ui.up = true;
     ui.status = "";
@@ -423,7 +442,7 @@ async function judgeTick() {
     const c = await api.llmVision("judge", RUBRIC, `Text being read: "${text}"\nThe world was directed to show: ${what}.\nDoes the picture suit it?`, path);
     const v = parseVerdict(c.text);
     if (v) {
-      if (applyVerdict(key, kind, v, sig(g))) { preps.delete(sig(g)); if (loadedG && sig(loadedG) === sig(g)) { loadedSig = ""; loadedG = null; } } // wrong kind of place: build it again
+      if (applyVerdict(key, kind, v, sig(g))) { preps.delete(sig(g)); preps.delete(sig(g) + "|fast"); if (loadedG && sig(loadedG) === sig(g)) { loadedSig = ""; loadedG = null; } } // wrong kind of place: build it again
       stats.judged++;
       if (import.meta.env.DEV) fetch("/__debug", { method: "POST", body: JSON.stringify({ kind: "judge", data: { key, kind, ...v } }) }).catch(() => {});
     }

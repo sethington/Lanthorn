@@ -35,14 +35,15 @@ export function parseParts(text: string, big = false): Part[] | null {
 }
 
 /** Parts for each phrase (cached across books: a tankard is a tankard). Phrases that fail are left out. */
-export async function makeProps(phrases: string[], kinds: Record<string, "prop" | "set"> = {}): Promise<Record<string, Part[]>> {
+export async function makeProps(phrases: string[], kinds: Record<string, "prop" | "set"> = {}, cacheOnly = false): Promise<Record<string, Part[]>> {
   const out: Record<string, Part[]> = {};
-  await Promise.all(phrases.slice(0, 5).map(async (ph) => {
+  await Promise.all(phrases.slice(0, 3).map(async (ph) => {
     const big = kinds[ph.toLowerCase()] === "set";
     const key = `${big ? "set-" : ""}${ph.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 60)}`;
     try {
       const hit = await api.cacheGet("prop", key);
       if (hit) { const p = parseParts(hit, big); if (p) { out[ph.toLowerCase()] = p; return; } }
+      if (cacheOnly) return;
       const c = await api.llmComplete("scan", SYSTEM(big), `${big ? "Set piece" : "Prop"}: ${ph}`);
       const p = parseParts(c.text, big);
       if (p) { out[ph.toLowerCase()] = p; await api.cachePut("prop", key, c.text); }

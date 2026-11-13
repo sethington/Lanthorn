@@ -32,11 +32,12 @@ export function parseRoom(text: string): RoomR | null {
 const dbg = (kind: string, data: unknown) => { if (import.meta.env.DEV) fetch("/__debug", { method: "POST", body: JSON.stringify({ kind, data }) }).catch(() => {}); };
 
 /** A room for this description (cached: the same place is not designed twice). */
-export async function makeRoom(description: string): Promise<RoomR | null> {
+export async function makeRoom(description: string, cacheOnly = false): Promise<RoomR | null> {
   const key = description.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 70);
   try {
     const hit = await api.cacheGet("room", key);
     if (hit) { const r = parseRoom(hit); if (r) return r; }
+    if (cacheOnly) return null; // (not written yet: the reader is not kept waiting for the language model)
     const c = await api.llmComplete("scan", SYSTEM(), `Room: ${description}`);
     const r = parseRoom(c.text);
     if (r) await api.cachePut("room", key, c.text);
