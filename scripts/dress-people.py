@@ -13,9 +13,9 @@ def srgb2lin(c): return np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) 
 
 OUTFIT = {
     # skin, hair, coat, vest, trousers, boots, collar, dress(bool)
-    "man":   dict(skin="#d7b08f", hair="#4a3626", coat="#6a5340", vest="#b09a70", trou="#4d4a48", boot="#2a211b", collar="#ece6d8", dress=False),
-    "woman": dict(skin="#e3bd9f", hair="#3b2a22", coat="#7a5590", vest="#9a7aae", trou="#7a5590", boot="#2a211b", collar="#ece6d8", dress=True),
-    "kid":   dict(skin="#ecc7a2", hair="#d6b45c", coat="#b78fd0", vest="#d8c0e8", trou="#c9a97d", boot="#9a7a52", collar="#b78fd0", dress=False),
+    "man":   dict(eyew="#efeae0", iris="#2a1f18", brow="#4a3626", lips="#b0665c", skin="#d7b08f", hair="#4a3626", coat="#6a5340", vest="#b09a70", trou="#4d4a48", boot="#2a211b", collar="#ece6d8", dress=False),
+    "woman": dict(eyew="#efeae0", iris="#2a1f18", brow="#3b2a22", lips="#c0626a", skin="#e3bd9f", hair="#3b2a22", coat="#7a5590", vest="#9a7aae", trou="#7a5590", boot="#2a211b", collar="#ece6d8", dress=True),
+    "kid":   dict(eyew="#f1ede4", iris="#3a4a5c", brow="#c9a64e", lips="#c5766e", skin="#ecc7a2", hair="#d6b45c", coat="#b78fd0", vest="#d8c0e8", trou="#c9a97d", boot="#9a7a52", collar="#b78fd0", dress=False),
 }
 
 def read_glb(path):
@@ -54,7 +54,7 @@ def add_accessor(js, blob, arr, ctype, typ, target):
     js["accessors"].append(acc)
     return len(js["accessors"]) - 1
 
-def refine(pos, nrm, uv, jt, wt, idx, labels_of, passes=3):
+def refine(pos, nrm, uv, jt, wt, idx, labels_of, passes=3, force=None, force_passes=0):
     """Split the triangles that straddle a boundary between two regions (and their neighbours, so there are no cracks) so the
     boundary can run in a straight line between small triangles instead of a saw-tooth between big ones. Skin weights of a new
     vertex are its edge's two ends averaged (the four strongest kept)."""
@@ -63,6 +63,11 @@ def refine(pos, nrm, uv, jt, wt, idx, labels_of, passes=3):
         lab = labels_of(pos)
         L = lab[idx]
         strad = (L[:, 0] != L[:, 1]) | (L[:, 1] != L[:, 2])
+        if force is not None and _ < force_passes:
+            fm = force(pos)[idx]  # (the face: features smaller than a triangle would be missed, so it is split whatever the labels)
+            strad = strad | fm.any(axis=1)
+        if force is not None and _ >= 3:
+            strad = strad & force(pos)[idx].any(axis=1)  # (the last pass is only for the face: its features are small)
         if not strad.any(): break
         marked = {}
         npos, nnrm, nuv, njt, nwt = [], [], [], [], []
@@ -107,6 +112,7 @@ def refine(pos, nrm, uv, jt, wt, idx, labels_of, passes=3):
         pos = np.concatenate([pos, np.array(npos, np.float32)]); nrm = np.concatenate([nrm, np.array(nnrm, np.float32)])
         uv = np.concatenate([uv, np.array(nuv, np.float32)]); jt = np.concatenate([jt, np.array(njt, jt.dtype)]); wt = np.concatenate([wt, np.array(nwt, np.float32)])
         idx = np.array(out, np.uint32)
+        if os.environ.get('DBG'): print('pass', _, 'tris', len(idx), 'strad', int(strad.sum()))
     return pos, nrm, uv, jt, wt, idx
 
 def compact(js, blob):
@@ -191,7 +197,7 @@ def dress(name):
         reg[legs & (y <= ankle_y + 0.075)] = 5
         reg[torso] = 2
         if not o["dress"]:
-            reg[legs & (y > hips_y - 0.22)] = 2
+            reg[legs & (y > hips_y - 0.42)] = 2  # a coat to the knee, following the body (no flared skirt on a man)
         else:
             reg[legs & (y > hem)] = 2
         reg[arm & (ax < wrist_x - 0.035)] = 2
@@ -209,19 +215,36 @@ def dress(name):
             # one continuous beard: from under the nose down over the chin and jaw, higher in the middle (the moustache) and lower at the cheeks
             front = head & ~hair & (z > 0.03) & (y > neck_y + 0.03)
             reg[front & (y < eyes[1] - 0.056 - 0.03 * np.clip(ax / 0.09, 0, 1))] = 7
+        # the face: eyes (white, then iris), brows, lips, painted on the front of the head
+        fz = head & (z > 0.07) & (ax < 0.07)
+        ey = eyes[1]
+        ew = ((ax - 0.031) / 0.0138) ** 2 + ((y - ey) / 0.0078) ** 2 < 1
+        ir = ((ax - 0.031) / 0.0068) ** 2 + ((y - ey) / 0.0068) ** 2 < 1
+        brow = (ax > 0.016) & (ax < 0.047) & (np.abs(y - (ey + 0.027 + 0.004 * (ax - 0.016) / 0.031)) < 0.0028)
+        lips = ((ax / 0.021) ** 2 + ((y - (ey - 0.068)) / 0.0062) ** 2) < 1
+        reg[fz & lips] = 11
+        reg[fz & brow] = 10
+        reg[fz & ew] = 8
+        reg[fz & ir] = 9
         return reg
 
-    pos, nrm, uv, jt, wt, idx = refine(pos, nrm, uv, jt, wt, idx, classify, passes=int(os.environ.get("PASSES", "3")))
+    def face_zone(pts):
+        ex, ey, ez = np.abs(pts[:, 0]), pts[:, 1], pts[:, 2]
+        eyes_band = (np.abs(ey - (eyes[1] + 0.012)) < 0.022) & (ex < 0.058)      # eyes and brows
+        mouth_band = (np.abs(ey - (eyes[1] - 0.068)) < 0.011) & (ex < 0.028)
+        return (ez > 0.06) & (eyes_band | mouth_band)
+    pos, nrm, uv, jt, wt, idx = refine(pos, nrm, uv, jt, wt, idx, classify, passes=int(os.environ.get("PASSES", "3")) + 1, force=face_zone, force_passes=1)
     cen = pos[idx].mean(axis=1)
     reg = classify(cen)
     m = len(idx)
     # a little smoothing of stray triangles (each takes the region most of its neighbours are in), once: the boundaries are already clean
     nv = len(pos)
-    cnt = np.zeros((nv, 8), np.int32)
+    cnt = np.zeros((nv, 12), np.int32)
     for c in range(3): np.add.at(cnt, (idx[:, c], reg), 1)
     vote = cnt[idx].sum(axis=1)
     new = vote.argmax(axis=1).astype(np.int32)
-    reg = np.where(vote[np.arange(m), new] > vote[np.arange(m), reg] * 1.5, new, reg)
+    ok = (reg < 8) & (new < 8)  # (the painted features are small: smoothing would wipe them)
+    reg = np.where(ok & (vote[np.arange(m), new] > vote[np.arange(m), reg] * 1.5), new, reg)
     reg[reg == 3] = 2  # no chest panel
     tri = reg
     # new geometry buffers (the whole mesh is rewritten: the refined one)
@@ -231,7 +254,7 @@ def dress(name):
     A["TEXCOORD_0"] = add_accessor(js, blob, uv.astype(np.float32), 5126, "VEC2", 34962)
     A["JOINTS_0"] = add_accessor(js, blob, jt.astype(np.uint16), 5123, "VEC4", 34962)
     A["WEIGHTS_0"] = add_accessor(js, blob, wt.astype(np.float32), 5126, "VEC4", 34962)
-    names = ["skin", "hair", "coat", "vest", "trou", "boot", "collar", "beard"]
+    names = ["skin", "hair", "coat", "vest", "trou", "boot", "collar", "beard", "eyew", "iris", "brow", "lips"]
     prims = []
     mats = []
     for k, nm in enumerate(names):
