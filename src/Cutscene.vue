@@ -197,7 +197,7 @@ function prepare(gi: number, full = true): Promise<Prep> {
       if (people.length) {
         const tl3 = performance.now();
         const seen = new Set<string>();
-        await Promise.all(people.filter((g) => !seen.has(g.ref) && seen.add(g.ref)).map(async (g) => { const d = props.bible.characters.find((c) => c.id === g.ref)?.desc ?? ""; const o = await makeOutfit(g.ref, `${g.ref.replace(/_/g, " ")}, ${d}. Setting: ${whole.location.replace(/_/g, " ")}, ${props.bible.locations.find((l) => l.id === whole.location)?.desc ?? ""}`, !full); if (o) outfits[g.ref] = o; }));
+        await Promise.all(people.filter((g) => !seen.has(g.ref) && seen.add(g.ref)).map(async (g) => { const d = props.bible.characters.find((c) => c.id === g.ref)?.desc ?? ""; const o = await makeOutfit(g.ref, `${g.ref.replace(/_/g, " ")}, ${d}`, !full); if (o) outfits[g.ref] = o; }));
         tLlm += performance.now() - tl3;
         if (Object.keys(outfits).length) r = resolveScene(whole, props.bible, { ...ropts, outfits, procs: procsMade, roomSpec: r.room?.style === "custom" ? r.room : undefined });
       }
