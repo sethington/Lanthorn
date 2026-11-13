@@ -475,6 +475,7 @@ function Figure({ fig, f, p, leverA = 0 }: { fig: any; f: number; p: number; lev
               <StandardMaterial material="iris" base_color={LK.eyes ?? "#2a1f18"} perceptual_roughness={0.35} metallic={0} reflectance={0.5} />
               <StandardMaterial material="brow" base_color={LK.hair} perceptual_roughness={1} metallic={0} reflectance={0.02} />
               <StandardMaterial material="lips" base_color={LK.beard ? LK.hair : LK.lips ?? "#b0665c"} perceptual_roughness={0.6} metallic={0} reflectance={0.15} />
+              <StandardMaterial material="belt" base_color="#2e2118" perceptual_roughness={0.7} metallic={0} reflectance={0.2} />
               <StandardMaterial material="coat" base_color={LK.coat} perceptual_roughness={1} metallic={0} reflectance={0.02} />
               <StandardMaterial material="vest" base_color={LK.vest} perceptual_roughness={1} metallic={0} reflectance={0.02} />
               <StandardMaterial material="trou" base_color={LK.trou} perceptual_roughness={1} metallic={0} reflectance={0.02} />

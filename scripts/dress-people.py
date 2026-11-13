@@ -13,9 +13,9 @@ def srgb2lin(c): return np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) 
 
 OUTFIT = {
     # skin, hair, coat, vest, trousers, boots, collar, dress(bool)
-    "man":   dict(eyew="#efeae0", iris="#2a1f18", brow="#4a3626", lips="#b0665c", skin="#d7b08f", hair="#4a3626", coat="#6a5340", vest="#b09a70", trou="#4d4a48", boot="#2a211b", collar="#ece6d8", dress=False),
-    "woman": dict(eyew="#efeae0", iris="#2a1f18", brow="#3b2a22", lips="#c0626a", skin="#e3bd9f", hair="#3b2a22", coat="#7a5590", vest="#9a7aae", trou="#7a5590", boot="#2a211b", collar="#ece6d8", dress=True),
-    "kid":   dict(eyew="#f1ede4", iris="#3a4a5c", brow="#c9a64e", lips="#c5766e", skin="#ecc7a2", hair="#d6b45c", coat="#b78fd0", vest="#d8c0e8", trou="#c9a97d", boot="#9a7a52", collar="#b78fd0", dress=False),
+    "man":   dict(belt="#2e2118", eyew="#efeae0", iris="#2a1f18", brow="#4a3626", lips="#b0665c", skin="#d7b08f", hair="#4a3626", coat="#6a5340", vest="#b09a70", trou="#4d4a48", boot="#2a211b", collar="#ece6d8", dress=False),
+    "woman": dict(belt="#2e2118", eyew="#efeae0", iris="#2a1f18", brow="#3b2a22", lips="#c0626a", skin="#e3bd9f", hair="#3b2a22", coat="#7a5590", vest="#9a7aae", trou="#7a5590", boot="#2a211b", collar="#ece6d8", dress=True),
+    "kid":   dict(belt="#5a4128", eyew="#f1ede4", iris="#3a4a5c", brow="#c9a64e", lips="#c5766e", skin="#ecc7a2", hair="#d6b45c", coat="#b78fd0", vest="#d8c0e8", trou="#c9a97d", boot="#9a7a52", collar="#b78fd0", dress=False),
 }
 
 def read_glb(path):
@@ -201,6 +201,11 @@ def dress(name):
         else:
             reg[legs & (y > hem)] = 2
         reg[arm & (ax < wrist_x - 0.035)] = 2
+        if name != "woman":
+            # a waistcoat showing in the V of the coat, and a belt at the waist
+            t = np.clip((y - (hips_y + 0.04)) / ((neck_y - 0.03) - (hips_y + 0.04)), 0, 1)
+            reg[torso & (z > 0.04) & (y > hips_y + 0.04) & (ax < 0.022 + 0.042 * t)] = 3
+            reg[(torso | (legs & (y > hips_y - 0.03))) & (np.abs(y - (hips_y + 0.012)) < 0.013) & (ax < 0.2)] = 12
         reg[(y > neck_y - 0.035) & (y < neck_y + 0.02) & (np.hypot(x, z) < 0.09)] = 6
         head = (y > neck_y + 0.03)
         arch = 0.022 * np.clip(1 - (ax / 0.10) ** 2, 0, 1)  # a hairline is higher in the middle of the forehead than at the temples
@@ -239,13 +244,12 @@ def dress(name):
     m = len(idx)
     # a little smoothing of stray triangles (each takes the region most of its neighbours are in), once: the boundaries are already clean
     nv = len(pos)
-    cnt = np.zeros((nv, 12), np.int32)
+    cnt = np.zeros((nv, 13), np.int32)
     for c in range(3): np.add.at(cnt, (idx[:, c], reg), 1)
     vote = cnt[idx].sum(axis=1)
     new = vote.argmax(axis=1).astype(np.int32)
     ok = (reg < 8) & (new < 8)  # (the painted features are small: smoothing would wipe them)
     reg = np.where(ok & (vote[np.arange(m), new] > vote[np.arange(m), reg] * 1.5), new, reg)
-    reg[reg == 3] = 2  # no chest panel
     tri = reg
     # new geometry buffers (the whole mesh is rewritten: the refined one)
     wt = wt / np.maximum(wt.sum(axis=1, keepdims=True), 1e-9)
@@ -254,7 +258,7 @@ def dress(name):
     A["TEXCOORD_0"] = add_accessor(js, blob, uv.astype(np.float32), 5126, "VEC2", 34962)
     A["JOINTS_0"] = add_accessor(js, blob, jt.astype(np.uint16), 5123, "VEC4", 34962)
     A["WEIGHTS_0"] = add_accessor(js, blob, wt.astype(np.float32), 5126, "VEC4", 34962)
-    names = ["skin", "hair", "coat", "vest", "trou", "boot", "collar", "beard", "eyew", "iris", "brow", "lips"]
+    names = ["skin", "hair", "coat", "vest", "trou", "boot", "collar", "beard", "eyew", "iris", "brow", "lips", "belt"]
     prims = []
     mats = []
     for k, nm in enumerate(names):
