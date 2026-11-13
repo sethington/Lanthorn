@@ -195,7 +195,7 @@ const SPECIES: [RegExp, Omit<Creature, "body" | "belly" | "dark" | "dress">, str
   [/\b(pig|pigs|piglet|hog|sow|boar)\b/, { species: "pig", cls: "quad", size: 0.85, ears: "floppy", tail: "short", snout: "flat", legs: 4 }, "#e8b0a8"],
   [/\b(sheep|lamb|lambs|ram|ewe)\b/, { species: "sheep", cls: "quad", size: 0.9, ears: "floppy", tail: "short", snout: "short", legs: 4 }, "#ece6d8"],
   [/\b(goat|kid goat|billy)\b/, { species: "goat", cls: "quad", size: 0.85, ears: "point", tail: "short", snout: "short", legs: 4 }, "#cfc8b8"],
-  [/\b(cow|cows|calf|bull|ox|oxen)\b/, { species: "cow", cls: "quad", size: 1.5, ears: "point", tail: "long", snout: "flat", legs: 4 }, "#e8e0d0"],
+  [/\b(cow|cows|calf|calves|bull|ox|oxen|cattle|kine|heifer)\b/, { species: "cow", cls: "quad", size: 1.5, ears: "point", tail: "long", snout: "flat", legs: 4 }, "#e8e0d0"],
   [/\b(horse|horses|pony|mare|stallion|colt|steed|mule|donkey|ass)\b/, { species: "horse", cls: "quad", size: 1.65, ears: "point", tail: "long", snout: "long", legs: 4 }, "#6a4a30"],
   [/\b(deer|stag|doe|fawn|elk|reindeer)\b/, { species: "deer", cls: "quad", size: 1.2, ears: "point", tail: "short", snout: "long", legs: 4 }, "#9a6a40"],
   [/\b(lion|lioness|tiger|leopard|panther)\b/, { species: "lion", cls: "quad", size: 1.1, ears: "round", tail: "long", snout: "short", legs: 4 }, "#c49a4a"],
@@ -229,7 +229,9 @@ const NOT_ANIMAL = /\b(man|woman|boy|girl|mr|mrs|miss|king|queen|lord|lady|sir|c
 /** An animal character (from its id and the book's description of it), or null when it is a person. Species gives the build; the words give the colours and clothes. */
 export function creatureLook(ref: string, desc: string, rnd: () => number): Creature | null {
   const t = `${ref.replace(/_/g, " ")} ${desc}`.toLowerCase();
-  const hit = SPECIES.find(([re]) => re.test(ref.replace(/_/g, " ").toLowerCase())) ?? SPECIES.find(([re]) => re.test(t));
+  let hit = SPECIES.find(([re]) => re.test(ref.replace(/_/g, " ").toLowerCase())) ?? SPECIES.find(([re]) => re.test(t));
+  // "the beast of the field": no species named, so one of the real four-legged models (the same one every time for the same words)
+  if (!hit && /\b(beasts?|animals?)\b/.test(ref.replace(/_/g, " ").toLowerCase())) { const pick = ["horse", "wolf", "zebra", "llama", "cow", "sheep"][hashStr(ref) % 6]; hit = SPECIES.find(([, c]) => c.species === pick); }
   if (!hit) return null;
   // "a doctor's horse" is a person with a horse near: only an animal when the id itself is the animal, or the description starts with one
   const idWords = ref.replace(/_/g, " ").toLowerCase();
@@ -720,6 +722,22 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
       const head = words(lp).pop() ?? "";
       if (assets.some((a) => a.label === head || a.label === head.replace(/s$/, ""))) continue; // already furnished with one
     }
+    // an animal named as a thing in the scene (cattle, a horse, the beasts of the field): the real model, a few of them if it is a herd, never a box
+    if (!room && kind === "exterior") {
+      const hw = headWord(p);
+      const generic = /\b(beast|beasts|animal|animals)\b/.test(p.toLowerCase());
+      const pickSp = generic ? ["horse", "wolf", "zebra", "llama", "cow", "sheep"][Math.floor(r() * 6)] : hw;
+      const cl = creatureLook(pickSp === hw ? p : pickSp, "", r);
+      const bm = cl?.model ? (beasts as any)[cl.model] : null;
+      if (cl?.model && bm && assets.length < 28) {
+        const n = /\b(cattle|herd|flock|beasts|animals|kine|sheep|goats)\b/.test(p.toLowerCase()) ? 3 : 1;
+        for (let k = 0; k < n; k++) {
+          const ang = r() * Math.PI * 2, dd = 4 + r() * 6;
+          assets.push({ id: `pkg:beast-${cl.model}-${k}-${hash(p) % 999}`, file: `creatures/${cl.model}.glb`, pos: [Math.sin(ang) * dd, 0, -2 - Math.abs(Math.cos(ang)) * dd], rotY: bm.yaw + r() * Math.PI * 2, scale: bm.scale * SIZE_OF(p.toLowerCase()) * (0.9 + r() * 0.2), label: p } as any);
+        }
+        continue;
+      }
+    }
     const pm = matchPkg(p, pkg.models);
     const bk = !pm && kind === "exterior" ? buildingKind(p) : undefined;
     if (bk && assets.length < 30 && !assets.some((a) => a.id === `bld:${bk[0]}`)) {
@@ -882,12 +900,15 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
     const fr0 = FRAMING[framing] ?? FRAMING.medium;
     const fr = framing === "extreme_close" ? { ...fr0, frame: 0.7 } : framing === "close" ? { ...fr0, frame: 1.05 } : fr0;
     const tgt = focusPoint(sh.focus, sh.framing);
+    // nobody and nothing to look at (a landscape, "the heavens and the earth were finished"): look out at the horizon, not down at the gravel
+    const landscape = !figures.some((g) => !g.onMachine) && !knownFocus(sh.focus) && hero.kind !== "time_machine" && kind !== "interior";
+    if (landscape) tgt[1] = Math.max(tgt[1], 2.2);
     // a scene of small animals is framed close; of big ones, back
     const csc = figures.length && figures.every((g) => g.kind === "creature") ? Math.max(0.3, Math.min(3, figures.reduce((a, g) => a + g.scale, 0) / figures.length)) : 1;
     const d0 = Math.min(kind === "interior" ? 5.2 : 45, (fr.frame * csc) / (2 * Math.tan((fr.fov * Math.PI) / 360)));
     // alternate the side the camera sits on, so a cut changes the view instead of repeating it
     const az = az0 + (i % 2 === 0 ? -0.3 : 0.55) + (sh.angle === "over_shoulder" ? 0.7 : 0);
-    const camY = sh.angle === "low" ? Math.max(0.55, tgt[1] - Math.min(0.45, d0 * 0.17)) : sh.angle === "high" ? Math.max(2.4 * Math.min(1, csc * 1.5), tgt[1] + 1.4 * Math.min(1, csc * 1.5)) : sh.angle === "over_shoulder" ? tgt[1] + 0.15 : Math.max(0.9, Math.min(1.7, tgt[1] + 0.1));
+    const camY = landscape ? tgt[1] + (sh.angle === "low" ? -0.5 : 0.25) : sh.angle === "low" ? Math.max(0.55, tgt[1] - Math.min(0.45, d0 * 0.17)) : sh.angle === "high" ? Math.max(2.4 * Math.min(1, csc * 1.5), tgt[1] + 1.4 * Math.min(1, csc * 1.5)) : sh.angle === "over_shoulder" ? tgt[1] + 0.15 : Math.max(0.9, Math.min(1.7, tgt[1] + 0.1));
     const push = sh.move === "push" ? [1.14, 0.9] : sh.move === "pull" ? [0.88, 1.12] : [1, 1];
     const sweep = sh.move === "orbit" ? 0.5 : sh.move === "drift" ? 0.18 : 0.02;
     const place2 = (a: number, d: number): [number, number, number] => {
@@ -979,7 +1000,11 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
       const type: string = /butterfly|moth|bat|flutter|wing/.test(w) ? "butterfly" : /bird|gull|eagle|crow|raven|hawk|pterodactyl|swallow/.test(w) ? "bird" : /crab|lobster|crustacean|spider|insect|beetle|scorpion|monster|horror|blob|thing|creature/.test(w) ? "crab" : "beast";
       // a path across the ground in front of the default camera, left to right or right to left
       const dir = sr() < 0.5 ? -1 : 1;
-      stage.push({ ...base, what: type, kind: w, az: fwdAz + dir * 0.0, items: [{ id: type, file: "", pos: [lookX + dir * -9, 0, 2.2 + sr() * 1.6], rotY: dir > 0 ? Math.PI / 2 : -Math.PI / 2, scale: 1, d: 0 }] });
+      // a four-legged one that has a real model crosses as that model (a generic "beast" is one of the field animals)
+      const cl = type === "beast" ? creatureLook(/\b(beasts?|animals?)\b/.test(w) && !/horse|cow|dog|cat|wolf|fox|sheep|pig/.test(w) ? "beast" : w, w, sr) : null;
+      const bm = cl?.model ? (beasts as any)[cl.model] : null;
+      const model = bm ? { file: `creatures/${cl!.model}.glb`, scale: bm.scale * SIZE_OF(w), yaw: bm.yaw, clip: bm.walk ?? bm.idle ?? bm.any } : undefined;
+      stage.push({ ...base, what: type, kind: w, az: fwdAz + dir * 0.0, items: [{ id: type, file: "", pos: [lookX + dir * -9, 0, 2.2 + sr() * 1.6], rotY: dir > 0 ? Math.PI / 2 : -Math.PI / 2, scale: 1, d: 0, ...(model ? { model } : {}) } as any] });
     } else if (cue.k === "dim") {
       stage.push({ ...base, az: fwdAz + 0.3, el: 38 });
     } else if (cue.k !== "grow") {
@@ -1029,7 +1054,7 @@ export function assetsNeeded(r: Resolved): { kind: string; id: string; res: stri
 }
 
 /** Bump when runtime/scene.tsx changes in a way that alters frames, so cached renders are redone. */
-export const RUNTIME_VERSION = "rt105";
+export const RUNTIME_VERSION = "rt110";
 
 /** Cache key: changes whenever the resolved plan or the runtime does. */
 export function sceneKey(r: Resolved): string {

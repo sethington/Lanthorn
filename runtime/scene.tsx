@@ -313,6 +313,19 @@ function RigFig({ fig, ax, az, yawA, walking, f, ges, look }: { fig: any; ax: nu
   };
   return <Entity transform={at(ax, bob, az, rot(0, yawA))}>{(kids.get(null) ?? []).map(node)}</Entity>;
 }
+
+/** A real low-poly animal or creature (a glTF from creatures/), turned to face where it goes and playing its idle or walking clip. */
+function ModelBeast({ fig, ax, az, yawA, walking, f, ges }: { fig: any; ax: number; az: number; yawA: number; walking: boolean; f: number; ges: { k: string; e: number } | null }) {
+  const m = fig.creature.modelInfo;
+  const jumping = !!(ges && /cheer|laugh|clap|wave/.test(ges.k) && m.jump);
+  const clip: string | undefined = jumping ? m.jump : walking ? m.walk : m.idle;
+  const hop = jumping ? 0 : Math.sin(f * 0.07) * 0.004;
+  return (
+    <Entity transform={at(ax, hop, az, rot(0, yawA, 0))}>
+      <Model src={media(m.file)} rotation={[0, m.yaw, 0]} scale={m.scale} animation={clip} time={(f / 30) * (walking ? 1.2 : 1)} loop />
+    </Entity>
+  );
+}
 function Figure({ fig, f, p, leverA = 0 }: { fig: any; f: number; p: number; leverA?: number }) {
   const eloi = fig.kind === "eloi";
   const woman = fig.kind === "woman";
@@ -369,6 +382,7 @@ function Figure({ fig, f, p, leverA = 0 }: { fig: any; f: number; p: number; lev
     else if (GESTS.has(a.do) && env > 0.001) ges = { k: a.do === "gesture" ? "talk" : a.do, e: env };
   }
   const walking = pose === "walking" || (from === "walking" && k < 0.5);
+  if (fig.kind === "creature" && fig.creature?.modelInfo) return <ModelBeast fig={fig} ax={ax} az={az} yawA={yawA} walking={walking} f={f} ges={ges} />;
   if (fig.kind === "creature") return <RigFig fig={fig} ax={ax} az={az} yawA={yawA} walking={walking} f={f} ges={ges} look={look} />;
   const seated = pose === "seated" || (from === "seated" && k < 0.5);
   const crouch = pose === "crouch";
@@ -1449,6 +1463,15 @@ function Creature({ c, p, f }: { c: any; p: number; f: number }) {
             </Mesh3d>
           </Entity>
         ))}
+      </Entity>
+    );
+  }
+  const mdl = c.items[0]?.model;
+  if (c.what === "beast" && mdl) {
+    const s = vis;
+    return (
+      <Entity transform={at(cr.x, 0, cr.z, rot(0, cr.yaw))}>
+        <Model src={media(mdl.file)} rotation={[0, mdl.yaw, 0]} scale={mdl.scale * s} animation={mdl.clip} time={(f / 30) * 1.2} loop />
       </Entity>
     );
   }
