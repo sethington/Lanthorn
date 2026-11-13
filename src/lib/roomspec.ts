@@ -38,7 +38,7 @@ export async function makeRoom(description: string, cacheOnly = false): Promise<
     const hit = await api.cacheGet("room", key);
     if (hit) { const r = parseRoom(hit); if (r) return r; }
     if (cacheOnly) return null; // (not written yet: the reader is not kept waiting for the language model)
-    const c = await api.llmComplete("scan", SYSTEM(), `Room: ${description}`);
+    const c = await api.llmComplete("author", SYSTEM(), `Room: ${description}`);
     const r = parseRoom(c.text);
     if (r) await api.cachePut("room", key, c.text);
     dbg("room", { description, ok: !!r });

@@ -18,7 +18,7 @@ import { shiftScene } from "./lib/offset";
 import { describeCue, judgeSpent, judgeUseBook, judgeSettings, memory as judgeMemory } from "./lib/judge";
 import { fmtTokens, recordChapterUsage, tokensOf, usage, useBook } from "./lib/usage";
 import Progress from "./Progress.vue";
-import { DEFAULT_STYLE, STYLES, STYLE_SYSTEM, defaultStyle, effectiveStyle, getChapterOverride, getOverride, heuristicStyle, isStyle, parseStyle, setChapterOverride, setOverride, styleLabel, styleUser, type StyleId, type StyleSource } from "./lib/style";
+import { DEFAULT_STYLE, STYLES, STYLE_SYSTEM, defaultStyle, effectiveStyle, getChapterOverride, getOverride, heuristicStyle, isStyle, parseStyle, sampleOf, setChapterOverride, setOverride, styleLabel, styleUser, type StyleId, type StyleSource } from "./lib/style";
 
 /** A sentence with $LaTeX$ in it, cut into plain text and typeset formulas (so a math book reads as math, not as markup). */
 const mathCache = new Map<string, { text?: string; tex?: string; html?: string }[]>();
@@ -376,7 +376,7 @@ async function loadStyle(b: Book) {
     const raw = await api.cacheGet("style", b.id);
     if (raw) {
       const o = JSON.parse(raw);
-      if (isStyle(o.id)) { styleAuto.value = { id: o.id, reason: String(o.reason ?? ""), by: "model" }; styleVer.value++; return; }
+      if (isStyle(o.id)) { styleAuto.value = { id: safeStyle(o.id, b), reason: String(o.reason ?? ""), by: "model" }; styleVer.value++; return; }
     }
   } catch { /* not cached */ }
   // ask the book-scan model once per book (and once per session if it fails): its pick is cached
@@ -386,11 +386,21 @@ async function loadStyle(b: Book) {
     const c = await api.llmComplete("scan", STYLE_SYSTEM, styleUser(b));
     const p = parseStyle(c.text);
     if (p && book.value?.id === b.id) {
-      styleAuto.value = { ...p, by: "model" };
+      styleAuto.value = { ...p, id: safeStyle(p.id, b), by: "model" };
       styleVer.value++;
       api.cachePut("style", b.id, JSON.stringify(p)).catch(() => {});
     }
   } catch { /* no model set up, or it failed: the keyword pick stands */ }
+}
+/** Two looks are strong and easily misused, so the model's pick needs the book to earn it: pixel (crude, retro) only for games and computing, noir (harsh engraved grain) only for mystery, crime, horror and the gothic. Otherwise the keyword pick stands (cinematic when nothing stands out). */
+function safeStyle(id: StyleId, b: Book): StyleId {
+  const text = `${b.title} ${sampleOf(b, 5000)}`;
+  const earned = id === "pixel" ? /video game|arcade|pixel art|computer program|software|console|retro game|programming/i.test(text)
+    : id === "noir" ? /\b(murder|murdered|detective|crime|criminal|horror|ghost|gothic|haunted|corpse|inspector|sinister|dread|vampire|mystery|blood)\b/i.test(text) && !/\b(gospel|scripture|psalm|testament|bible|prayer)\b/i.test(text)
+    : true;
+  if (earned) return id;
+  const h = heuristicStyle(b).id;
+  return h === "pixel" || h === "noir" ? "cinematic" : h;
 }
 function chooseStyle(v: string) {
   const id = isStyle(v) ? v : null;
@@ -413,15 +423,18 @@ function toggleDetails() {
 const llmScenes = ref<LlmScene[]>([]); // every analysed chapter's scenes, joined, in the text's own sentence numbers
 const bible = ref<Bible>({ characters: [], locations: [] });
 const CHUNK = 40;
-const AHEAD = (() => { try { const v = Number(localStorage.getItem("lanthorn:ahead")); return Number.isFinite(v) && localStorage.getItem("lanthorn:ahead") !== null ? Math.max(0, Math.min(6, v)) : 4; } catch { return 4; } })(); // chapters analysed ahead of the reader (localStorage lanthorn:ahead)
+const AHEAD = (() => { try { const v = Number(localStorage.getItem("lanthorn:ahead")); return Number.isFinite(v) && localStorage.getItem("lanthorn:ahead") !== null ? Math.max(0, Math.min(6, v)) : 2; } catch { return 2; } })(); // chapters analysed ahead of the reader (localStorage lanthorn:ahead)
 
-const LOOK = () => 160 + AHEAD * 220; // sentences past the reader that are analysed
+// sentences past the reader that are analysed: about 13 minutes of reading (five parts) and a little more per chapter ahead. The model is only asked for what a reader is about to need; a reader who stops costs nothing more.
+const LOOK = () => 120 + AHEAD * 40;
 const curChap = computed(() => chaps.value[chapterIdx.value] ?? null);
 /** the chapter's progress, for the panel and the drawer */
 const analysis = computed(() => {
   const c = chaps.value[chapterIdx.value]; // (read from chaps itself: a chapter changing in place must re-run this, and curChap would still be the same object)
-  const left = c && c.fresh > 0 ? Math.max(0, c.total - c.done) * (c.freshMs / c.fresh) : 0; // ms, from the average of the parts the model did
-  return { running: c?.state === "running", done: c?.done ?? 0, total: c?.total ?? 0, error: c?.state === "error" ? c.err : "", cached: c?.cached ?? 0, ready: !!c?.scenes.length, etaSec: Math.round(left / 1000) };
+  // the parts this reader will need soon (not the whole chapter: a long one is read as they get to it)
+  const window = c ? Math.max(c.done, Math.min(c.total, Math.ceil((curSid.value + LOOK() - c.base) / CHUNK))) : 0;
+  const left = c && c.fresh > 0 ? Math.max(0, window - c.done) * (c.freshMs / c.fresh) : 0; // ms, from the average of the parts the model did
+  return { running: c?.state === "running", done: c?.done ?? 0, total: window || (c?.total ?? 0), error: c?.state === "error" ? c.err : "", cached: c?.cached ?? 0, ready: !!c?.scenes.length, etaSec: Math.round(left / 1000) };
 });
 const analysisDetail = computed(() => {
   const a = analysis.value;

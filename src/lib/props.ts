@@ -1,5 +1,6 @@
 // Props the picture library has no model for: the language model draws each as a small assembly of simple shapes, once, and the result is kept.
 import { api } from "./api";
+import { askMany } from "./author";
 
 export type Part = { s: "box" | "cyl" | "sphere" | "cone"; p: [number, number, number]; d: number[]; c: string; m?: number; r?: [number, number, number] };
 
@@ -34,21 +35,32 @@ export function parseParts(text: string, big = false): Part[] | null {
   } catch { return null; }
 }
 
-/** Parts for each phrase (cached across books: a tankard is a tankard). Phrases that fail are left out. */
+/** Parts for each phrase (cached across books: a tankard is a tankard). Uncached ones are written in at most two model calls (props, set pieces), not one each. Phrases that fail are left out. */
 export async function makeProps(phrases: string[], kinds: Record<string, "prop" | "set"> = {}, cacheOnly = false): Promise<Record<string, Part[]>> {
   const out: Record<string, Part[]> = {};
-  await Promise.all(phrases.slice(0, 3).map(async (ph) => {
+  const todo: { ph: string; big: boolean; what: string; key: string }[] = [];
+  for (const ph of phrases.slice(0, 6)) {
     const big = ph.startsWith("set: ") || kinds[ph.toLowerCase()] === "set";
     const what = ph.replace(/^set:\s*/, "");
     const key = `${big ? "set-" : ""}${what.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 60)}`;
     try {
       const hit = await api.cacheGet("prop", key);
-      if (hit) { const p = parseParts(hit, big); if (p) { out[ph.toLowerCase()] = p; return; } }
-      if (cacheOnly) return;
-      const c = await api.llmComplete("scan", propSystem(big), `${big ? "Set piece" : "Prop"}: ${what}${big ? ". Build what belongs in this place and period (its own architecture and materials), never a modern building unless the text says so. A cluster of 3-8 buildings or one great structure." : ""}`);
-      const p = parseParts(c.text, big);
-      if (p) { out[ph.toLowerCase()] = p; await api.cachePut("prop", key, c.text); }
+      const p = hit ? parseParts(hit, big) : null;
+      if (p) out[ph.toLowerCase()] = p; else todo.push({ ph, big, what, key });
+    } catch { todo.push({ ph, big, what, key }); }
+  }
+  if (!todo.length || cacheOnly) return out;
+  for (const big of [false, true]) {
+    const group = todo.filter((t) => t.big === big);
+    if (!group.length) continue;
+    try {
+      const got = await askMany(propSystem(big), group.map((t) => ({ name: t.what, ask: `${big ? "Set piece" : "Prop"}${big ? ". Build what belongs in this place and period (its own architecture and materials), never a modern building unless the text says so. A cluster of 3-8 buildings or one great structure." : ""}` })));
+      for (const t of group) {
+        const item = got[t.what.toLowerCase()];
+        const p = item ? parseParts(JSON.stringify(item), big) : null;
+        if (p) { out[t.ph.toLowerCase()] = p; await api.cachePut("prop", t.key, JSON.stringify(item)); }
+      }
     } catch { /* no model routed, or it failed: the prop stays out */ }
-  }));
+  }
   return out;
 }

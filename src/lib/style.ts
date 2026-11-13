@@ -9,7 +9,7 @@ export const STYLES = [
   { id: "cartoon", label: "Cartoon", blurb: "bold ink lines and flat colour: comedy, nonsense, lively adventure" },
   { id: "dream", label: "Dream", blurb: "misty pastel paint with glow: fantasy, romance, reverie, the uncanny" },
   { id: "noir", label: "Noir", blurb: "ink and paper engraving: mystery, crime, horror, gothic" },
-  { id: "pixel", label: "Pixel", blurb: "world-fixed pixel art: fables, quests, games, retro science fiction" },
+  { id: "pixel", label: "Pixel", blurb: "world-fixed pixel art: only for video games, computing and deliberately retro material" },
 ] as const;
 export type StyleId = (typeof STYLES)[number]["id"];
 export const DEFAULT_STYLE: StyleId = "cinematic";
@@ -22,7 +22,7 @@ const WORDS: Record<StyleId, string[]> = {
   storybook: ["once upon", "fairy", "princess", "little", "garden", "rabbit", "mother", "cottage", "meadow", "kitten", "wee", "dear", "story", "pretty", "merry", "grandmother", "village", "forest"],
   cartoon: ["laughed", "silly", "funny", "nonsense", "ridiculous", "absurd", "grinned", "giggled", "mischief", "prank", "joke", "comical", "tumbled", "hurrah", "bounced"],
   dream: ["dream", "moon", "stars", "magic", "enchanted", "mist", "wonder", "whispered", "twilight", "fairyland", "spell", "slumber", "ethereal", "reverie", "glimmer", "phantom"],
-  pixel: ["quest", "kingdom", "dragon", "knight", "robot", "machine", "computer", "level", "sorcerer", "treasure", "dungeon", "wizard", "mechanical", "engine"],
+  pixel: ["robot", "computer", "arcade", "video game", "pixel", "console", "joystick", "software"],
   cinematic: ["battle", "ship", "sea", "war", "empire", "expedition", "voyage", "desert", "army", "captain", "storm", "mountain", "journey", "ocean", "king", "revolution"],
 };
 
@@ -54,7 +54,7 @@ export function heuristicStyle(b: Book): { id: StyleId; reason: string } {
 export const STYLE_SYSTEM = `Role: art director for a book reader. Input: a book's title, author and text excerpts. Choose the one visual style that best suits the book's genre, tone and era. Output one JSON object, no prose, no code fence:
 {"style":"cinematic|storybook|cartoon|dream|noir|pixel","reason":"<=12 words"}
 Styles: ${STYLES.map((s) => `${s.id} = ${s.blurb}`).join("; ")}.
-Prefer cinematic only when nothing more characteristic fits.`;
+Never choose pixel (a deliberately crude retro look) unless the book is about video games or computers. Sacred texts, histories, epics and serious literature are cinematic (or dream for visionary material); children's books and gentle animal tales are storybook; comic nonsense is cartoon. Prefer cinematic only when nothing more characteristic fits.`;
 
 export function styleUser(b: Book): string {
   return `title: ${b.title}\nauthor: ${b.author || "unknown"}\nexcerpts:\n${sampleOf(b)}`;

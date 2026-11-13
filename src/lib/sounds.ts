@@ -61,7 +61,7 @@ export async function makeSounds(phrases: string[]): Promise<Record<string, Reci
     try {
       const hit = await api.cacheGet("sound", key);
       if (hit) { const r = parseRecipe(hit); if (r) { out[ph.toLowerCase()] = r; return; } }
-      const c = await api.llmComplete("scan", SYSTEM, `Sound: ${ph}`);
+      const c = await api.llmComplete("author", SYSTEM, `Sound: ${ph}`);
       const r = parseRecipe(c.text);
       if (r) { out[ph.toLowerCase()] = r; await api.cachePut("sound", key, JSON.stringify(r)); }
     } catch { /* no model routed, or it failed */ }

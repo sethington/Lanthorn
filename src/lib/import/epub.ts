@@ -106,6 +106,17 @@ export function importEpub(bytes: Uint8Array, filename: string): Book {
       if (paras[0] && (paras[0] === chTitle || (!parts && paras[0] === set.title))) paras = paras.slice(1); // the heading is shown separately
       const body_ = paras.join("\n\n");
       if (body_.length < 300 || FRONT.test(chTitle)) continue; // cover, title page, contents, copyright…
+      // a scripture-style book whose verses are numbered "3:14 ..." is its chapters: "Genesis 3"
+      if (body_.length > 30000) {
+        const groups = new Map<number, string[]>();
+        let ok = 0;
+        for (const p of paras) { const m = /^(\d{1,3}):(\d{1,3})\s/.exec(p); if (m) { ok++; (groups.get(Number(m[1])) ?? groups.set(Number(m[1]), []).get(Number(m[1]))!).push(p); } }
+        if (groups.size >= 4 && ok > paras.length * 0.8) {
+          const bookName = (/called\s+(.+)$/i.exec(chTitle)?.[1] ?? chTitle.replace(/^The (First|Second|Third|Fourth|Fifth) (Book|Epistle|General Epistle|Letter) (of|to|General of) /i, "").replace(/^The (Gospel|Acts|Revelation).*$/i, chTitle).replace(/^Book of /i, "")).trim();
+          for (const [n, vs] of [...groups.entries()].sort((a, b) => a[0] - b[0])) chapters.push(makeChapter(chapters.length, `${bookName} ${n}`, vs.join("\n\n"), undefined));
+          continue;
+        }
+      }
       // "IV. Time Travelling" -> number IV, title Time Travelling (same shape the text importer produces)
       const m = chTitle.match(/^([IVXLC]+|\d{1,3})\.\s+(.+)$/);
       chapters.push(makeChapter(chapters.length, m ? m[2] : chTitle || `Section ${chapters.length + 1}`, body_, m ? m[1] : undefined));

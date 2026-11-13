@@ -2,6 +2,7 @@
 // and cutlass, a queen's crown and long gown, a schoolgirl's satchel), kept for every later book. The runtime paints the colours onto the body
 // and hangs the skirt and each item on a joint, so any costume is data, not code. (personLook in resolve.ts is the fallback.)
 import { api } from "./api";
+import { askMany } from "./author";
 
 export type OutfitItem = { at: "head" | "chest" | "hips" | "back" | "hand_r" | "hand_l" | "feet"; s: "ell" | "box" | "cyl" | "cone"; d: number[]; c: string; p: [number, number, number]; r?: [number, number, number]; m?: number };
 export type Outfit = {
@@ -45,9 +46,33 @@ export async function makeOutfit(key: string, desc: string, cacheOnly = false, f
     const hit = feedback ? null : await api.cacheGet("outfit", k);
     if (hit) { const o = parseOutfit(hit); if (o) return o; }
     if (cacheOnly) return null;
-    const c = await api.llmComplete("scan", outfitSystem(), `Description: ${desc}${feedback ? `\nA previous attempt was criticised: ${feedback}. Dress them again, fixing that.` : ""}`);
+    const c = await api.llmComplete("author", outfitSystem(), `Description: ${desc}${feedback ? `\nA previous attempt was criticised: ${feedback}. Dress them again, fixing that.` : ""}`);
     const o = parseOutfit(c.text);
     if (o) await api.cachePut("outfit", k, c.text);
     return o;
   } catch { return null; }
+}
+
+/** Outfits for several people in ONE model call (cached ones are not asked for again). key -> outfit. */
+export async function makeOutfits(list: { key: string; desc: string; feedback?: string }[], cacheOnly = false): Promise<Record<string, Outfit>> {
+  const out: Record<string, Outfit> = {};
+  const todo: { key: string; desc: string; k: string; feedback?: string }[] = [];
+  for (const it of list) {
+    const k = `${it.desc}`.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 90) || it.key;
+    try {
+      const hit = it.feedback ? null : await api.cacheGet("outfit", k);
+      const o = hit ? parseOutfit(hit) : null;
+      if (o) out[it.key] = o; else todo.push({ ...it, k });
+    } catch { todo.push({ ...it, k }); }
+  }
+  if (!todo.length || cacheOnly) return out;
+  try {
+    const got = await askMany(outfitSystem(), todo.slice(0, 6).map((t) => ({ name: t.key, ask: t.desc + (t.feedback ? `. A previous attempt was criticised: ${t.feedback}. Dress them again, fixing that.` : "") })));
+    for (const t of todo) {
+      const item = got[t.key.toLowerCase()];
+      const o = item ? parseOutfit(JSON.stringify(item)) : null;
+      if (o) { out[t.key] = o; await api.cachePut("outfit", t.k, JSON.stringify(item)); }
+    }
+  } catch { /* no model routed, or it failed: the built-in dress stands */ }
+  return out;
 }

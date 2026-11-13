@@ -198,6 +198,13 @@ const SPECIES: [RegExp, Omit<Creature, "body" | "belly" | "dark" | "dress">, str
   [/\b(horse|horses|pony|mare|stallion|colt|steed|mule|donkey|ass)\b/, { species: "horse", cls: "quad", size: 1.65, ears: "point", tail: "long", snout: "long", legs: 4 }, "#6a4a30"],
   [/\b(deer|stag|doe|fawn|elk|reindeer)\b/, { species: "deer", cls: "quad", size: 1.2, ears: "point", tail: "short", snout: "long", legs: 4 }, "#9a6a40"],
   [/\b(lion|lioness|tiger|leopard|panther)\b/, { species: "lion", cls: "quad", size: 1.1, ears: "round", tail: "long", snout: "short", legs: 4 }, "#c49a4a"],
+  [/\b(badger|badgers)\b/, { species: "badger", cls: "quad", size: 0.65, ears: "round", tail: "short", snout: "long", legs: 4 }, "#6a6a6e"],
+  [/\b(mole|moles)\b/, { species: "mole", cls: "quad", size: 0.3, ears: "none", tail: "short", snout: "long", legs: 4 }, "#3a3430"],
+  [/\b(otter|otters|weasel|weasels|stoat|stoats|ferret|ferrets|polecat)\b/, { species: "otter", cls: "quad", size: 0.5, ears: "round", tail: "long", snout: "short", legs: 4 }, "#6a4a30"],
+  [/\b(owl|owls)\b/, { species: "owl", cls: "bird", size: 0.35, ears: "none", tail: "short", snout: "beak", legs: 2 }, "#8a7a62"],
+  [/\b(monkey|monkeys|ape|apes|gorilla|baboon)\b/, { species: "monkey", cls: "quad", size: 0.7, ears: "round", tail: "long", snout: "short", legs: 4 }, "#7a5a3a"],
+  [/\b(elephant|elephants)\b/, { species: "elephant", cls: "quad", size: 2.2, ears: "floppy", tail: "short", snout: "long", legs: 4 }, "#8a8a90"],
+  [/\b(camel|camels)\b/, { species: "camel", cls: "quad", size: 1.7, ears: "round", tail: "short", snout: "long", legs: 4 }, "#b8955a"],
   [/\b(frog|toad)\b/, { species: "frog", cls: "quad", size: 0.18, ears: "none", tail: "none", snout: "flat", legs: 4 }, "#5a8a3a"],
   [/\b(duck|ducks|duckling|goose|geese|gosling|swan|hen|hens|chicken|chick|rooster|cock|turkey)\b/, { species: "duck", cls: "bird", size: 0.4, ears: "none", tail: "short", snout: "beak", legs: 2 }, "#e8e0c0"],
   [/\b(bird|birds|robin|sparrow|crow|raven|owl|eagle|hawk|dove|pigeon|parrot|nightingale|lark|swallow|finch|wren|magpie|gull|seagull|albatross)\b/, { species: "bird", cls: "bird", size: 0.25, ears: "none", tail: "long", snout: "beak", legs: 2 }, "#7a6a58"],
@@ -277,11 +284,15 @@ export function matchModel(phrase: string, allowed?: (m: Model) => boolean): Mod
       else if (tagW.has(w)) s += 2;
       else if (catW.has(w)) s += 1;
     }
-    if (s >= 3 && (!best || s > best.s)) best = { m, s };
+    if (s >= 4 && (!best || s > best.s)) best = { m, s };
   }
   return best?.m ?? null;
 }
 
+/** Words that name the setting, not a thing in it: they are drawn by the ground, sky, water and light, never matched to a model. */
+const ENVIRONMENT = /^(seas?|waters?|oceans?|rivers?|lakes?|ponds?|streams?|tides?|waves?|lands?|grounds?|earths?|soils?|skies?|heavens?|firmaments?|stars?|suns?|moons?|clouds?|mists?|fogs?|darkness|dark|lights?|air|winds?|rain|snow|grass|fields?|meadows?|hills?|horizons?|voids?|deep|abyss|shores?|sands?|deserts?|plains?|valleys?|cosmos|universe|space|heaven|night|dawn|dusk|daylight|sunlight|moonlight|starlight|haze|smoke|dust|ash|ashes|fire|flames?|storms?|thunder|lightning)$/;
+/** The thing a phrase names: its last word, after trailing place words (\"waters above\" is waters, \"sea chest\" is a chest). */
+const headWord = (phrase: string): string => { const w = words(phrase.toLowerCase()); while (w.length > 1 && /^(above|below|beneath|beyond|over|under|upon|around|together|apart|everywhere|aloft|again|there|here)$/.test(w[w.length - 1])) w.pop(); return w[w.length - 1] ?? ""; };
 const height = (m: Model) => m.dims[2] || 1;
 const mainFile = (id: string) => {
   const m = MODELS.find((x) => x.id === id)!;
@@ -550,12 +561,13 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
   const propText = scene.props.join(" ; ").toLowerCase();
   const sceneText = `${propText} ${locText} ${scene.subjects.map((s) => s.ref).join(" ")}`.toLowerCase();
   const hero = {
-    kind: /machine|saddle|lever|quartz|dial/.test(sceneText) || scene.subjects.some((s) => s.ref === "time_traveller") ? ("time_machine" as const) : ("none" as const),
+    kind: /\b(time[- ]machine|quartz levers?|the machine|saddle)\b/.test(sceneText) || scene.subjects.some((s) => s.ref === "time_traveller") ? ("time_machine" as const) : ("none" as const),
     figure: scene.subjects.some((s) => s.ref === "time_traveller"),
-    sphinx: /sphinx|pedestal/.test(sceneText),
+    sphinx: /\b(white sphinx|sphinx)\b/.test(sceneText),
   };
 
   // ---- people: who is in the scene, doing what, where (slots are metres around the hero)
+  let presence = false; // an unseen presence in the scene (God, a voice, fate): shown as radiant light
   const figures: Fig[] = [];
   const slotX: Record<string, number> = { left: -1.8, center: 0, right: 1.8, back: 0.6, front: -0.6 };
   for (const sj of scene.subjects) {
@@ -563,7 +575,7 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
     if (/sphinx|statue|pedestal/.test(sj.ref)) continue;
     const kind: Fig["kind"] = /eloi/.test(sj.ref) ? "eloi" : /mrs|woman|housekeeper|watchett|lady|girl/.test(sj.ref) ? "woman" : /traveller|traveler|man|narrator|doctor|host/.test(sj.ref) ? "man" : "generic";
     const rider = kind === "man" && hero.kind === "time_machine" && /traveller|traveler/.test(sj.ref) && !/walk|stand|step|stride/.test(t);
-    const pose: Fig["pose"] = rider || /sit|seat|saddle|grip|lever|ride/.test(t) ? "seated" : /walk|cross|stride|rush|hurry|brisk/.test(t) ? "walking" : /crouch|kneel|bend|stoop/.test(t) ? "crouch" : "standing";
+    const pose: Fig["pose"] = rider || /\b(sit|sits|sitting|sat|seated|seat|saddle|grip|lever|ride|rides|riding)\b/.test(t) ? "seated" : /\b(walk|walks|walking|cross|crossing|stride|striding|rush|rushing|hurry|hurrying|brisk|brisklyc?)\b/.test(t) ? "walking" : /\b(crouch|crouches|crouching|kneel|kneels|kneeling|bend|bends|bending|stoop|stoops|stooping)\b/.test(t) ? "crouch" : "standing";
     const group = /observer|group|crowd|figures|people|folk/.test(sj.ref);
     const sx = slotX[sj.position] ?? 0;
     if (group) {
@@ -573,6 +585,7 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
     const walk = pose === "walking" ? ([sx - 2.4, -1.4, sx + 2.4, -1.4] as [number, number, number, number]) : null;
     const cdesc = bible.characters.find((c) => c.id === sj.ref)?.desc ?? "";
     const chr = bible.characters.find((c) => c.id === sj.ref);
+    if (chr?.kind === "presence") { presence = true; continue; } // no body: it is light and mood
     // the analysis says what each character is; an older analysis without it is judged from the words
     const nonPerson = chr?.kind ? chr.kind !== "person" : !!creatureLook(sj.ref, cdesc, rng(hash(`${sj.ref}:look`)));
     if (nonPerson) {
@@ -599,6 +612,21 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
       walk,
       scale: kind === "eloi" ? 0.7 : kind === "woman" ? 0.95 : 1,
     });
+  }
+
+  // ---- staging: people who are together stand in a loose arc turned toward one another (the middle one set back), not in a line facing the lens
+  {
+    const here = figures.filter((g) => !g.onMachine && !g.walk && g.z > -5 && hero.kind !== "time_machine");
+    if (here.length >= 2 && here.length <= 7) {
+      const order = here.slice().sort((a, b) => a.x - b.x);
+      const n = order.length, R = 1.5 + 0.18 * n, span = Math.min(2.4, 0.5 + 0.38 * n), cz = 0.3 + R * 0.55;
+      order.forEach((g, i) => {
+        const a = (i / (n - 1) - 0.5) * span;
+        g.x = R * Math.sin(a);
+        g.z = cz - R * Math.cos(a);
+        g.yaw = -a + (g.kind === "creature" ? 0 : 0); // (facing the middle of the arc)
+      });
+    }
   }
 
   // ---- acting: each character's moves, with where they walk to resolved to metres
@@ -644,15 +672,18 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
   const sizeOk = (maxH: number) => (m: Model) => height(m) <= maxH;
 
   if (kind === "exterior") {
-    const wantTrees = /tree|birch|forest|wood|garden|hill|landscape|bush|rhododendron/.test(sceneText);
+    const wantTrees = /\b(trees?|birch|forests?|woods?|woodland|gardens?|hills?|landscape|bush(?:es)?|rhododendrons?|orchards?|groves?)\b/.test(sceneText);
     const trees = wantTrees ? matchModel("tree", (m) => m.cats.includes("trees") && height(m) > 2.5) : null;
     const stump = matchModel("tree stump", (m) => /stump/.test(m.id));
     const rock = matchModel("boulder rock", (m) => m.cats.includes("rocks") && height(m) < 6);
-    const bushes = /bush|rhododendron|shrub|hedge|garden/.test(sceneText) ? matchModel("bush shrub", (m) => m.cats.includes("plants") && height(m) < 3) : null;
+    const bushes = /\b(bush(?:es)?|rhododendrons?|shrubs?|hedges?|gardens?)\b/.test(sceneText) ? matchModel("bush shrub", (m) => m.cats.includes("plants") && height(m) < 3) : null;
     if (trees) for (let i = 0; i < 3; i++) place(trees, (i - 1) * 9 + (r() - 0.5) * 5, -9 - r() * 14, 7 + r() * 5, "tree");
     if (bushes) for (let i = 0; i < 5; i++) place(bushes, (r() - 0.5) * 14, -3 - r() * 6, 0.9 + r() * 0.8, "bush");
-    if (rock) for (let i = 0; i < 2; i++) place(rock, (r() - 0.5) * 12, -2 - r() * 8, 0.8 + r() * 1.2, "rock");
-    if (stump && r() > 0.4) place(stump, -2.4 + r(), 1.4 + r(), 0.6, "stump");
+    // scenery comes from the text: rocks where it speaks of stone, hill, cliff, desert or ruin; a stump where there are woods
+    const rocky = /\b(rocks?|rocky|stones?|boulders?|cliffs?|crags?|mountains?|hills?|deserts?|ruins?|caves?|quarr(?:y|ies)|moors?|scree|ledges?|tombs?|graves?|coast|shores?|beach|coves?)\b/.test(sceneText);
+    const woody = /\b(woods?|forests?|trees?|groves?|copse|orchards?|gardens?|clearing|thicket)\b/.test(sceneText);
+    if (rock && rocky) for (let i = 0; i < 2; i++) place(rock, (r() - 0.5) * 12, -2 - r() * 8, 0.8 + r() * 1.2, "rock");
+    if (stump && woody && r() > 0.4) place(stump, -2.4 + r(), 1.4 + r(), 0.6, "stump");
   } else {
     // furnished for the kind of room it is
     assets.push(...furnishRoom(room, pkg.files));
@@ -660,10 +691,11 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
     for (const fg of figures) if (fg.pose === "seated" && !fg.onMachine) assets.push({ id: "proc:fx-stool", file: "", pos: [fg.x, 0, fg.z], rotY: 0, scale: 1, label: "stool", parts: furniture("stool", 0, 0, 0.46) });
   }
   // anything named that we couldn't place (and isn't part of the hero) is reported, not invented
-  const heroish = /machine|lever|quartz|dial|saddle|traveller|rod/;
+  const heroish = /\b(time[- ]machine|machine|levers?|quartz|dials?|saddle|traveller|traveler)\b/;
   const extraKind = new Map((opts.extra ?? []).map((e) => [e.what.toLowerCase(), e.kind]));
   for (const p of [...scene.props, ...(opts.extra ?? []).map((e) => e.what)]) {
     if (heroish.test(p.toLowerCase())) continue;
+    if (ENVIRONMENT.test(headWord(p))) continue; // a sea, the land, the sky, light, mist: the world itself, not an object to find in a catalogue
     if (room) {
       const lp = p.toLowerCase();
       if ((room.fixtures ?? []).includes("hearth") && /fireplace|hearth|chimney|mantel|fire\b|firelight|embers|flames?/.test(lp)) continue; // the room has one built in
@@ -707,7 +739,7 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
         bk = undefined;
       } else {
         unresolved.push(phrase);
-        if (bk[0] === "city" && !/skyscraper|skyline|metropolis|modern|neon|traffic/.test(locText)) bk = BUILDINGS.find((b) => b[0] === "house");
+        if (bk[0] === "city" && !/\b(skyscrapers?|skyline|metropolis|modern|neon|traffic)\b/.test(locText)) bk = BUILDINGS.find((b) => b[0] === "house");
       }
     }
     if (bk) assets.push({ id: `bld:${bk[0]}`, file: "", pos: [(r() - 0.5) * 6 + 6, 0, -Math.max(9, bk[3] * 0.6)], rotY: -0.35 + (r() - 0.5) * 0.4, scale: bk[2] * 1.15, label: locText.slice(0, 24) });
@@ -719,8 +751,8 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
   // water: the sea, a lake, a shore. The land ends at a shoreline and the water runs on to the horizon.
   const wet = /\b(sea|seas|ocean|shore|shoreline|beach|waves?|tide|tides|surf|harbou?r|bay|lake|coast|swell|brine|strand|shoal|lagoon|estuary|river|water)\b/.test(sceneText + " " + (scene.weather ?? ""));
   const water: Resolved["water"] = kind === "exterior" && wet && !/\b(rain|raindrop)\b/.test(locText) ? {
-    zEdge: /lake|river|harbou?r/.test(sceneText) ? -9 : -6,
-    mood: /red (?:water|sea)|crimson|scarlet (?:sea|water)|blood/.test(sceneText) ? "red" : /oily|black water|dark water|slick|tar/.test(sceneText) ? "oily" : /storm|rough|gale|tempest|heavy/.test(sceneText + scene.weather) ? "storm" : "calm",
+    zEdge: /\b(lakes?|rivers?|harbou?rs?)\b/.test(sceneText) ? -9 : -6,
+    mood: /\b(red (?:water|sea|waters|seas)|crimson|scarlet (?:sea|water)|blood)\b/.test(sceneText) ? "red" : /\b(oily|black water|dark water|slick|tar|tarry)\b/.test(sceneText) ? "oily" : /\b(storm|stormy|rough|gale|tempest|heavy seas)\b/.test(sceneText + " " + scene.weather) ? "storm" : "calm",
   } : null;
 
   // ---- life: between the acts the book names, everyone keeps moving: changing gestures, glances at the others, short strolls.
@@ -937,7 +969,7 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
     size: opts.size ?? [720, 900],
     interior: kind === "interior",
     sky: { night: skyPool.night, dawn: skyPool.dawn, day: skyPool.day, dusk: skyPool.dusk, intensity: grey ? 0.9 : t0 === "night" ? 0.7 : 0.6, rotation: (hash(scene.id) % 628) / 100 },
-    sun: { startElev: SUN_ELEV[t0] ?? 30, endElev: SUN_ELEV[t1] ?? 30, cycles, azimuth: -0.8 + r() * 1.6, color: scene.atmosphere?.light ?? SUN_COLOR[t0] ?? "#ffe9c9", strength: grey ? 0.35 : 1 },
+    sun: { startElev: SUN_ELEV[t0] ?? 30, endElev: SUN_ELEV[t1] ?? 30, cycles, azimuth: -0.8 + r() * 1.6, color: scene.atmosphere?.light ?? (presence ? "#ffe2a0" : SUN_COLOR[t0] ?? "#ffe9c9"), strength: (grey ? 0.35 : 1) * (presence ? 1.5 : 1) },
     ground,
     water,
     room,
@@ -972,7 +1004,7 @@ export function assetsNeeded(r: Resolved): { kind: string; id: string; res: stri
 }
 
 /** Bump when runtime/scene.tsx changes in a way that alters frames, so cached renders are redone. */
-export const RUNTIME_VERSION = "rt97";
+export const RUNTIME_VERSION = "rt100";
 
 /** Cache key: changes whenever the resolved plan or the runtime does. */
 export function sceneKey(r: Resolved): string {

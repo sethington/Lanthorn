@@ -3,6 +3,7 @@
 // rabbit, a dragon, an angel or a talking teapot for the book in hand, and it is kept for every later book. The built-in builders below are the
 // fallback when no model is routed, and the worked examples the model is shown.
 import { api } from "./api";
+import { askMany } from "./author";
 
 export type RigRole = "body" | "head" | "leg" | "arm" | "wing" | "tail" | "ear" | "jaw" | "seg" | "none";
 export type RigPart = {
@@ -135,9 +136,33 @@ export async function makeRig(key: string, desc: string, cacheOnly = false, feed
     const hit = feedback ? null : await api.cacheGet("rig", k);
     if (hit) { const r = parseRig(hit); if (r) return r; }
     if (cacheOnly) return null;
-    const c = await api.llmComplete("scan", rigSystem(), `Description: ${desc}${feedback ? `\nA previous attempt was criticised: ${feedback}. Design it again, fixing that: a clear, well-formed body with every part joined where it belongs.` : ""}`);
+    const c = await api.llmComplete("author", rigSystem(), `Description: ${desc}${feedback ? `\nA previous attempt was criticised: ${feedback}. Design it again, fixing that: a clear, well-formed body with every part joined where it belongs.` : ""}`);
     const r = parseRig(c.text);
     if (r) await api.cachePut("rig", k, c.text);
     return r;
   } catch { return null; }
+}
+
+/** Rigs for several characters in ONE model call (cached ones are not asked for again). key -> rig. */
+export async function makeRigs(list: { key: string; desc: string; feedback?: string }[], cacheOnly = false): Promise<Record<string, Rig>> {
+  const out: Record<string, Rig> = {};
+  const todo: { key: string; desc: string; k: string; feedback?: string }[] = [];
+  for (const it of list) {
+    const k = `${it.desc}`.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 80) || it.key;
+    try {
+      const hit = it.feedback ? null : await api.cacheGet("rig", k);
+      const r = hit ? parseRig(hit) : null;
+      if (r) out[it.key] = r; else todo.push({ ...it, k });
+    } catch { todo.push({ ...it, k }); }
+  }
+  if (!todo.length || cacheOnly) return out;
+  try {
+    const got = await askMany(rigSystem(), todo.slice(0, 6).map((t) => ({ name: t.key, ask: t.desc + (t.feedback ? `. A previous attempt was criticised: ${t.feedback}. Design it again, fixing that.` : "") })));
+    for (const t of todo) {
+      const item = got[t.key.toLowerCase()];
+      const r = item ? parseRig(JSON.stringify(item)) : null;
+      if (r) { out[t.key] = r; await api.cachePut("rig", t.k, JSON.stringify(item)); }
+    }
+  } catch { /* no model routed, or it failed: the built-in stands */ }
+  return out;
 }

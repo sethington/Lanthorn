@@ -3,7 +3,7 @@
 
 import type { Sentence } from "./text";
 
-export type Character = { id: string; desc: string; /** what it is: a person, an animal, or some other living thing (a dragon, an angel, a robot) */ kind?: "person" | "animal" | "creature" };
+export type Character = { id: string; desc: string; /** what it is: a person, an animal, or some other living thing (a dragon, an angel, a robot) */ kind?: "person" | "animal" | "creature" | "presence" };
 export type Location = { id: string; desc: string };
 export type Bible = { characters: Character[]; locations: Location[] };
 
@@ -99,13 +99,13 @@ export const ACTS = ["walk_to", "sit", "stand", "reach", "use_lever", "look_at",
 export type Chunk = { scenes: Scene[]; bible: Bible };
 
 /** Bump when SYSTEM or the output contract changes, so cached model replies are not reused. */
-export const PROMPT_VERSION = "p10";
+export const PROMPT_VERSION = "p11";
 /** The previous contract, still readable: analyses made with it keep working (they are directed automatically). */
-export const LEGACY_PROMPT_VERSIONS = ["p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8", "p9"];
+export const LEGACY_PROMPT_VERSIONS = ["p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8", "p9", "p10"];
 
 export const SYSTEM = `Role: scene director for a book reader. Input: numbered sentences. Output: one JSON object, no prose, no code fence.
 Schema:
-{"bible":{"characters":[{"id":"snake_case","desc":"<=15 words, look only","kind":"person|animal|creature"}],"locations":[{"id":"snake_case","desc":"<=15 words"}]},
+{"bible":{"characters":[{"id":"snake_case","desc":"<=15 words, look only","kind":"person|animal|creature|presence"}],"locations":[{"id":"snake_case","desc":"<=15 words"}]},
 "scenes":[{"id":"s<n>","from":<sentence id>,"to":<sentence id>,"visual":bool,
 "kind":"static|timelapse|motion|abstract|interior","location":"<location id>","interior":bool,
 "time":{"start":"dawn|morning|noon|afternoon|dusk|night","end":"<same set>","progression":"steady|accelerating|slowing"},
@@ -128,7 +128,7 @@ Rules:
 - Scenes contiguous, cover every given sentence, ordered, no overlap. New scene on location, time-jump, or mood change.
 - visual:false for dialogue/exposition with nothing to draw; keep other fields minimal.
 - kind timelapse: passage describes accelerated time. abstract: sensation/emotion, no concrete objects.
-- kind: person = a human; animal = a real animal (a rabbit, a horse, a wolf); creature = any other living or moving thing (a dragon, an angel, a ghost, a robot, a talking teapot). Anything that is not a human gets animal or creature, so it is drawn as itself.
+- kind: person = a human; animal = a real animal (a rabbit, a horse, a wolf); creature = any other living or moving thing (a dragon, an angel, a ghost, a robot, a talking teapot). presence = something with no body to draw (God, a voice, the wind, fate, a spirit that is only felt): it is shown as light and mood, never as an object. Anything else that is not a human gets animal or creature, so it is drawn as itself.
 - atmosphere: ONLY when the text gives the sky or air a distinctive look (a blood-red dusk, ash clouds, green aurora, thick yellow smog, golden haze, a dust storm); say it plainly and choose the colours the text implies. Otherwise omit the whole field.
 - Ids reuse bible entries. Add new characters/locations only when first seen. Describe look, never plot.
 - beats/spots anchor to sentence ids inside the scene. Only what the text states or directly implies.
@@ -302,7 +302,13 @@ function normBoard(raw: any, from: number, to: number): Board | undefined {
 function normAtmosphere(a: any): Scene["atmosphere"] {
   if (!a || typeof a !== "object") return undefined;
   const hex = (v: any) => (typeof v === "string" && /^#[0-9a-fA-F]{6}$/.test(v) ? v : undefined);
-  const out = { sky: typeof a.sky === "string" && a.sky.trim() ? a.sky.trim().slice(0, 80) : undefined, fog: hex(a.fog), fogDensity: Number.isFinite(Number(a.fogDensity)) ? Math.min(0.1, Math.max(0, Number(a.fogDensity) * 0.1)) : undefined, light: hex(a.light) };
+  const sky = typeof a.sky === "string" && a.sky.trim() ? a.sky.trim().slice(0, 80) : undefined;
+  const lum = (h?: string) => (h ? (0.3 * parseInt(h.slice(1, 3), 16) + 0.59 * parseInt(h.slice(3, 5), 16) + 0.11 * parseInt(h.slice(5, 7), 16)) / 255 : 1);
+  const darkText = /dark|black|night|void|gloom|dim|shadow|murk|blind|abyss/i.test(sky ?? "");
+  // (a model that fills the fields in when asked for nothing gives placeholders: black fog and black light would muddy a bright day)
+  const fog = hex(a.fog) && (lum(hex(a.fog)) > 0.08 || darkText) ? hex(a.fog) : undefined;
+  const light = hex(a.light) && (lum(hex(a.light)) > 0.2 || darkText) ? hex(a.light) : undefined;
+  const out = { sky, fog, fogDensity: Number.isFinite(Number(a.fogDensity)) ? Math.min(0.06, Math.max(0, Number(a.fogDensity) * 0.1)) : undefined, light };
   return out.sky || out.fog || out.light || out.fogDensity !== undefined ? out : undefined;
 }
 
@@ -315,7 +321,7 @@ export function validateChunk(raw: unknown, first: number, last: number, prior: 
     locations: [...prior.locations],
   };
   for (const c of arr<Character>(r.bible?.characters)) {
-    if (c?.id && !bible.characters.some((x) => x.id === c.id)) bible.characters.push({ id: str(c.id), desc: str(c.desc), ...(c.kind === "animal" || c.kind === "creature" || c.kind === "person" ? { kind: c.kind } : {}) });
+    if (c?.id && !bible.characters.some((x) => x.id === c.id)) bible.characters.push({ id: str(c.id), desc: str(c.desc), ...(c.kind === "animal" || c.kind === "creature" || c.kind === "person" || c.kind === "presence" ? { kind: c.kind } : {}) });
   }
   for (const l of arr<Location>(r.bible?.locations)) {
     if (l?.id && !bible.locations.some((x) => x.id === l.id)) bible.locations.push({ id: str(l.id), desc: str(l.desc) });

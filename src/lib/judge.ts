@@ -80,6 +80,7 @@ function save() { try { localStorage.setItem(MKEY(memory.book), JSON.stringify(m
 export const alreadyJudged = (key: string) => !!memory.m.done[key];
 export const madeFor = (groupKey: string): Make[] => memory.m.made?.[groupKey] ?? [];
 /** What was wrong with how this character was drawn (the judge's words), when it is to be drawn again; at most twice. */
+export const takeRedoPeek = (kind: "rig" | "outfit", who: string) => { const r = memory.m.redo?.[`${kind}:${who}`]; return !!r && (r.used ?? 0) < r.n; };
 export function takeRedo(kind: "rig" | "outfit", who: string): string | undefined {
   const r = memory.m.redo?.[`${kind}:${who}`];
   if (!r || (r.used ?? 0) >= r.n) return undefined;

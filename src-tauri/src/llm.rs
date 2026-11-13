@@ -52,8 +52,8 @@ pub struct TestResult {
 }
 
 pub fn resolve<'a>(s: &'a Settings, job: &str) -> Result<(&'a Provider, Option<String>), String> {
-    // an install from before the judge existed has no route for it: use the book-scan one, on the smallest model
-    let fallback = if job == "judge" && !s.routing.contains_key("judge") { s.routing.get("scan").map(|r| Route { provider: r.provider.clone(), model: Some("haiku".into()) }) } else { None };
+    // an install with no route for the judge or for authoring (characters, outfits, props) uses the book-scan one, on the smallest model
+    let fallback = if (job == "judge" || job == "author") && !s.routing.contains_key(job) { s.routing.get("scan").map(|r| Route { provider: r.provider.clone(), model: Some("haiku".into()) }) } else { None };
     let route = s
         .routing
         .get(job)

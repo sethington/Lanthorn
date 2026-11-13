@@ -1108,7 +1108,8 @@ fn shade(in: VertexOutput) -> vec4<f32> {
   let sh = u_shore().x - in.world_position.z; // metres out from the shore (>0 = in the water)
   let lines = 0.5 + 0.5 * sin(sh * 1.6 - t * 1.1 + 2.0 * sin(p.x * 0.3));
   let foam = (1.0 - smoothstep(0.0, 4.5, sh)) * smoothstep(-0.2, 0.3, sh) * (0.35 + 0.65 * lines);
-  col = mix(col, vec3<f32>(0.86, 0.88, 0.86), clamp(foam, 0.0, 0.85));
+  let skyl = dot(skyc, vec3<f32>(0.3, 0.59, 0.11));
+  col = mix(col, vec3<f32>(0.86, 0.88, 0.86) * clamp(skyl * 2.2, 0.1, 1.0), clamp(foam, 0.0, 0.85)); // (foam is white in daylight, not a glowing bar at night)
   let dist = length(view.world_position.xyz - in.world_position.xyz);
   col = mix(col, u_fogc().rgb, clamp(dist / 700.0, 0.0, 1.0));
   return vec4<f32>(col, 1.0);
