@@ -7,12 +7,20 @@ export type Character = { id: string; desc: string };
 export type Location = { id: string; desc: string };
 export type Bible = { characters: Character[]; locations: Location[] };
 
+/** A board: what a mathematical, scientific or technical passage is drawn as (typeset equations, a plot, notes), step by step as the text is read. */
+export type BoardPlot = { fns: { expr: string; label?: string }[]; x: [number, number]; y?: [number, number]; marks?: { x: number; label?: string }[]; chord?: [number, number]; tangent?: number };
+export type BoardItem = { t: "eq"; tex: string } | ({ t: "plot" } & BoardPlot) | { t: "note"; s: string };
+export type BoardStep = { at: number; say?: string; items: BoardItem[] };
+export type Board = { steps: BoardStep[] };
+
 export type Scene = {
+  /** set for passages drawn as a board instead of a world */
+  board?: Board;
   id: string;
   from: number; // first sentence id
   to: number; // last sentence id (inclusive)
   visual: boolean;
-  kind: "static" | "timelapse" | "motion" | "abstract" | "interior";
+  kind: "static" | "timelapse" | "motion" | "abstract" | "interior" | "board";
   location: string;
   interior: boolean;
   time: { start: string; end: string; progression: "steady" | "accelerating" | "slowing" };
@@ -71,9 +79,9 @@ export const ACTS = ["walk_to", "sit", "stand", "reach", "use_lever", "look_at",
 export type Chunk = { scenes: Scene[]; bible: Bible };
 
 /** Bump when SYSTEM or the output contract changes, so cached model replies are not reused. */
-export const PROMPT_VERSION = "p4";
+export const PROMPT_VERSION = "p5";
 /** The previous contract, still readable: analyses made with it keep working (they are directed automatically). */
-export const LEGACY_PROMPT_VERSIONS = ["p1", "p2", "p3"];
+export const LEGACY_PROMPT_VERSIONS = ["p1", "p2", "p3", "p4"];
 
 export const SYSTEM = `Role: scene director for a book reader. Input: numbered sentences. Output: one JSON object, no prose, no code fence.
 Schema:
@@ -92,7 +100,9 @@ Schema:
 "acting":[{"at":<sentence id>,"who":"<character id>","do":"walk_to|sit|stand|reach|use_lever|look_at|turn|crouch|wave|point|drink|sing|cheer|slam|clap|shrug|nod|bow|cover_face|draw|shake_fist|beckon|think|laugh|plead|gesture","to":"left|center|right|back|front|machine|<character id>"}],
 "stage":[{"k":"moon|sun|grow|streak|flash|cam|quake|creature|dim","at":<sentence id>,"to":<sentence id>,"what":"<=3 words","how":"<exact word from the list>","amount":0-1}],
 "confidence":0-1}]}
+"board":{"steps":[{"at":<sentence id>,"say":"<=8 words","items":[{"t":"eq","tex":"<LaTeX>"},{"t":"plot","fns":[{"expr":"<JS expression in x, e.g. x*x - 2*x, Math.sin(x)>","label":"f"}],"x":[min,max],"y":[min,max],"marks":[{"x":<number>,"label":"c"}],"chord":[x1,x2],"tangent":<x>},{"t":"note","s":"<=14 words"}]}]}   (ONLY for mathematical, scientific or technical passages)
 Rules:
+- BOARD: a theorem, proof, derivation, formula, algorithm or data passage is not a place: set visual:true, kind:"board", location:"board", no subjects, and give "board" with 2-8 steps. Each step "at" is the sentence where it appears; items show in order: eq (one LaTeX equation, display style, no $ signs), plot (a function drawn with optional marked points, a chord between two x values, a tangent at x; draw what the text describes, e.g. a theorem about a function gets a plot of an example function), note (a plain caption). A plot stays on screen until the next plot. Equations are exactly what the text states, step by step as it derives them. Prose with no math keeps its normal scene.
 - Scenes contiguous, cover every given sentence, ordered, no overlap. New scene on location, time-jump, or mood change.
 - visual:false for dialogue/exposition with nothing to draw; keep other fields minimal.
 - kind timelapse: passage describes accelerated time. abstract: sensation/emotion, no concrete objects.
@@ -183,6 +193,32 @@ function normShots(raw: any[], from: number, to: number): Shot[] {
   return shots;
 }
 
+/** A board's steps, inside the scene, in order; an item that is not understood is left out. A board with nothing left is no board. */
+function normBoard(raw: any, from: number, to: number): Board | undefined {
+  if (!raw || !Array.isArray(raw.steps)) return undefined;
+  const num = (v: any): number | undefined => (Number.isFinite(Number(v)) && v !== null && v !== "" ? Number(v) : undefined);
+  const pair = (v: any): [number, number] | undefined => (Array.isArray(v) && num(v[0]) !== undefined && num(v[1]) !== undefined && Number(v[0]) < Number(v[1]) ? [Number(v[0]), Number(v[1])] : undefined);
+  const steps: BoardStep[] = [];
+  for (const st of raw.steps.slice(0, 12)) {
+    const at = Math.min(to, Math.max(from, Math.round(Number(st?.at ?? from))));
+    const items: BoardItem[] = [];
+    for (const it of arr<any>(st?.items).slice(0, 5)) {
+      if (it?.t === "eq" && typeof it.tex === "string" && it.tex.trim()) items.push({ t: "eq", tex: it.tex.trim().slice(0, 400) });
+      else if (it?.t === "note" && typeof it.s === "string" && it.s.trim()) items.push({ t: "note", s: it.s.trim().slice(0, 160) });
+      else if (it?.t === "plot") {
+        const x = pair(it.x);
+        const fns = arr<any>(it.fns).filter((f) => typeof f?.expr === "string" && f.expr.trim()).slice(0, 3).map((f) => ({ expr: String(f.expr).slice(0, 120), label: typeof f.label === "string" ? f.label.slice(0, 12) : undefined }));
+        if (x && fns.length) {
+          items.push({ t: "plot", fns, x, y: pair(it.y), marks: arr<any>(it.marks).filter((m) => num(m?.x) !== undefined).slice(0, 6).map((m) => ({ x: Number(m.x), label: typeof m.label === "string" ? m.label.slice(0, 10) : undefined })), chord: pair(it.chord), tangent: num(it.tangent) });
+        }
+      }
+    }
+    if (items.length) steps.push({ at, say: typeof st?.say === "string" ? st.say.slice(0, 80) : undefined, items });
+  }
+  steps.sort((a, b) => a.at - b.at);
+  return steps.length ? { steps } : undefined;
+}
+
 /** Validate against the chunk's sentence range; repair what's safe, throw on what isn't. */
 export function validateChunk(raw: unknown, first: number, last: number, prior: Bible): Chunk {
   const r = raw as Record<string, any>;
@@ -207,7 +243,7 @@ export function validateChunk(raw: unknown, first: number, last: number, prior: 
       from,
       to,
       visual: s.visual !== false,
-      kind: (["static", "timelapse", "motion", "abstract", "interior"].includes(s.kind) ? s.kind : "static") as Scene["kind"],
+      kind: (["static", "timelapse", "motion", "abstract", "interior", "board"].includes(s.kind) ? s.kind : "static") as Scene["kind"],
       location: str(s.location),
       interior: !!s.interior,
       time: {
@@ -227,6 +263,7 @@ export function validateChunk(raw: unknown, first: number, last: number, prior: 
         spots: arr<any>(s.audio?.spots).filter((b) => inRange(b?.at)).map((b) => ({ at: Number(b.at), sound: str(b.sound) })),
       },
       confidence: Math.min(1, Math.max(0, Number(s.confidence ?? 0.5))),
+      board: normBoard(s.board, from, to),
       shots: normShots(arr<any>(s.shots), from, to),
       stage: normStage(arr<any>(s.stage), from, to),
       lines: arr<any>(s.lines).filter((l) => inRange(l?.at) && typeof l?.speaker === "string").map((l) => ({ at: Number(l.at), speaker: String(l.speaker), kind: l.kind === "thought" ? "thought" : "dialogue" })) as Line[],

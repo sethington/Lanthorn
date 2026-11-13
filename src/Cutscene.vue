@@ -6,6 +6,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import Progress from "./Progress.vue";
+import Board from "./Board.vue";
 import { api } from "./lib/api";
 import { Player, buildTimeline, type Frame, type Timeline } from "./lib/director";
 import { makeProps } from "./lib/props";
@@ -74,7 +75,7 @@ function build() {
     const span = tl.scenes.find((x) => x.index === i);
     if (!span) return;
     const rep = cur ? props.scenes[cur.scenes.find((k) => props.scenes[k].visual) ?? cur.scenes[0]] : null;
-    if (cur && cur.ch === (sc.ch ?? 0) && (!sc.visual || !rep || !rep.visual || sameWorld(rep, sc))) {
+    if (cur && cur.ch === (sc.ch ?? 0) && (!sc.visual || !!sc.board || !rep || !rep.visual || sameWorld(rep, sc))) {
       cur.scenes.push(i);
       cur.t1 = span.t1;
     } else {
@@ -96,6 +97,8 @@ build();
 const hole = reactive({ x: 0, y: 0, w: 0, h: 0 });
 const ui = reactive({ busy: false, up: false, t: 0, beat: -1, fade: 1, controlling: false, status: "Preparing the world…", error: "", phase: "" as "" | "assets" | "bundle" | "engine", pDone: 0, pTotal: 0, pWhat: "", pSince: 0 });
 const frame = ref<Frame | null>(null);
+/** the board for the sentence being read (a mathematical or technical passage), if it is one */
+const boardNow = computed(() => { const sc = props.scenes.find((x) => props.sid >= x.from && props.sid <= x.to); return sc?.board ?? null; });
 
 // ---- fit the world's frame inside the host element (the stage panel)
 function fit() {
@@ -127,7 +130,7 @@ type Prep = { bundle: string; dir: string };
 const preps = new Map<string, Promise<Prep>>();
 const prepTimes = new Map<string, { resolve: number; llm: number; bundle: number }>(); // dev: where a place's preparation went
 const prepKeyOf = new Map<string, string>(); // group -> the key its world is prepared under (progress events carry it)
-const repOf = (g: Group) => g.scenes.find((i) => props.scenes[i].visual);
+const repOf = (g: Group) => g.scenes.find((i) => props.scenes[i].visual && !props.scenes[i].board);
 function prepare(gi: number, full = true): Promise<Prep> {
   const g0 = groups[gi];
   const key0 = sig(g0);
@@ -555,6 +558,7 @@ onBeforeUnmount(() => clearInterval(beatTimer));
       <div v-if="ui.busy && ui.up" class="busy"><Progress :title="making?.title ?? 'Moving on…'" :detail="making?.detail" :value="making?.value" /></div>
       <div v-if="ui.controlling" class="hint">You have the camera · drag to look · W/S zoom · A/D slide · Esc to follow the text again</div>
       <div v-if="speaker && !ui.controlling" class="who">{{ speaker }}</div>
+      <Board v-if="boardNow" :board="boardNow" :sid="sid" />
     </div>
   </div>
 </template>
