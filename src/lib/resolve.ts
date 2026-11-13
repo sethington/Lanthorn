@@ -5,6 +5,7 @@
 import catalog from "../catalog/polyhaven.json" with { type: "json" };
 import type { PackageAsset } from "./book";
 import type { Act, Bible, Cue, Scene, Shot } from "./scene";
+import { furniture, type FurnKind } from "./furniture";
 
 type Model = { id: string; name: string; tags: string[]; cats: string[]; dims: number[]; poly: number };
 type Tagged = { id: string; name: string; tags: string[]; cats: string[] };
@@ -310,66 +311,71 @@ export function roomFor(text: string, forced?: string): RoomR {
 
 /** What furnishes each kind of room: real models at real sizes, set against the walls and round the tables (x across, z back to front; the back wall is at -d/2).
  *  h is the height the model is scaled to (a table 0.78 m, a chair 0.92 m), y the height it stands at (on a table), face the spot it turns toward. */
-type Slot = { ids: string[]; x: number; z: number; h?: number; y?: number; face?: [number, number]; label: string; rot?: number };
+type Slot = { proc?: { kind: FurnKind; len?: number; wid?: number; h?: number }; ids: string[]; x: number; z: number; h?: number; y?: number; face?: [number, number]; label: string; rot?: number };
 const FRONT = 0; // which way round the models' fronts are in their files (added to the turn that faces a spot)
 function layoutFor(style: string, w: number, d: number): Slot[] {
   const zb = -d / 2, xr = w / 2, xl = -w / 2;
-  const TABLE = ["painted_wooden_table"], CHAIR = ["painted_wooden_chair_01"], STOOL = ["wooden_stool_01", "painted_wooden_stool"];
-  const around = (cx: number, cz: number, nx: number, nz: number, dx: number, dz: number, extra: Partial<Slot> = {}): Slot[] => [
-    ...Array.from({ length: nx }, (_, i) => ({ ids: CHAIR, x: cx + (i - (nx - 1) / 2) * dx, z: cz - dz, h: 0.92, face: [cx + (i - (nx - 1) / 2) * dx, cz] as [number, number], label: "chair", ...extra })),
-    ...Array.from({ length: nz }, (_, i) => ({ ids: CHAIR, x: cx + (i - (nz - 1) / 2) * dx, z: cz + dz, h: 0.92, face: [cx + (i - (nz - 1) / 2) * dx, cz] as [number, number], label: "chair", ...extra })),
-  ];
+  const P = (kind: FurnKind, x: number, z: number, label: string, o: Partial<Slot> & { len?: number; wid?: number; h?: number } = {}): Slot => ({ ids: [], proc: { kind, len: o.len, wid: o.wid, h: o.h }, x, z, label, face: o.face, rot: o.rot, y: o.y });
+  /** a table with a bench along each long side and a chair at each end (benches only when benches is false: chairs all round) */
+  const setTable = (cx: number, cz: number, len: number, wid: number, o: { benches?: boolean; ends?: number } = {}): Slot[] => {
+    const out: Slot[] = [P("table", cx, cz, "table", { len, wid })];
+    if (o.benches !== false) for (const sz of [-1, 1]) out.push(P("bench", cx, cz + sz * (wid / 2 + 0.22), "bench", { len: len * 0.88 }));
+    else for (const sz of [-1, 1]) for (const sx of [-0.28, 0.28]) out.push(P("chair", cx + sx * len, cz + sz * (wid / 2 + 0.3), "chair", { face: [cx + sx * len, cz] }));
+    const ends = o.ends ?? 2;
+    if (ends >= 1) out.push(P("chair", cx - len / 2 - 0.32, cz, "chair", { face: [cx, cz] }));
+    if (ends >= 2) out.push(P("chair", cx + len / 2 + 0.32, cz, "chair", { face: [cx, cz] }));
+    return out;
+  };
   switch (style) {
     case "tavern": return [
-      { ids: TABLE, x: 0.9, z: zb + 1.3, h: 0.78, label: "table" },
-      ...around(0.9, zb + 1.3, 2, 2, 1.2, 0.95),
-      { ids: ["wooden_bowl_01"], x: 0.5, z: zb + 1.3, y: 0.78, label: "bowl" },
-      { ids: ["jug_01"], x: 1.3, z: zb + 1.2, y: 0.78, h: 0.24, label: "jug" },
-      { ids: ["vintage_oil_lamp"], x: 0.9, z: zb + 1.45, y: 0.78, h: 0.42, label: "lamp" },
-      { ids: ["round_wooden_table_02"], x: xr - 1.1, z: 2.0, h: 0.74, label: "table" },
-      { ids: STOOL, x: xr - 1.75, z: 2.0, h: 0.46, label: "stool" }, { ids: STOOL, x: xr - 0.45, z: 2.0, h: 0.46, label: "stool" }, { ids: STOOL, x: xr - 1.1, z: 2.65, h: 0.46, label: "stool" },
+      ...setTable(0.9, zb + 1.3, 2.0, 0.85),
+      { ids: ["wooden_bowl_01"], x: 0.5, z: zb + 1.3, y: 0.76, label: "bowl" },
+      { ids: ["jug_01"], x: 1.3, z: zb + 1.2, y: 0.76, h: 0.24, label: "jug" },
+      { ids: ["vintage_oil_lamp"], x: 0.9, z: zb + 1.45, y: 0.76, h: 0.42, label: "lamp" },
+      P("round", xr - 1.1, 2.0, "table", { wid: 0.95, h: 0.74 }),
+      P("stool", xr - 1.85, 2.0, "stool", { h: 0.46 }), P("stool", xr - 0.35, 2.0, "stool", { h: 0.46 }), P("stool", xr - 1.1, 2.75, "stool", { h: 0.46 }),
       { ids: ["wooden_candlestick"], x: xr - 1.1, z: 2.0, y: 0.74, h: 0.22, label: "candle" },
       { ids: ["wine_barrel_01"], x: xr - 0.7, z: zb + 0.7, h: 0.9, label: "barrel" }, { ids: ["wine_barrel_01"], x: xr - 1.65, z: zb + 0.65, h: 0.9, label: "barrel" },
       { ids: ["wooden_crate_01"], x: xr - 0.6, z: zb + 1.6, h: 0.4, label: "crate", face: [0, 0] },
       { ids: ["wooden_display_shelves_01"], x: -2.9, z: zb + 0.3, h: 1.7, face: [-2.9, 0], label: "shelf" },
-      { ids: ["lantern_chandelier_01"], x: 0.9, z: zb + 1.3, y: -0.9, h: 0.88, label: "chandelier" },
+      { ids: ["lantern_chandelier_01"], x: 0.9, z: zb + 1.3, y: -0.55, h: 0.88, label: "chandelier" },
     ];
     case "kitchen": return [
-      { ids: TABLE, x: 0.7, z: zb + 1.7, h: 0.8, label: "table" }, ...around(0.7, zb + 1.7, 2, 1, 1.2, 0.95),
-      { ids: ["wooden_bowl_01"], x: 0.4, z: zb + 1.7, y: 0.8, label: "bowl" }, { ids: ["jug_01"], x: 1.1, z: zb + 1.6, y: 0.8, h: 0.24, label: "jug" },
+      ...setTable(0.7, zb + 1.7, 1.7, 0.85, { ends: 1 }),
+      { ids: ["wooden_bowl_01"], x: 0.4, z: zb + 1.7, y: 0.76, label: "bowl" }, { ids: ["jug_01"], x: 1.1, z: zb + 1.6, y: 0.76, h: 0.24, label: "jug" },
       { ids: ["painted_wooden_cabinet"], x: xl + 0.8, z: zb + 0.4, h: 1.9, face: [xl + 0.8, 0], label: "cupboard" },
       { ids: ["barrel_stove"], x: xr - 0.6, z: zb + 0.6, h: 1.1, label: "stove" },
       { ids: ["wooden_bucket_01"], x: xl + 0.5, z: 0.6, h: 0.4, label: "bucket" }, { ids: ["wicker_basket_02"], x: xr - 0.6, z: 0.8, h: 0.25, label: "basket" },
       { ids: ["painted_wooden_shelves"], x: xr - 0.3, z: -0.2, h: 1.6, face: [0, -0.2], label: "shelf" },
     ];
     case "study": return [
-      { ids: TABLE, x: 0.6, z: zb + 0.9, h: 0.78, label: "desk" },
-      { ids: ["painted_wooden_chair_02", "painted_wooden_chair_01"], x: 0.6, z: zb + 1.8, h: 0.95, face: [0.6, zb + 0.9], label: "chair" },
-      { ids: ["vintage_oil_lamp"], x: 1.2, z: zb + 0.9, y: 0.78, h: 0.45, label: "lamp" },
+      P("table", 0.6, zb + 0.9, "desk", { len: 1.6, wid: 0.75 }),
+      P("chair", 0.6, zb + 1.7, "chair", { face: [0.6, zb + 0.9] }),
+      { ids: ["vintage_oil_lamp"], x: 1.2, z: zb + 0.9, y: 0.76, h: 0.45, label: "lamp" },
       { ids: ["wooden_bookshelf_worn"], x: xl + 1.0, z: zb + 0.4, h: 2.1, face: [xl + 1.0, 0], label: "bookshelf" },
       { ids: ["wooden_bookshelf_worn"], x: xr - 1.0, z: zb + 0.4, h: 2.1, face: [xr - 1.0, 0], label: "bookshelf" },
       { ids: ["vintage_grandfather_clock_01"], x: xr - 0.55, z: -0.9, h: 2.1, face: [0, -0.9], label: "clock" },
       { ids: ["sofa_02"], x: xr - 0.7, z: 1.3, h: 0.75, face: [0, 1.3], label: "sofa" },
     ];
     case "hall": return [
-      { ids: TABLE, x: 0, z: zb + 2.0, h: 0.8, label: "table" }, ...around(0, zb + 2.0, 3, 3, 1.5, 1.0),
+      ...setTable(0, zb + 2.0, 3.4, 0.95),
       { ids: ["GothicCabinet_01"], x: -xr * 0.55, z: zb + 0.7, h: 2.3, face: [-xr * 0.55, 0], label: "cabinet" },
       { ids: ["GothicCabinet_01"], x: xr * 0.55, z: zb + 0.7, h: 2.3, face: [xr * 0.55, 0], label: "cabinet" },
       { ids: ["painted_wooden_sofa"], x: xr - 0.7, z: 0.5, h: 1.0, face: [0, 0.5], label: "sofa" },
-      { ids: ["lantern_chandelier_01"], x: 0, z: zb + 2.0, y: -0.9, h: 0.88, label: "chandelier" },
+      { ids: ["lantern_chandelier_01"], x: 0, z: zb + 2.0, y: -0.55, h: 0.88, label: "chandelier" },
     ];
     case "bedroom": return [
       { ids: ["GothicBed_01"], x: -1.3, z: zb + 1.3, h: 1.2, face: [-1.3, 5], label: "bed" },
       { ids: ["side_table_01"], x: -0.1, z: zb + 0.4, h: 0.55, label: "table" },
       { ids: ["vintage_oil_lamp"], x: -0.1, z: zb + 0.4, y: 0.55, h: 0.4, label: "lamp" },
       { ids: ["GothicCabinet_01"], x: xr - 0.8, z: zb + 0.7, h: 2.2, face: [xr - 0.8, 0], label: "wardrobe" },
-      { ids: ["painted_wooden_chair_02", "painted_wooden_chair_01"], x: xr - 1.4, z: 0.8, h: 0.95, face: [0, 0.4], label: "chair" },
+      P("chair", xr - 1.4, 0.8, "chair", { face: [0, 0.4] }),
       { ids: ["treasure_chest"], x: -1.3, z: zb + 3.0, h: 0.5, face: [-1.3, 0], label: "chest" },
     ];
     case "ship": return [
-      { ids: ["wooden_table_02"], x: 0.3, z: zb + 1.2, h: 0.78, label: "table" },
-      { ids: ["wooden_stool_01"], x: -0.5, z: zb + 1.2, h: 0.44, label: "stool" }, { ids: ["wooden_stool_01"], x: 1.1, z: zb + 1.2, h: 0.44, label: "stool" },
-      { ids: ["wooden_lantern_01"], x: 0.3, z: zb + 1.2, y: 0.78, h: 0.32, label: "lantern" },
+      P("table", 0.3, zb + 1.2, "table", { len: 1.1, wid: 0.7 }),
+      P("stool", -0.5, zb + 1.2, "stool", { h: 0.44 }), P("stool", 1.1, zb + 1.2, "stool", { h: 0.44 }),
+      { ids: ["wooden_lantern_01"], x: 0.3, z: zb + 1.2, y: 0.76, h: 0.32, label: "lantern" },
       { ids: ["treasure_chest"], x: xl + 0.7, z: zb + 0.8, h: 0.55, face: [0, 0], label: "chest" },
       { ids: ["wine_barrel_01"], x: xr - 0.6, z: zb + 0.6, h: 0.85, label: "barrel" },
       { ids: ["wooden_crate_02"], x: xr - 0.7, z: zb + 1.5, h: 0.45, face: [0, 0], label: "crate" },
@@ -382,19 +388,39 @@ function layoutFor(style: string, w: number, d: number): Slot[] {
       { ids: ["wine_bottles_01"], x: -2.2, z: zb + 0.7, y: 0.9, h: 0.33, label: "bottles" },
     ];
     case "church": return [
-      ...[-3.5, -1.5, 0.5, 2.5].flatMap((z, i) => [-2.6, 2.6].map((x) => ({ ids: ["painted_wooden_bench"], x, z, h: 0.9, face: [x, zb] as [number, number], label: `pew${i}` }))),
-      { ids: TABLE, x: 0, z: zb + 1.2, h: 1.0, label: "altar" },
+      ...[-3.5, -1.5, 0.5, 2.5].flatMap((z, i) => [-2.6, 2.6].map((x) => P("bench", x, z, `pew${i}`, { len: 2.4, h: 0.9, rot: Math.PI / 2 }))),
+      P("table", 0, zb + 1.2, "altar", { len: 1.8, wid: 0.8, h: 1.0 }),
       { ids: ["wooden_candlestick"], x: -0.6, z: zb + 1.2, y: 1.0, h: 0.4, label: "candle" }, { ids: ["wooden_candlestick"], x: 0.6, z: zb + 1.2, y: 1.0, h: 0.4, label: "candle" },
     ];
     case "future": return [];
     default: return [ // any other room: a table and chairs, somewhere to sit, a shelf and a lamp
-      { ids: TABLE, x: 0.8, z: zb + 1.5, h: 0.78, label: "table" }, ...around(0.8, zb + 1.5, 2, 1, 1.2, 0.95),
-      { ids: ["vintage_oil_lamp"], x: 0.8, z: zb + 1.5, y: 0.78, h: 0.42, label: "lamp" },
+      ...setTable(0.8, zb + 1.5, 1.7, 0.85, { benches: false, ends: 0 }),
+      { ids: ["vintage_oil_lamp"], x: 0.8, z: zb + 1.5, y: 0.76, h: 0.42, label: "lamp" },
       { ids: ["painted_wooden_cabinet"], x: xl + 0.8, z: zb + 0.4, h: 1.7, face: [xl + 0.8, 0], label: "cabinet" },
       { ids: ["wooden_bookshelf_worn"], x: xr - 1.0, z: zb + 0.4, h: 2.0, face: [xr - 1.0, 0], label: "bookshelf" },
       { ids: ["sofa_02"], x: xr - 0.7, z: 1.0, h: 0.75, face: [0, 1.0], label: "sofa" },
     ];
   }
+}
+
+/** The furniture of a room, by the kind of room it is: models from the library at real sizes, and plain wooden pieces built from boards. */
+export function furnishRoom(room: RoomR | null, files: Map<string, string> = new Map()): any[] {
+  const out: any[] = [];
+  for (const sl of layoutFor(room?.style && room.style !== "custom" ? room.style : "room", room?.w ?? 8, room?.d ?? 6)) {
+    if (sl.proc) {
+      const rotP = sl.face ? Math.atan2(sl.face[0] - sl.x, sl.face[1] - sl.z) : (sl.rot ?? 0);
+      const { kind: fk, len, wid, h } = sl.proc;
+      out.push({ id: `proc:fx-${fk}`, file: "", pos: [sl.x, sl.y ?? 0, sl.z], rotY: rotP, scale: 1, label: sl.label, parts: furniture(fk, len, wid, h) });
+      continue;
+    }
+    const m = sl.ids.map((id) => MODELS.find((x) => x.id === id)).find((x) => x);
+    if (!m) continue;
+    const sc = sl.h ? sl.h / height(m) : 1;
+    const rotY = sl.face ? Math.atan2(sl.face[0] - sl.x, sl.face[1] - sl.z) + FRONT : (sl.rot ?? 0);
+    const dy = sl.label === "chandelier" ? (room?.h ?? 2.7) + sl.y! : (sl.y ?? 0);
+    out.push({ id: m.id, file: files.get(m.id) ?? mainFile(m.id), pos: [sl.x, dy, sl.z], rotY, scale: sc, label: sl.label });
+  }
+  return out;
 }
 
 export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number; size?: [number, number]; pkg?: PackageAsset[]; shots?: { shot: Shot; p0: number; p1: number }[]; stage?: { cue: Cue; p0: number; p1: number }[]; acting?: { act: Act; p0: number; p1: number }[]; style?: string; place?: "interior" | "exterior"; roomStyle?: string; roomSpec?: RoomR; seconds?: number; extra?: { kind: "prop" | "set"; what: string }[]; procs?: Record<string, import("./props").Part[]> } = {}): Resolved {
@@ -521,14 +547,7 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
     if (stump && r() > 0.4) place(stump, -2.4 + r(), 1.4 + r(), 0.6, "stump");
   } else {
     // furnished for the kind of room it is
-    for (const sl of layoutFor(room?.style && room.style !== "custom" ? room.style : "room", room?.w ?? 8, room?.d ?? 6)) {
-      const m = sl.ids.map((id) => MODELS.find((x) => x.id === id)).find((x) => x);
-      if (!m) continue;
-      const sc = sl.h ? sl.h / height(m) : 1;
-      const rotY = sl.face ? Math.atan2(sl.face[0] - sl.x, sl.face[1] - sl.z) + FRONT : (sl.rot ?? 0);
-      const dy = sl.label === "chandelier" ? (room?.h ?? 2.7) + sl.y! : (sl.y ?? 0);
-      assets.push({ id: m.id, file: pkg.files.get(m.id) ?? mainFile(m.id), pos: [sl.x, dy, sl.z], rotY, scale: sc, label: sl.label });
-    }
+    assets.push(...furnishRoom(room, pkg.files));
   }
   // anything named that we couldn't place (and isn't part of the hero) is reported, not invented
   const heroish = /machine|lever|quartz|dial|saddle|traveller|rod/;
@@ -829,7 +848,7 @@ export function assetsNeeded(r: Resolved): { kind: string; id: string; res: stri
 }
 
 /** Bump when runtime/scene.tsx changes in a way that alters frames, so cached renders are redone. */
-export const RUNTIME_VERSION = "rt85";
+export const RUNTIME_VERSION = "rt86";
 
 /** Cache key: changes whenever the resolved plan or the runtime does. */
 export function sceneKey(r: Resolved): string {

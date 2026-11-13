@@ -144,6 +144,14 @@ def compact(js, blob):
         if "inverseBindMatrices" in sk: sk["inverseBindMatrices"] = amap[sk["inverseBindMatrices"]]
     for an in js.get("animations", []):
         for sm in an["samplers"]: sm["input"], sm["output"] = amap[sm["input"]], amap[sm["output"]]
+    for im in js.get("images", []):  # embedded pictures live in buffer views too
+        if "bufferView" in im:
+            bv = js["bufferViews"][im["bufferView"]]
+            data = bytes(blob[bv.get("byteOffset", 0):bv.get("byteOffset", 0) + bv["byteLength"]])
+            while len(out) % 4: out.append(0)
+            nbv.append({"buffer": 0, "byteOffset": len(out), "byteLength": len(data)})
+            out += data
+            im["bufferView"] = len(nbv) - 1
     js["accessors"], js["bufferViews"] = nacc, nbv
     return out
 
@@ -198,7 +206,11 @@ def dress(name):
         reg[hair] = 1
         if name == "man":
             # a beard region (jaw, chin, upper lip), painted in the skin's colour unless the character has one (scene.tsx: look.beard)
-            reg[head & ~hair & (y < eyes[1] - 0.05) & (y > neck_y + 0.03) & (z > 0.03)] = 7
+            front = head & ~hair & (z > 0.0)
+            jaw = (y < eyes[1] - 0.078) & (y > neck_y + 0.03) & (z > 0.03)                    # under the lip: chin and jaw
+            stache = (y < eyes[1] - 0.056) & (y >= eyes[1] - 0.078) & (ax < 0.047) & (z > 0.05)  # a band over the mouth
+            burns = (ax > 0.064) & (ax < 0.092) & (y < eyes[1] - 0.02) & (y > eyes[1] - 0.1)       # sideburns down to the jaw
+            reg[front & (jaw | stache | burns)] = 7
         return reg
 
     pos, nrm, uv, jt, wt, idx = refine(pos, nrm, uv, jt, wt, idx, classify, passes=int(os.environ.get("PASSES", "3")))
