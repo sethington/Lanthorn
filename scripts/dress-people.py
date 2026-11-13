@@ -206,11 +206,9 @@ def dress(name):
         reg[hair] = 1
         if name == "man":
             # a beard region (jaw, chin, upper lip), painted in the skin's colour unless the character has one (scene.tsx: look.beard)
-            front = head & ~hair & (z > 0.0)
-            jaw = (y < eyes[1] - 0.078) & (y > neck_y + 0.03) & (z > 0.03)                    # under the lip: chin and jaw
-            stache = (y < eyes[1] - 0.056) & (y >= eyes[1] - 0.078) & (ax < 0.047) & (z > 0.05)  # a band over the mouth
-            burns = (ax > 0.064) & (ax < 0.092) & (y < eyes[1] - 0.02) & (y > eyes[1] - 0.1)       # sideburns down to the jaw
-            reg[front & (jaw | stache | burns)] = 7
+            # one continuous beard: from under the nose down over the chin and jaw, higher in the middle (the moustache) and lower at the cheeks
+            front = head & ~hair & (z > 0.03) & (y > neck_y + 0.03)
+            reg[front & (y < eyes[1] - 0.056 - 0.03 * np.clip(ax / 0.09, 0, 1))] = 7
         return reg
 
     pos, nrm, uv, jt, wt, idx = refine(pos, nrm, uv, jt, wt, idx, classify, passes=int(os.environ.get("PASSES", "3")))
