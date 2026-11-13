@@ -1,0 +1,233 @@
+{
+ "bat": {
+  "yaw": 0,
+  "len": 0.35,
+  "scale": 0.0812,
+  "height": 0.331,
+  "idle": null,
+  "walk": null,
+  "run": null,
+  "jump": null,
+  "any": "BatArmature|BatArmature|Bat_Attack"
+ },
+ "bird": {
+  "yaw": 0,
+  "len": 0.3,
+  "scale": 0.0491,
+  "height": 0.128,
+  "idle": null,
+  "walk": null,
+  "run": null,
+  "jump": null,
+  "any": "ArmatureAction"
+ },
+ "cat": {
+  "yaw": 1.5708,
+  "len": 0.5,
+  "scale": 0.088,
+  "height": 0.39,
+  "idle": "CatArmature|CatArmature|Idle",
+  "walk": "CatArmature|CatArmature|Walking",
+  "run": "CatArmature|CatArmature|Walking",
+  "jump": null,
+  "any": "CatArmature|CatArmature|Idle"
+ },
+ "chick": {
+  "yaw": -1.5708,
+  "len": 0.14,
+  "scale": 0.033,
+  "height": 0.157,
+  "idle": null,
+  "walk": null,
+  "run": null,
+  "jump": null,
+  "any": "ArmatureAction.002"
+ },
+ "cow": {
+  "yaw": 0,
+  "len": 2.3,
+  "scale": 0.2508,
+  "height": 1.292,
+  "idle": "Armature|Armature|Idle",
+  "walk": "Armature|Armature|Walk",
+  "run": "Armature|Armature|Run",
+  "jump": "Armature|Armature|Jump",
+  "any": "Armature|Armature|Death"
+ },
+ "dog": {
+  "yaw": -1.5708,
+  "len": 0.9,
+  "scale": 0.1302,
+  "height": 0.57,
+  "idle": "DogArmature|DogArmature|Idle",
+  "walk": "DogArmature|DogArmature|Walking",
+  "run": "DogArmature|DogArmature|Walking",
+  "jump": null,
+  "any": "DogArmature|DogArmature|Idle"
+ },
+ "dragon": {
+  "yaw": 0,
+  "len": 3.2,
+  "scale": 0.8625,
+  "height": 3.321,
+  "idle": null,
+  "walk": null,
+  "run": null,
+  "jump": null,
+  "any": "DragonArmature|DragonArmature|Dragon_Attack"
+ },
+ "eagle": {
+  "yaw": 1.5708,
+  "len": 0.9,
+  "scale": 0.0722,
+  "height": 0.106,
+  "idle": "EagleArmature|EagleArmature|Idle",
+  "walk": "EagleArmature|EagleArmature|Flying",
+  "run": null,
+  "jump": null,
+  "any": "EagleArmature|EagleArmature|Flying"
+ },
+ "fish": {
+  "yaw": 0,
+  "len": 0.35,
+  "scale": 0.0646,
+  "height": 0.131,
+  "idle": null,
+  "walk": null,
+  "run": null,
+  "jump": null,
+  "any": "ArmatureAction"
+ },
+ "horse": {
+  "yaw": 0,
+  "len": 2.4,
+  "scale": 0.2597,
+  "height": 1.795,
+  "idle": "Armature|Armature|Idle",
+  "walk": "Armature|Armature|Walk",
+  "run": "Armature|Armature|Run",
+  "jump": "Armature|Armature|Jump",
+  "any": "Armature|Armature|Death"
+ },
+ "llama": {
+  "yaw": 0,
+  "len": 1.7,
+  "scale": 0.3462,
+  "height": 2.025,
+  "idle": "Armature|Armature|Idle",
+  "walk": null,
+  "run": null,
+  "jump": "Armature|Armature|Jump",
+  "any": "Armature|Armature|Idle"
+ },
+ "pig": {
+  "yaw": 0,
+  "len": 1.3,
+  "scale": 0.1329,
+  "height": 0.61,
+  "idle": "Armature|Armature|Idle",
+  "walk": null,
+  "run": null,
+  "jump": "Armature|Armature|Jump",
+  "any": "Armature|Armature|Idle"
+ },
+ "piranha": {
+  "yaw": 3.1416,
+  "len": 0.3,
+  "scale": 0.0336,
+  "height": 0.169,
+  "idle": null,
+  "walk": "PiranhaArmature|PiranhaArmature|Swimming",
+  "run": null,
+  "jump": null,
+  "any": "PiranhaArmature|PiranhaArmature|Bite"
+ },
+ "pug": {
+  "yaw": 0,
+  "len": 0.5,
+  "scale": 0.1425,
+  "height": 0.379,
+  "idle": "Armature|Armature|Idle",
+  "walk": null,
+  "run": null,
+  "jump": "Armature|Armature|Jump",
+  "any": "Armature|Armature|Idle"
+ },
+ "red-fox": {
+  "yaw": 3.1416,
+  "len": 0.85,
+  "scale": 0.1616,
+  "height": 0.373,
+  "idle": null,
+  "walk": null,
+  "run": null,
+  "jump": null,
+  "any": "ArmatureAction"
+ },
+ "sheep": {
+  "yaw": 0,
+  "len": 1.2,
+  "scale": 0.2027,
+  "height": 0.884,
+  "idle": "Armature|Armature|Idle",
+  "walk": null,
+  "run": null,
+  "jump": "Armature|Armature|Jump",
+  "any": "Armature|Armature|Idle"
+ },
+ "skeleton": {
+  "yaw": 0,
+  "len": 1.8,
+  "scale": 0.3536,
+  "height": 1.8,
+  "idle": "SkeletonArmature|SkeletonArmature|Skeleton_Idle",
+  "walk": "SkeletonArmature|SkeletonArmature|Skeleton_Running",
+  "run": "SkeletonArmature|SkeletonArmature|Skeleton_Running",
+  "jump": null,
+  "any": "SkeletonArmature|SkeletonArmature|Skeleton_Attack"
+ },
+ "slime": {
+  "yaw": 0,
+  "len": 0.7,
+  "scale": 0.2288,
+  "height": 0.446,
+  "idle": "Armature|Armature|Slime_Idle",
+  "walk": "Armature|Armature|Slime_Walk",
+  "run": "Armature|Armature|Slime_Walk",
+  "jump": null,
+  "any": "Armature|Armature|Slime_Attack"
+ },
+ "whale": {
+  "yaw": 0,
+  "len": 5.0,
+  "scale": 0.5376,
+  "height": 1.581,
+  "idle": null,
+  "walk": null,
+  "run": null,
+  "jump": null,
+  "any": "ArmatureAction"
+ },
+ "wolf": {
+  "yaw": -1.5708,
+  "len": 1.3,
+  "scale": 0.1303,
+  "height": 0.69,
+  "idle": "WolfArmature|WolfArmature|Idle",
+  "walk": "WolfArmature|WolfArmature|Walking",
+  "run": "WolfArmature|WolfArmature|Walking",
+  "jump": null,
+  "any": "WolfArmature|WolfArmature|Idle"
+ },
+ "zebra": {
+  "yaw": 0,
+  "len": 2.3,
+  "scale": 0.2489,
+  "height": 1.76,
+  "idle": "Armature|Armature|Idle",
+  "walk": "Armature|Armature|Walk",
+  "run": "Armature|Armature|Run",
+  "jump": "Armature|Armature|Jump",
+  "any": "Armature|Armature|Death"
+ }
+}

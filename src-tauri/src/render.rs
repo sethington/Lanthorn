@@ -36,6 +36,12 @@ macro_rules! person {
 }
 const PEOPLE: &[(&str, [(&str, &[u8]); 5])] = person!("man", "woman", "kid");
 
+/// The animals and creatures (CC0 low-poly packs by Quaternius, converted to glTF): written as media/creatures/<name>.glb.
+macro_rules! beasts {
+    ($($n:literal),*) => { &[$(($n, include_bytes!(concat!("../../runtime/creatures/", $n, ".glb")) as &[u8])),*] };
+}
+const CREATURES: &[(&str, &[u8])] = beasts!("bat", "bird", "cat", "chick", "cow", "dog", "dragon", "eagle", "fish", "horse", "llama", "pig", "piranha", "pug", "red-fox", "sheep", "skeleton", "slime", "whale", "wolf", "zebra");
+
 /// Release builds ship the embedded runtime. Debug builds read it from disk so editing runtime/scene.tsx
 /// takes effect on the next render without a Rust rebuild (tauri dev only watches src-tauri).
 fn runtime_src() -> String {
@@ -300,6 +306,16 @@ pub async fn world_bundle(app: &AppHandle, key: &str, resolved: &str, assets: Ve
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
         for (n, bytes) in MOON {
             let f = dir.join(format!("moon_{n}.png"));
+            if std::fs::metadata(&f).map(|m| m.len() as usize != bytes.len()).unwrap_or(true) {
+                std::fs::write(&f, bytes).map_err(|e| e.to_string())?;
+            }
+        }
+    }
+    {
+        let dir = asset_root.join("creatures");
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        for (n, bytes) in CREATURES {
+            let f = dir.join(format!("{n}.glb"));
             if std::fs::metadata(&f).map(|m| m.len() as usize != bytes.len()).unwrap_or(true) {
                 std::fs::write(&f, bytes).map_err(|e| e.to_string())?;
             }

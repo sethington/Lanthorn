@@ -3,6 +3,7 @@
 // Poly Haven dims are Blender axes in metres: [x, y, depth, height = dims[2]].
 
 import catalog from "../catalog/polyhaven.json" with { type: "json" };
+import beasts from "../catalog/creatures.json" with { type: "json" };
 import type { PackageAsset } from "./book";
 import type { Act, Bible, Cue, Scene, Shot } from "./scene";
 import { furniture, type FurnKind } from "./furniture";
@@ -17,7 +18,7 @@ const TEXTURES = (catalog as any).textures as Tagged[];
 
 export type Placed = { id: string; file: string; pos: [number, number, number]; rotY: number; scale: number; label: string; parts?: import("./props").Part[] };
 type SkyRef = { id: string; file: string };
-export type Creature = { species: string; cls: "quad" | "bird"; size: number; body: string; belly: string; dark: string; ears: "long" | "round" | "point" | "floppy" | "none"; tail: "puff" | "long" | "bushy" | "short" | "none"; snout: "short" | "long" | "beak" | "flat"; dress?: string; legs: number };
+export type Creature = { /** a real low-poly model of it (src/catalog/creatures.json), else it is built from the book's words */ model?: string; species: string; cls: "quad" | "bird"; size: number; body: string; belly: string; dark: string; ears: "long" | "round" | "point" | "floppy" | "none"; tail: "puff" | "long" | "bushy" | "short" | "none"; snout: "short" | "long" | "beak" | "flat"; dress?: string; legs: number };
 export type Fig = {
   ref: string;
   kind: "man" | "woman" | "eloi" | "generic" | "creature";
@@ -198,6 +199,17 @@ const SPECIES: [RegExp, Omit<Creature, "body" | "belly" | "dark" | "dress">, str
   [/\b(horse|horses|pony|mare|stallion|colt|steed|mule|donkey|ass)\b/, { species: "horse", cls: "quad", size: 1.65, ears: "point", tail: "long", snout: "long", legs: 4 }, "#6a4a30"],
   [/\b(deer|stag|doe|fawn|elk|reindeer)\b/, { species: "deer", cls: "quad", size: 1.2, ears: "point", tail: "short", snout: "long", legs: 4 }, "#9a6a40"],
   [/\b(lion|lioness|tiger|leopard|panther)\b/, { species: "lion", cls: "quad", size: 1.1, ears: "round", tail: "long", snout: "short", legs: 4 }, "#c49a4a"],
+  [/\b(whale|whales|dolphin|porpoise|leviathan)\b/, { species: "whale", cls: "quad", size: 1.5, ears: "none", tail: "short", snout: "short", legs: 4 }, "#8a96a6"],
+  [/\b(fish|fishes|salmon|trout|pike|carp|minnow|goldfish)\b/, { species: "fish", cls: "quad", size: 0.3, ears: "none", tail: "short", snout: "short", legs: 4 }, "#7a9ab0"],
+  [/\b(piranha|piranhas|shark|sharks)\b/, { species: "piranha", cls: "quad", size: 0.4, ears: "none", tail: "short", snout: "short", legs: 4 }, "#6a7a8a"],
+  [/\b(dragon|dragons|wyrm|drake)\b/, { species: "dragon", cls: "quad", size: 2.2, ears: "point", tail: "long", snout: "long", legs: 4 }, "#6a8a4a"],
+  [/\b(bat|bats)\b/, { species: "bat", cls: "bird", size: 0.3, ears: "point", tail: "short", snout: "short", legs: 2 }, "#3a3238"],
+  [/\b(eagle|eagles|hawk|hawks|falcon|vulture|condor|albatross)\b/, { species: "eagle", cls: "bird", size: 0.7, ears: "none", tail: "short", snout: "beak", legs: 2 }, "#6a5a48"],
+  [/\b(zebra|zebras)\b/, { species: "zebra", cls: "quad", size: 1.7, ears: "point", tail: "long", snout: "long", legs: 4 }, "#e8e8e8"],
+  [/\b(llama|llamas|alpaca|alpacas|camel|camels|dromedary)\b/, { species: "llama", cls: "quad", size: 1.7, ears: "point", tail: "short", snout: "long", legs: 4 }, "#b8956a"],
+  [/\b(pug|pugs)\b/, { species: "pug", cls: "quad", size: 0.4, ears: "floppy", tail: "short", snout: "flat", legs: 4 }, "#d8c090"],
+  [/\b(skeleton|skeletons)\b/, { species: "skeleton", cls: "quad", size: 1.8, ears: "none", tail: "none", snout: "short", legs: 2 }, "#e8e4d0"],
+  [/\b(slime|slimes|blob|jelly|ooze)\b/, { species: "slime", cls: "quad", size: 0.5, ears: "none", tail: "none", snout: "short", legs: 4 }, "#5ac85a"],
   [/\b(badger|badgers)\b/, { species: "badger", cls: "quad", size: 0.65, ears: "round", tail: "short", snout: "long", legs: 4 }, "#6a6a6e"],
   [/\b(mole|moles)\b/, { species: "mole", cls: "quad", size: 0.3, ears: "none", tail: "short", snout: "long", legs: 4 }, "#3a3430"],
   [/\b(otter|otters|weasel|weasels|stoat|stoats|ferret|ferrets|polecat)\b/, { species: "otter", cls: "quad", size: 0.5, ears: "round", tail: "long", snout: "short", legs: 4 }, "#6a4a30"],
@@ -209,6 +221,10 @@ const SPECIES: [RegExp, Omit<Creature, "body" | "belly" | "dark" | "dress">, str
   [/\b(duck|ducks|duckling|goose|geese|gosling|swan|hen|hens|chicken|chick|rooster|cock|turkey)\b/, { species: "duck", cls: "bird", size: 0.4, ears: "none", tail: "short", snout: "beak", legs: 2 }, "#e8e0c0"],
   [/\b(bird|birds|robin|sparrow|crow|raven|owl|eagle|hawk|dove|pigeon|parrot|nightingale|lark|swallow|finch|wren|magpie|gull|seagull|albatross)\b/, { species: "bird", cls: "bird", size: 0.25, ears: "none", tail: "long", snout: "beak", legs: 2 }, "#7a6a58"],
 ];
+/** which real model stands for which species (the rest are built from the book's words) */
+const MODEL_OF: Record<string, string> = { cow: "cow", horse: "horse", pig: "pig", sheep: "sheep", dog: "dog", pug: "pug", cat: "cat", wolf: "wolf", fox: "red-fox", whale: "whale", fish: "fish", piranha: "piranha", dragon: "dragon", bat: "bat", eagle: "eagle", zebra: "zebra", llama: "llama", skeleton: "skeleton", slime: "slime" };
+/** a smaller or larger one of the same model (a pony, a lamb, a calf) */
+const SIZE_OF = (t: string) => (/\b(pony|foal|colt|donkey|mule|ass)\b/.test(t) ? 0.72 : /\b(lamb|lambs|calf|piglet|puppy|pup|kitten|cub)\b/.test(t) ? 0.6 : /\b(huge|giant|great|enormous|vast)\b/.test(t) ? 1.4 : /\b(little|small|tiny|young|baby)\b/.test(t) ? 0.75 : 1);
 const NOT_ANIMAL = /\b(man|woman|boy|girl|mr|mrs|miss|king|queen|lord|lady|sir|captain|doctor|professor|child|children)\b/;
 /** An animal character (from its id and the book's description of it), or null when it is a person. Species gives the build; the words give the colours and clothes. */
 export function creatureLook(ref: string, desc: string, rnd: () => number): Creature | null {
@@ -224,7 +240,8 @@ export function creatureLook(ref: string, desc: string, rnd: () => number): Crea
   const dress = word(/\b(jacket|coat|dress|apron|waistcoat|cloak|shawl|bonnet|vest|frock|shirt|scarf)\b/);
   const wears = /\b(jacket|dress|apron|waistcoat|cloak|shawl|bonnet|vest|frock|shirt|scarf|clothes)\b/.test(t);
   const size = hit[1].size * (/\b(little|small|tiny|young|baby|cub|kitten|puppy|chick|lamb|calf|foal)\b/.test(t) ? 0.8 : /\b(big|large|huge|great|giant|old)\b/.test(t) ? 1.15 : 1);
-  return { ...hit[1], size, body, belly: light ? "#f2eee4" : mixHexC(body, "#f2eee4", 0.55), dark: mixHexC(body, "#1a1612", 0.55), dress: wears ? dress ?? ["#3f5f9a", "#9a3f45", "#4a7a58", "#b08a3a"][Math.floor(rnd() * 4)] : undefined };
+  const model = MODEL_OF[hit[1].species] && (beasts as any)[MODEL_OF[hit[1].species]] ? MODEL_OF[hit[1].species] : undefined;
+  return { ...hit[1], ...(model ? { model, size: size * SIZE_OF(t) } : {}), size: model ? size * SIZE_OF(t) : size, body, belly: light ? "#f2eee4" : mixHexC(body, "#f2eee4", 0.55), dark: mixHexC(body, "#1a1612", 0.55), dress: wears ? dress ?? ["#3f5f9a", "#9a3f45", "#4a7a58", "#b08a3a"][Math.floor(rnd() * 4)] : undefined };
 }
 
 /** A living thing no species word names (a dragon, an angel, a ghost): a plain four-legged build in the colours the words give, until the model has drawn it. */
@@ -590,8 +607,9 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
     const nonPerson = chr?.kind ? chr.kind !== "person" : !!creatureLook(sj.ref, cdesc, rng(hash(`${sj.ref}:look`)));
     if (nonPerson) {
       const cr = creatureLook(sj.ref, cdesc, rng(hash(`${sj.ref}:look`))) ?? genericCreature(`${sj.ref} ${cdesc}`);
-      const rig = opts.rigs?.[sj.ref] ?? rigFor({ ...cr, ears: cr.ears, species: cr.species });
-      figures.push({ ref: sj.ref, kind: "creature", creature: cr, rig, pose: pose === "seated" || pose === "crouch" ? "standing" : pose, x: sx, z: 0.3, yaw: walk ? Math.PI / 2 : 0, onMachine: false, walk, scale: Math.max(0.3, Math.min(1.6, rig.height * 0.6)) });
+      const bm = cr.model ? (beasts as any)[cr.model] : null;
+      const rig = bm ? ({ parts: [], gait: "walk", height: bm.height * SIZE_OF(`${sj.ref} ${cdesc}`.toLowerCase()) } as Rig) : opts.rigs?.[sj.ref] ?? rigFor({ ...cr, ears: cr.ears, species: cr.species });
+      figures.push({ ref: sj.ref, kind: "creature", creature: bm ? { ...cr, ...({ modelInfo: { name: cr.model, file: `creatures/${cr.model}.glb`, scale: bm.scale * SIZE_OF(`${sj.ref} ${cdesc}`.toLowerCase()), yaw: bm.yaw, idle: bm.idle ?? bm.any, walk: bm.walk ?? bm.idle ?? bm.any, jump: bm.jump } } as any) } : cr, rig, pose: pose === "seated" || pose === "crouch" ? "standing" : pose, x: sx, z: 0.3, yaw: walk ? Math.PI / 2 : 0, onMachine: false, walk, scale: Math.max(0.3, Math.min(1.6, rig.height * 0.6)) });
       continue;
     }
     const pl = personLook(sj.ref, bible.characters.find((c) => c.id === sj.ref)?.desc ?? "", rng(hash(`${sj.ref}:look`)));
@@ -870,7 +888,7 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
     const push = sh.move === "push" ? [1.14, 0.9] : sh.move === "pull" ? [0.88, 1.12] : [1, 1];
     const sweep = sh.move === "orbit" ? 0.5 : sh.move === "drift" ? 0.18 : 0.02;
     const place2 = (a: number, d: number): [number, number, number] => {
-      const e = Math.asin(Math.max(-0.9, Math.min(0.9, (camY - tgt[1]) / d)));
+      const e = Math.min(0.62, Math.asin(Math.max(-0.9, Math.min(0.9, (camY - tgt[1]) / d)))); // (never straight down on someone: at most about 35 degrees above)
       let p: [number, number, number] = [tgt[0] + Math.sin(a) * Math.cos(e) * d, tgt[1] + Math.sin(e) * d, tgt[2] + Math.cos(a) * Math.cos(e) * d];
       if (room) p = [Math.max(-room.w / 2 + 0.4, Math.min(room.w / 2 - 0.4, p[0])), Math.max(0.35, Math.min(room.h - 0.35, p[1])), Math.max(-room.d / 2 + 0.4, Math.min(room.d / 2 - 0.4, p[2]))];
       // a lens inside someone's shoulder shows the top of a head: back it off anyone it isn't looking at
@@ -1008,7 +1026,7 @@ export function assetsNeeded(r: Resolved): { kind: string; id: string; res: stri
 }
 
 /** Bump when runtime/scene.tsx changes in a way that alters frames, so cached renders are redone. */
-export const RUNTIME_VERSION = "rt101";
+export const RUNTIME_VERSION = "rt103";
 
 /** Cache key: changes whenever the resolved plan or the runtime does. */
 export function sceneKey(r: Resolved): string {
