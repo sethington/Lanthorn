@@ -86,7 +86,7 @@ async function remove(b: BookMeta) {
         <strong>Drop a book here</strong>
         <span>.lanthorn package, EPUB, text, Markdown or a saved web page</span>
         <button :disabled="!!busy" @click="picker?.click()">Choose a file…</button>
-        <input ref="picker" type="file" accept=".lanthorn,.epub,.txt,.md,.markdown,.html,.htm,.xhtml,text/plain" hidden @change="fromFiles(($event.target as HTMLInputElement).files)" />
+        <input ref="picker" type="file" accept=".lanthorn,.epub,.pdf,.txt,.md,.markdown,.html,.htm,.xhtml,text/plain" hidden @change="fromFiles(($event.target as HTMLInputElement).files)" />
       </div>
       <div class="link">
         <strong>Or paste a link</strong>

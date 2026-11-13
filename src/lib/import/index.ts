@@ -3,6 +3,7 @@ import { importEpub } from "./epub";
 import { importLanthorn } from "./lanthorn";
 import { importHtml } from "./html";
 import { importText } from "./text";
+import { importPdf } from "./pdf";
 
 /** Import a file the user picked or dropped. Everything is parsed here, in the webview, into plain text. */
 export async function importFile(file: File): Promise<Book> {
@@ -13,10 +14,11 @@ export async function importFile(file: File): Promise<Book> {
   if (ext === "epub") return importEpub(new Uint8Array(await file.arrayBuffer()), name);
   if (ext === "html" || ext === "htm" || ext === "xhtml") return importHtml(await file.text(), name, "html");
   if (ext === "md" || ext === "markdown") return importText(await file.text(), name, "markdown");
-  if (ext === "pdf" || ext === "docx" || ext === "mobi" || ext === "azw3" || ext === "azw") {
+  if (ext === "pdf") return importPdf(new Uint8Array(await file.arrayBuffer()), name);
+  if (ext === "docx" || ext === "mobi" || ext === "azw3" || ext === "azw") {
     throw new Error(`.${ext} files aren't supported yet. EPUB, text, Markdown and HTML work, and a web page can be pasted as a link.`);
   }
   return importText(await file.text(), name, "text");
 }
 
-export { importEpub, importHtml, importLanthorn, importText };
+export { importEpub, importHtml, importLanthorn, importPdf, importText };

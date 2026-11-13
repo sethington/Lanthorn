@@ -22,7 +22,7 @@ export type Book = {
   id: string;
   title: string;
   author: string;
-  source: { kind: "epub" | "text" | "markdown" | "html" | "url" | "lanthorn"; ref: string };
+  source: { kind: "epub" | "text" | "markdown" | "html" | "url" | "lanthorn" | "pdf"; ref: string };
   package?: PackageInfo;
   chapters: Chapter[];
   imported: number;
