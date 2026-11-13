@@ -14,9 +14,12 @@ const HDRIS = catalog.hdris as Tagged[];
 
 export type Placed = { id: string; file: string; pos: [number, number, number]; rotY: number; scale: number; label: string; parts?: import("./props").Part[] };
 type SkyRef = { id: string; file: string };
+export type Creature = { species: string; cls: "quad" | "bird"; size: number; body: string; belly: string; dark: string; ears: "long" | "round" | "point" | "floppy" | "none"; tail: "puff" | "long" | "bushy" | "short" | "none"; snout: "short" | "long" | "beak" | "flat"; dress?: string; legs: number };
 export type Fig = {
   ref: string;
-  kind: "man" | "woman" | "eloi" | "generic";
+  kind: "man" | "woman" | "eloi" | "generic" | "creature";
+  /** an animal, built from what the book says it is (species, colours, ears, tail, what it wears) */
+  creature?: Creature;
   pose: "seated" | "standing" | "walking" | "crouch";
   x: number;
   z: number;
@@ -171,6 +174,47 @@ const mixHexC = (a: string, b: string, k: number) => {
   const x = h(a), y = h(b);
   return `#${x.map((v, i) => Math.round(v * (1 - k) + y[i] * k).toString(16).padStart(2, "0")).join("")}`;
 };
+
+const SPECIES: [RegExp, Omit<Creature, "body" | "belly" | "dark" | "dress">, string][] = [
+  // [words, build, usual colour]
+  [/\b(rabbit|rabbits|bunny|bunnies|hare)\b/, { species: "rabbit", cls: "quad", size: 0.4, ears: "long", tail: "puff", snout: "short", legs: 4 }, "#8a6a4a"],
+  [/\b(cat|kitten|kitty|tabby)\b/, { species: "cat", cls: "quad", size: 0.45, ears: "point", tail: "long", snout: "short", legs: 4 }, "#7a6a5a"],
+  [/\b(dog|puppy|hound|pup|spaniel|terrier)\b/, { species: "dog", cls: "quad", size: 0.7, ears: "floppy", tail: "long", snout: "long", legs: 4 }, "#8a6a40"],
+  [/\b(fox|vixen)\b/, { species: "fox", cls: "quad", size: 0.6, ears: "point", tail: "bushy", snout: "long", legs: 4 }, "#b4592a"],
+  [/\b(wolf|wolves|jackal|coyote)\b/, { species: "wolf", cls: "quad", size: 0.95, ears: "point", tail: "bushy", snout: "long", legs: 4 }, "#6a6a70"],
+  [/\b(bear|bears|cub)\b/, { species: "bear", cls: "quad", size: 1.4, ears: "round", tail: "short", snout: "long", legs: 4 }, "#5a4130"],
+  [/\b(mouse|mice|rat|rats)\b/, { species: "mouse", cls: "quad", size: 0.16, ears: "round", tail: "long", snout: "long", legs: 4 }, "#8a8279"],
+  [/\b(squirrel|chipmunk)\b/, { species: "squirrel", cls: "quad", size: 0.3, ears: "point", tail: "bushy", snout: "short", legs: 4 }, "#8a5a38"],
+  [/\b(hedgehog)\b/, { species: "hedgehog", cls: "quad", size: 0.22, ears: "round", tail: "none", snout: "long", legs: 4 }, "#6a5a48"],
+  [/\b(pig|pigs|piglet|hog|sow|boar)\b/, { species: "pig", cls: "quad", size: 0.85, ears: "floppy", tail: "short", snout: "flat", legs: 4 }, "#e8b0a8"],
+  [/\b(sheep|lamb|lambs|ram|ewe)\b/, { species: "sheep", cls: "quad", size: 0.9, ears: "floppy", tail: "short", snout: "short", legs: 4 }, "#ece6d8"],
+  [/\b(goat|kid goat|billy)\b/, { species: "goat", cls: "quad", size: 0.85, ears: "point", tail: "short", snout: "short", legs: 4 }, "#cfc8b8"],
+  [/\b(cow|cows|calf|bull|ox|oxen)\b/, { species: "cow", cls: "quad", size: 1.5, ears: "point", tail: "long", snout: "flat", legs: 4 }, "#e8e0d0"],
+  [/\b(horse|horses|pony|mare|stallion|colt|steed|mule|donkey|ass)\b/, { species: "horse", cls: "quad", size: 1.65, ears: "point", tail: "long", snout: "long", legs: 4 }, "#6a4a30"],
+  [/\b(deer|stag|doe|fawn|elk|reindeer)\b/, { species: "deer", cls: "quad", size: 1.2, ears: "point", tail: "short", snout: "long", legs: 4 }, "#9a6a40"],
+  [/\b(lion|lioness|tiger|leopard|panther)\b/, { species: "lion", cls: "quad", size: 1.1, ears: "round", tail: "long", snout: "short", legs: 4 }, "#c49a4a"],
+  [/\b(frog|toad)\b/, { species: "frog", cls: "quad", size: 0.18, ears: "none", tail: "none", snout: "flat", legs: 4 }, "#5a8a3a"],
+  [/\b(duck|ducks|duckling|goose|geese|gosling|swan|hen|hens|chicken|chick|rooster|cock|turkey)\b/, { species: "duck", cls: "bird", size: 0.4, ears: "none", tail: "short", snout: "beak", legs: 2 }, "#e8e0c0"],
+  [/\b(bird|birds|robin|sparrow|crow|raven|owl|eagle|hawk|dove|pigeon|parrot|nightingale|lark|swallow|finch|wren|magpie|gull|seagull|albatross)\b/, { species: "bird", cls: "bird", size: 0.25, ears: "none", tail: "long", snout: "beak", legs: 2 }, "#7a6a58"],
+];
+const NOT_ANIMAL = /\b(man|woman|boy|girl|mr|mrs|miss|king|queen|lord|lady|sir|captain|doctor|professor|child|children)\b/;
+/** An animal character (from its id and the book's description of it), or null when it is a person. Species gives the build; the words give the colours and clothes. */
+export function creatureLook(ref: string, desc: string, rnd: () => number): Creature | null {
+  const t = `${ref.replace(/_/g, " ")} ${desc}`.toLowerCase();
+  const hit = SPECIES.find(([re]) => re.test(ref.replace(/_/g, " ").toLowerCase())) ?? SPECIES.find(([re]) => re.test(t));
+  if (!hit) return null;
+  // "a doctor's horse" is a person with a horse near: only an animal when the id itself is the animal, or the description starts with one
+  const idWords = ref.replace(/_/g, " ").toLowerCase();
+  if (!hit[0].test(idWords) && NOT_ANIMAL.test(idWords)) return null;
+  const word = (re: RegExp): string | null => { const m = re.exec(t); if (!m) return null; const near = t.slice(Math.max(0, m.index - 22), m.index + 22); for (const [c, hex] of COLOURS) if (c.test(near)) return hex; return null; };
+  const body = word(hit[0]) ?? word(/\b(fur|coat|feathers|plumage|wool|fleece|hide)\b/) ?? hit[2];
+  const light = /\b(white|cream)\b/.test(t) && !/\bwhite (?:tail|belly|chest|paws)\b/.test(t);
+  const dress = word(/\b(jacket|coat|dress|apron|waistcoat|cloak|shawl|bonnet|vest|frock|shirt|scarf)\b/);
+  const wears = /\b(jacket|dress|apron|waistcoat|cloak|shawl|bonnet|vest|frock|shirt|scarf|clothes)\b/.test(t);
+  const size = hit[1].size * (/\b(little|small|tiny|young|baby|cub|kitten|puppy|chick|lamb|calf|foal)\b/.test(t) ? 0.8 : /\b(big|large|huge|great|giant|old)\b/.test(t) ? 1.15 : 1);
+  return { ...hit[1], size, body, belly: light ? "#f2eee4" : mixHexC(body, "#f2eee4", 0.55), dark: mixHexC(body, "#1a1612", 0.55), dress: wears ? dress ?? ["#3f5f9a", "#9a3f45", "#4a7a58", "#b08a3a"][Math.floor(rnd() * 4)] : undefined };
+}
+
 /** Who this is, from the book's description of them: which body, how old, what they wear. Seeded by name so the same person always looks the same. */
 export function personLook(ref: string, desc: string, rnd: () => number): { body: "man" | "woman" | "kid"; look: NonNullable<Fig["look"]> } {
   const t = `${ref.replace(/_/g, " ")} ${desc}`.toLowerCase();
@@ -478,6 +522,12 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
       continue;
     }
     const walk = pose === "walking" ? ([sx - 2.4, -1.4, sx + 2.4, -1.4] as [number, number, number, number]) : null;
+    const cdesc = bible.characters.find((c) => c.id === sj.ref)?.desc ?? "";
+    const cr = creatureLook(sj.ref, cdesc, rng(hash(`${sj.ref}:look`)));
+    if (cr) {
+      figures.push({ ref: sj.ref, kind: "creature", creature: cr, pose: pose === "seated" || pose === "crouch" ? "standing" : pose, x: sx, z: 0.3, yaw: walk ? Math.PI / 2 : 0, onMachine: false, walk, scale: Math.max(0.3, cr.size * 0.9) });
+      continue;
+    }
     const pl = personLook(sj.ref, bible.characters.find((c) => c.id === sj.ref)?.desc ?? "", rng(hash(`${sj.ref}:look`)));
     figures.push({
       ref: sj.ref,
@@ -705,7 +755,9 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
     const fr0 = FRAMING[framing] ?? FRAMING.medium;
     const fr = framing === "extreme_close" ? { ...fr0, frame: 0.7 } : framing === "close" ? { ...fr0, frame: 1.05 } : fr0;
     const tgt = focusPoint(sh.focus, sh.framing);
-    const d0 = Math.min(kind === "interior" ? 5.2 : 45, fr.frame / (2 * Math.tan((fr.fov * Math.PI) / 360)));
+    // a scene of small animals is framed close; of big ones, back
+    const csc = figures.length && figures.every((g) => g.kind === "creature") ? Math.max(0.3, Math.min(1.5, figures.reduce((a, g) => a + g.scale, 0) / figures.length)) : 1;
+    const d0 = Math.min(kind === "interior" ? 5.2 : 45, (fr.frame * csc) / (2 * Math.tan((fr.fov * Math.PI) / 360)));
     // alternate the side the camera sits on, so a cut changes the view instead of repeating it
     const az = az0 + (i % 2 === 0 ? -0.3 : 0.55) + (sh.angle === "over_shoulder" ? 0.7 : 0);
     const camY = sh.angle === "low" ? Math.max(0.55, tgt[1] - Math.min(0.45, d0 * 0.17)) : sh.angle === "high" ? Math.max(2.4, tgt[1] + 1.4) : sh.angle === "over_shoulder" ? tgt[1] + 0.15 : Math.max(0.9, Math.min(1.7, tgt[1] + 0.1));
@@ -850,7 +902,7 @@ export function assetsNeeded(r: Resolved): { kind: string; id: string; res: stri
 }
 
 /** Bump when runtime/scene.tsx changes in a way that alters frames, so cached renders are redone. */
-export const RUNTIME_VERSION = "rt89";
+export const RUNTIME_VERSION = "rt90";
 
 /** Cache key: changes whenever the resolved plan or the runtime does. */
 export function sceneKey(r: Resolved): string {

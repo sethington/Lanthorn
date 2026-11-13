@@ -246,6 +246,117 @@ function crowdFigs(cam: V3, look: V3): any[] {
   return out;
 }
 const GESTS = new Set(["gesture", "wave", "point", "drink", "sing", "cheer", "slam", "clap", "shrug", "nod", "bow", "cover_face", "draw", "shake_fist", "beckon", "think", "laugh", "plead"]);
+
+
+// ---- animals: built from the book's description (species, colours, ears, tail, what they wear), walking on four legs or two, with the people's acts
+function Blob({ p, r, c, q, rough = 0.92 }: { p: V3; r: V3; c: string; q?: any; rough?: number }) {
+  return (
+    <Entity transform={at(p[0], p[1], p[2], q).withScale(r)}>
+      <Mesh3d>
+        <Sphere radius={1} />
+        <StandardMaterial base_color={c} perceptual_roughness={rough} metallic={0} reflectance={0.05} />
+      </Mesh3d>
+    </Entity>
+  );
+}
+function CreatureFig({ fig, ax, az, yawA, walking, f, ges, look }: { fig: any; ax: number; az: number; yawA: number; walking: boolean; f: number; ges: { k: string; e: number } | null; look: number }) {
+  const c = fig.creature;
+  const s: number = c.size;
+  const bird = c.cls === "bird";
+  const ph = f * (bird ? 0.5 : 0.34);
+  const sw = walking ? Math.sin(ph) : 0;
+  const hopping = ges && /cheer|laugh|clap|wave/.test(ges.k) ? Math.abs(Math.sin(f * 0.28)) * 0.14 * s * ges.e : 0;
+  const bob = (walking ? Math.abs(Math.sin(ph)) * (bird ? 0.06 : 0.05) * s : Math.sin(f * 0.07) * 0.01 * s) + hopping;
+  const nod = ges ? Math.sin(f * 0.22) * 0.14 * ges.e : 0;
+  const peck = bird && !walking ? Math.max(0, Math.sin(f * 0.09 + 1)) ** 6 * 0.5 : 0;
+  const turn = look * 0.55 + Math.sin(f * 0.031) * 0.08;
+  const eye = (x: number, y: number, z: number, r = 0.034) => (
+    <>
+      <Blob p={[x * s, y * s, z * s]} r={[r * s, r * s, r * s]} c="#14100e" rough={0.25} />
+      <Blob p={[x * s * 1.02, (y + 0.012) * s, (z + 0.022) * s]} r={[0.011 * s, 0.011 * s, 0.011 * s]} c="#ffffff" rough={0.2} />
+    </>
+  );
+  if (bird) {
+    const flap = ges && /cheer|wave|clap/.test(ges.k) ? Math.sin(f * 0.6) * 0.8 * ges.e : walking ? 0 : Math.sin(f * 0.05) * 0.04;
+    return (
+      <Entity transform={at(ax, bob, az, rot(0, yawA))}>
+        <Blob p={[0, 0.55 * s, 0]} r={[0.2 * s, 0.22 * s, 0.3 * s]} c={c.body} q={rot(0.25, 0, 0)} />
+        <Blob p={[0, 0.47 * s, 0.06 * s]} r={[0.16 * s, 0.15 * s, 0.22 * s]} c={c.belly} q={rot(0.25, 0, 0)} />
+        <Blob p={[0, 0.58 * s, -0.34 * s]} r={[0.07 * s, 0.04 * s, 0.2 * s]} c={c.dark} q={rot(-0.3, 0, 0)} />
+        {[-1, 1].map((sd) => <Blob key={`w${sd}`} p={[sd * 0.2 * s, 0.6 * s, -0.02 * s]} r={[0.04 * s, 0.16 * s, 0.26 * s]} c={c.dark} q={rot(0, 0, sd * (0.25 + flap))} />)}
+        <Entity transform={at(0, (0.86 - peck * 0.4) * s, (0.2 + peck * 0.25) * s, rot(peck * 1.1 + nod * 0.5, turn, 0))}>
+          <Blob p={[0, 0, 0]} r={[0.12 * s, 0.12 * s, 0.13 * s]} c={c.body} />
+          <Blob p={[0, -0.02 * s, 0.14 * s]} r={[0.05 * s, 0.035 * s, 0.1 * s]} c="#e8a030" rough={0.5} />
+          {eye(0.07, 0.03, 0.08, 0.026)}
+          {eye(-0.07, 0.03, 0.08, 0.026)}
+        </Entity>
+        {[-1, 1].map((sd) => (
+          <Entity key={`l${sd}`} transform={at(sd * 0.07 * s, 0.34 * s, 0, rot(sd * sw * 0.8, 0, 0))}>
+            <Blob p={[0, -0.16 * s, 0]} r={[0.018 * s, 0.17 * s, 0.018 * s]} c="#e8a030" rough={0.5} />
+            <Blob p={[0, -0.33 * s, 0.04 * s]} r={[0.05 * s, 0.015 * s, 0.07 * s]} c="#e8a030" rough={0.5} />
+          </Entity>
+        ))}
+      </Entity>
+    );
+  }
+  // four legs: front pair, hind pair, trotting in diagonals
+  const snout: Record<string, [V3, V3]> = {
+    short: [[0, -0.03, 0.19], [0.09, 0.075, 0.09]],
+    long: [[0, -0.035, 0.27], [0.075, 0.07, 0.2]],
+    flat: [[0, -0.04, 0.2], [0.11, 0.09, 0.07]],
+    beak: [[0, -0.03, 0.2], [0.05, 0.04, 0.1]],
+  };
+  const [sp, sr] = snout[c.snout] ?? snout.short;
+  const pig = c.species === "pig";
+  const LEGS: Record<string, number> = { rabbit: 0.26, hedgehog: 0.14, mouse: 0.2, cat: 0.38, squirrel: 0.28, pig: 0.3, sheep: 0.48, bear: 0.45, dog: 0.5, fox: 0.45, wolf: 0.55, goat: 0.5, cow: 0.55, horse: 0.78, deer: 0.78, lion: 0.5, frog: 0.14 };
+  const lh = LEGS[c.species] ?? 0.45; // how long the legs are (the body is built for 0.5)
+  const fat = c.species === "pig" || c.species === "sheep" || c.species === "bear" || c.species === "cow" ? 1.4 : c.species === "rabbit" ? 1.25 : 1;
+  const legPos: [number, number, number][] = [[0.15, lh, 0.3], [-0.15, lh, 0.3], [0.15, lh, -0.26], [-0.15, lh, -0.26]];
+  const legSw = [1, -1, -1, 1];
+  const wag = Math.sin(f * (walking ? 0.5 : 0.11)) * (c.tail === "long" || c.tail === "bushy" ? 0.35 : 0.1);
+  return (
+    <Entity transform={at(ax, bob, az, rot(0, yawA))}>
+      <Entity transform={at(0, (lh - 0.5) * s, 0)}>
+      <Blob p={[0, 0.62 * s, 0]} r={[0.27 * s * (fat > 1 ? 1.1 : 1), 0.27 * s * (fat > 1 ? 1.15 : 1), 0.46 * s]} c={c.body} />
+      <Blob p={[0, 0.52 * s, 0.03 * s]} r={[0.2 * s, 0.17 * s, 0.38 * s]} c={c.belly} />
+      {[-1, 1].map((sd) => <Blob key={`h${sd}`} p={[sd * 0.17 * s, 0.55 * s, -0.22 * s]} r={[0.12 * s, 0.17 * s, 0.2 * s]} c={c.body} />)}
+      {c.dress && (
+        <>
+          <Blob p={[0, 0.63 * s, 0.1 * s]} r={[0.3 * s, 0.3 * s, 0.3 * s]} c={c.dress} />
+          <Blob p={[0, 0.78 * s, 0.32 * s]} r={[0.18 * s, 0.07 * s, 0.07 * s]} c={c.dress} />
+        </>
+      )}
+      <Entity transform={at(0, (0.82 + (c.species === "horse" || c.species === "deer" ? 0.14 : 0)) * s, (c.species === "horse" || c.species === "deer" ? 0.58 : 0.5) * s, rot(nod + (c.species === "horse" || c.species === "deer" ? 0.45 : 0), turn, 0))}>
+        <Blob p={[0, 0.03 * s, 0.03 * s]} r={[0.2 * s, 0.18 * s, 0.21 * s]} c={c.body} />
+        <Blob p={[sp[0] * s, sp[1] * s, sp[2] * s]} r={[sr[0] * s, sr[1] * s, sr[2] * s]} c={pig ? c.body : c.belly} />
+        <Blob p={[sp[0] * s, (sp[1] + 0.025) * s, (sp[2] + sr[2] * 0.85) * s]} r={[0.03 * s, 0.025 * s, 0.025 * s]} c={pig ? "#c07a78" : "#2a1c18"} rough={0.4} />
+        {eye(0.1, 0.09, 0.14)}
+        {eye(-0.1, 0.09, 0.14)}
+        {c.ears === "long" && [-1, 1].map((sd) => <Blob key={`e${sd}`} p={[sd * 0.09 * s, 0.32 * s, -0.04 * s]} r={[0.045 * s, 0.27 * s, 0.03 * s]} c={c.body} q={rot(-0.25, 0, sd * 0.18)} />)}
+        {c.ears === "point" && [-1, 1].map((sd) => <Blob key={`e${sd}`} p={[sd * 0.1 * s, 0.22 * s, 0]} r={[0.06 * s, 0.12 * s, 0.035 * s]} c={c.body} q={rot(-0.1, 0, sd * 0.15)} />)}
+        {c.ears === "round" && [-1, 1].map((sd) => <Blob key={`e${sd}`} p={[sd * 0.13 * s, 0.18 * s, -0.02 * s]} r={[0.07 * s, 0.07 * s, 0.03 * s]} c={c.body} />)}
+        {c.ears === "floppy" && [-1, 1].map((sd) => <Blob key={`e${sd}`} p={[sd * 0.18 * s, 0.0, -0.02 * s]} r={[0.05 * s, 0.15 * s, 0.09 * s]} c={c.dark} q={rot(0, 0, sd * 0.35)} />)}
+      </Entity>
+      </Entity>
+      {legPos.map((lp, i) => (
+        <Entity key={`lg${i}`} transform={at(lp[0] * s, lp[1] * s, lp[2] * s, rot(legSw[i] * sw * 0.75, 0, 0))}>
+          <Blob p={[0, -lh * 0.5 * s, 0]} r={[0.055 * s * fat, lh * 0.52 * s, 0.055 * s * fat]} c={c.body} />
+          <Blob p={[0, -lh * 0.97 * s, 0.03 * s]} r={[0.06 * s * fat, 0.035 * s, 0.09 * s]} c={c.belly} />
+        </Entity>
+      ))}
+      <Entity transform={at(0, (lh - 0.5) * s, 0)}>
+      {c.tail === "puff" && <Blob p={[0, 0.72 * s, -0.5 * s]} r={[0.1 * s, 0.1 * s, 0.1 * s]} c="#f4f0e6" />}
+      {c.tail === "short" && <Blob p={[0, 0.72 * s, -0.48 * s]} r={[0.05 * s, 0.05 * s, 0.07 * s]} c={c.body} />}
+      {(c.tail === "long" || c.tail === "bushy") && (
+        <Entity transform={at(0, 0.7 * s, -0.46 * s, rot(-0.45, wag, 0))}>
+          <Blob p={[0, 0, -0.28 * s]} r={c.tail === "bushy" ? [0.1 * s, 0.1 * s, 0.32 * s] : [0.035 * s, 0.035 * s, 0.3 * s]} c={c.body} />
+          {c.tail === "bushy" && <Blob p={[0, 0, -0.5 * s]} r={[0.08 * s, 0.08 * s, 0.1 * s]} c="#f4f0e6" />}
+        </Entity>
+      )}
+      </Entity>
+    </Entity>
+  );
+}
 function Figure({ fig, f, p, leverA = 0 }: { fig: any; f: number; p: number; leverA?: number }) {
   const eloi = fig.kind === "eloi";
   const woman = fig.kind === "woman";
@@ -302,6 +413,7 @@ function Figure({ fig, f, p, leverA = 0 }: { fig: any; f: number; p: number; lev
     else if (GESTS.has(a.do) && env > 0.001) ges = { k: a.do === "gesture" ? "talk" : a.do, e: env };
   }
   const walking = pose === "walking" || (from === "walking" && k < 0.5);
+  if (fig.kind === "creature") return <CreatureFig fig={fig} ax={ax} az={az} yawA={yawA} walking={walking} f={f} ges={ges} look={look} />;
   const seated = pose === "seated" || (from === "seated" && k < 0.5);
   const crouch = pose === "crouch";
   // sitting with no machine under him: on a bench or chair if one stands right there, otherwise on the ground (legs out front)
