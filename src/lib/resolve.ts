@@ -799,7 +799,8 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
   }
 
   // ---- camera: frame the hero (~1.8 m) by framing and move
-  const heroH = hero.sphinx ? 5 : 1.9;
+  const onlyCreatures = figures.length > 0 && figures.every((g) => g.kind === "creature");
+  const heroH = hero.sphinx ? 5 : onlyCreatures ? Math.max(0.45, Math.max(...figures.map((g) => g.rig?.height ?? 0.5)) * 1.5) : 1.9; // (a scene of small animals is framed for them, not for a person)
   const fov = scene.camera.framing === "close" ? 32 : scene.camera.framing === "wide" ? 52 : 40;
   const fill = scene.camera.framing === "close" ? 0.55 : scene.camera.framing === "wide" ? 0.22 : 0.34;
   // a person standing beside the machine widens the shot
@@ -843,10 +844,13 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
     }
     // nothing in particular to look at: look at the people (their middle, at chest height) rather than an empty centre
     const people = figures.filter((g) => !g.onMachine);
+    const bodyH = (g: Fig) => (g.kind === "creature" ? g.rig?.height ?? 0.5 : 1.75 * (g.scale ?? 1));
+    const heart = () => { const cx = people.reduce((a, g) => a + g.x, 0) / people.length, cz = people.reduce((a, g) => a + g.z, 0) / people.length; return [cx, (people.reduce((a, g) => a + bodyH(g), 0) / people.length) * 0.6, cz] as [number, number, number]; };
     if (people.length && kind !== "exterior" || people.length && (framing as string) !== "wide") {
       const cx = people.reduce((a, g) => a + g.x, 0) / people.length, cz = people.reduce((a, g) => a + g.z, 0) / people.length;
-      return [cx, 1.1 * (people[0].scale ?? 1), cz];
+      return [cx, 1.1 * (people[0].kind === "creature" ? bodyH(people[0]) / 1.1 : people[0].scale ?? 1), cz];
     }
+    if (people.length && onlyCreatures) return heart(); // (a wide shot of animals still looks at the animals)
     return [lookX, heroH * 0.5, 0];
   };
   const rigShot = (sh: Shot, p0: number, p1: number, i: number): CamShot => {
@@ -1004,7 +1008,7 @@ export function assetsNeeded(r: Resolved): { kind: string; id: string; res: stri
 }
 
 /** Bump when runtime/scene.tsx changes in a way that alters frames, so cached renders are redone. */
-export const RUNTIME_VERSION = "rt100";
+export const RUNTIME_VERSION = "rt101";
 
 /** Cache key: changes whenever the resolved plan or the runtime does. */
 export function sceneKey(r: Resolved): string {

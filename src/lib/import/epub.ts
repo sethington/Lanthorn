@@ -96,15 +96,28 @@ export function importEpub(bytes: Uint8Array, filename: string): Book {
       }
       if (cur) spans.push(cur);
     }
-    const real = spans.filter((sp) => sp.blocks.map((b) => norm(plain(b))).join(" ").length >= 1200);
-    const parts = real.length >= 2 && real.length >= spans.length / 2 ? real : null;
+    // a section with a chapter's worth of text is a chapter; a small one belongs to the chapter before it; whatever comes before the first chapter (licence, contents) is dropped
+    const textLen = (sp: { blocks: Element[] }) => sp.blocks.map((b) => norm(plain(b))).join(" ").length;
+    const real: { title: string; blocks: Element[] }[] = [];
+    for (const sp of spans) {
+      if (textLen(sp) >= 1200) real.push({ title: sp.title, blocks: [...sp.blocks] });
+      else if (real.length) real[real.length - 1].blocks.push(...sp.blocks);
+    }
+    const parts = real.length >= 2 ? real : null;
     const sets = parts ?? [{ title: toc.get(path) || norm(plain(blocks.find((b) => /^h[1-6]$/i.test(b.tagName)) ?? ({ nodeType: 0 } as any))) || "", blocks }];
     for (const set of sets) {
       let chTitle = set.title;
       if (/ebook|project gutenberg|courtesy of|copyright|all rights reserved|license/i.test(chTitle) && chTitle.length > 25) chTitle = title; // boilerplate in the heading's place: the book's own title
       let paras = set.blocks.map((b) => norm(plain(b))).filter(Boolean);
       if (paras[0] && (paras[0] === chTitle || (!parts && paras[0] === set.title))) paras = paras.slice(1); // the heading is shown separately
-      const body_ = paras.join("\n\n");
+      let body_ = paras.join("\n\n");
+      // Project Gutenberg's own header and licence are not the book
+      if (/^\s*(the project gutenberg ebook of|title:)/i.test(body_) && /release date/i.test(body_.slice(0, 1200))) { const st = body_.search(/\*\*\* ?START OF/i); if (st < 0 || body_.length - st < 400) continue; body_ = body_.slice(body_.indexOf("\n", st)).trim(); }
+      const en = body_.search(/\*\*\* ?END OF (THE|THIS) PROJECT GUTENBERG/i);
+      if (en >= 0) body_ = body_.slice(0, en).trim();
+      const lic = body_.search(/(the full project gutenberg license|please read this before you proceed|section 1\.\s+general terms of use|project gutenberg\W{0,3} electronic works)/i);
+      if (lic >= 0) body_ = body_.slice(0, lic).replace(/\n+[^\n]{0,80}$/, "").trim(); // the licence at the back is not the book
+      if (/this ebook is for the use of anyone anywhere|royalty fee of 20|gutenberg\W{0,3} license included with this ebook/i.test(body_.slice(0, 1800))) continue; // the licence page
       if (body_.length < 300 || FRONT.test(chTitle)) continue; // cover, title page, contents, copyright…
       // a scripture-style book whose verses are numbered "3:14 ..." is its chapters: "Genesis 3"
       if (body_.length > 30000) {
