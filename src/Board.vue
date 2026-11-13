@@ -18,9 +18,9 @@ const step = computed(() => props.board.steps[stepIdx.value]);
 /** the equations to show: this step's, and the few before it, dimmer */
 const eqs = computed(() => {
   const out: { tex: string; html: string; now: boolean }[] = [];
-  for (let i = stepIdx.value; i >= 0 && out.length < 4; i--) {
+  for (let i = stepIdx.value; i >= 0 && out.length < 3; i--) {
     const list = props.board.steps[i].items.filter((x) => x.t === "eq") as { t: "eq"; tex: string }[];
-    for (const e of [...list].reverse()) if (out.length < 4) out.unshift({ tex: e.tex, html: render(e.tex), now: i === stepIdx.value });
+    for (const e of [...list].reverse()) if (out.length < 3) out.unshift({ tex: e.tex, html: render(e.tex), now: i === stepIdx.value });
   }
   return out;
 });
@@ -272,10 +272,10 @@ const drawing = computed(() => {
 .dtex { line-height: 1.2; white-space: nowrap; }
 .dtex :deep(.katex) { color: inherit; font-size: 1em; }
 .shape.fresh { animation: rise 0.5s ease both; }
-.eqs { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; justify-content: center; gap: 4px; overflow: hidden; }
+.eqs { flex: 1 1 auto; min-height: 0; max-height: 46%; display: flex; flex-direction: column; justify-content: center; gap: 4px; overflow: hidden; }
 .eq { text-align: center; animation: rise 0.45s ease both; }
-.eq.now { font-size: 1.35em; color: #fff; }
-.eq.old { font-size: 1em; opacity: 0.42; }
+.eq.now { font-size: 1.2em; color: #fff; }
+.eq.old { font-size: 0.9em; opacity: 0.42; }
 .tall .eq.now { font-size: 1.7em; }
 .eq :deep(.katex-display) { margin: 0.25em 0; }
 .eq :deep(.katex) { color: inherit; }

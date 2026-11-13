@@ -32,7 +32,7 @@ const SYM: Record<string, string> = {
   "⊂": cmd("subset"), "⊆": cmd("subseteq"), "∪": cmd("cup"), "∩": cmd("cap"), "π": cmd("pi"), "α": cmd("alpha"), "β": cmd("beta"), "γ": cmd("gamma"),
   "δ": cmd("delta"), "ε": cmd("varepsilon"), "θ": cmd("theta"), "λ": cmd("lambda"), "μ": cmd("mu"), "σ": cmd("sigma"), "φ": cmd("varphi"), "ω": cmd("omega"),
   "Δ": cmd("Delta"), "Σ": cmd("Sigma"), "Ω": cmd("Omega"), "ℝ": cmd("mathbb{R}"), "ℕ": cmd("mathbb{N}"), "ℤ": cmd("mathbb{Z}"), "ℚ": cmd("mathbb{Q}"),
-  "ℂ": cmd("mathbb{C}"), "′": "'", "⟨": cmd("langle"), "⟩": cmd("rangle"), "…": cmd("ldots"), "≡": cmd("equiv"), "∝": cmd("propto"), "⊕": cmd("oplus"), "⊗": cmd("otimes"),
+  "ℂ": cmd("mathbb{C}"), "′": cmd("prime"), "″": cmd("prime") + cmd("prime"), "⟨": cmd("langle"), "⟩": cmd("rangle"), "…": cmd("ldots"), "≡": cmd("equiv"), "∝": cmd("propto"), "⊕": cmd("oplus"), "⊗": cmd("otimes"),
   "√": cmd("surd") + " ",
 };
 const sym = (t: string) => Array.from(t).map((c) => SYM[c] ?? c).join("");

@@ -10,6 +10,8 @@ import { lastModel, modelBadge, reloadSettings } from "./lib/state";
 import { LEGACY_PROMPT_VERSIONS, PROMPT_VERSION, SYSTEM, buildUser, endState, extractJson, validateChunk, type Bible, type Scene as LlmScene } from "./lib/scene";
 import type { Book } from "./lib/book";
 import { importFile, importHtml, importText } from "./lib/import";
+import katex from "katex";
+import "katex/dist/katex.min.css";
 import { RUNTIME_VERSION } from "./lib/resolve";
 import { hashStr, splitSentences, type Sentence } from "./lib/text";
 import { shiftScene } from "./lib/offset";
@@ -17,6 +19,25 @@ import { describeCue, judgeSpent, judgeUseBook, judgeSettings, memory as judgeMe
 import { fmtTokens, recordChapterUsage, tokensOf, usage, useBook } from "./lib/usage";
 import Progress from "./Progress.vue";
 import { DEFAULT_STYLE, STYLES, STYLE_SYSTEM, defaultStyle, effectiveStyle, getChapterOverride, getOverride, heuristicStyle, isStyle, parseStyle, setChapterOverride, setOverride, styleLabel, styleUser, type StyleId, type StyleSource } from "./lib/style";
+
+/** A sentence with $LaTeX$ in it, cut into plain text and typeset formulas (so a math book reads as math, not as markup). */
+const mathCache = new Map<string, { text?: string; tex?: string; html?: string }[]>();
+function mathSegs(text: string) {
+  let out = mathCache.get(text);
+  if (out) return out;
+  out = [];
+  let last = 0;
+  for (const m of text.matchAll(/\$([^$]+)\$/g)) {
+    if (m.index! > last) out.push({ text: text.slice(last, m.index) });
+    let html = "";
+    try { html = katex.renderToString(m[1], { throwOnError: false, strict: false }); } catch { html = m[1]; }
+    out.push({ tex: m[1], html });
+    last = m.index! + m[0].length;
+  }
+  if (last < text.length) out.push({ text: text.slice(last) });
+  mathCache.set(text, out);
+  return out;
+}
 
 // --- the open book: any imported book, one chapter at a time ---
 const book = ref<Book | null>(null);
@@ -754,7 +775,7 @@ function setEl(el: unknown, i: number) {
             </header>
             <h2 class="chapterhead"><span v-if="book?.chapters[c.idx].num">{{ book?.chapters[c.idx].num }}</span>{{ book?.chapters[c.idx].title }}</h2>
             <p v-for="(ps, pi) in c.paras" :key="pi">
-              <span v-for="s in ps" :key="s.id" :ref="(el) => setEl(el, s.id)" class="sent" :style="{ opacity: opacities[s.id] ?? 0.15 }">{{ s.text }}</span>
+              <span v-for="s in ps" :key="s.id" :ref="(el) => setEl(el, s.id)" class="sent" :style="{ opacity: opacities[s.id] ?? 0.15 }"><template v-if="s.text.includes('$')"><template v-for="(seg, i) in mathSegs(s.text)" :key="i"><span v-if="seg.tex !== undefined" class="imath" v-html="seg.html" /><template v-else>{{ seg.text }}</template></template></template><template v-else>{{ s.text }}</template></span>
             </p>
           </section>
           <div v-else class="chapspace" :style="{ height: (heights[c.idx] ?? estH(c)) + 'px' }" />
@@ -868,6 +889,7 @@ html, body, #app { height: 100%; margin: 0; background: var(--bg); }
   margin-right: auto;
 }
 .sent { transition: opacity 0.12s linear; }
+.imath :deep(.katex) { font-size: 1em; color: inherit; }
 .stage { position: relative; display: flex; align-items: center; justify-content: center; padding: 44px 16px 16px; min-width: 0; min-height: 0; overflow: hidden; box-sizing: border-box; }
 html.world, html.world body, html.world #app { background: transparent !important; }
 .stagebox { display: grid; position: relative; width: 100%; height: 100%; align-items: center; justify-items: center; }
