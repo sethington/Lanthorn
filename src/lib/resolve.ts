@@ -615,7 +615,11 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
       figures.push({ ref: sj.ref, kind: "creature", creature: bm ? { ...cr, ...({ modelInfo: { name: cr.model, file: `creatures/${cr.model}.glb`, scale: bm.scale * SIZE_OF(`${sj.ref} ${cdesc}`.toLowerCase()), yaw: bm.yaw, idle: bm.idle ?? bm.any, walk: bm.walk ?? bm.idle ?? bm.any, jump: bm.jump } } as any) } : cr, rig, pose: pose === "seated" || pose === "crouch" ? "standing" : pose, x: sx, z: 0.3, yaw: walk ? Math.PI / 2 : 0, onMachine: false, walk, scale: Math.max(0.3, Math.min(3, rig.height * 0.6)) });
       continue;
     }
-    const pl = personLook(sj.ref, bible.characters.find((c) => c.id === sj.ref)?.desc ?? "", rng(hash(`${sj.ref}:look`)));
+    // when the description does not say man or woman, the scene's own words for what this person does can (she took, the woman saw)
+    const dsc0 = bible.characters.find((c) => c.id === sj.ref)?.desc ?? "";
+    const said = /\b(he|she|his|her|him|man|woman|boy|girl|lady|mother|father|king|queen|wife|husband|son|daughter)\b/i.test(dsc0);
+    const alone = scene.subjects.filter((x) => bible.characters.find((c) => c.id === x.ref)?.kind !== "animal").length === 1;
+    const pl = personLook(sj.ref, said ? dsc0 : `${dsc0} ${sj.action ?? ""} ${alone ? scene.beats.map((b) => b.action).join(" ") : ""}`, rng(hash(`${sj.ref}:look`)));
     const of = opts.outfits?.[sj.ref];
     if (of) {
       const L = pl.look;
@@ -734,7 +738,7 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
         const n = /\b(cattle|herd|flock|beasts|animals|kine|sheep|goats)\b/.test(p.toLowerCase()) ? 3 : 1;
         for (let k = 0; k < n; k++) {
           const ang = r() * Math.PI * 2, dd = 4 + r() * 6;
-          assets.push({ id: `pkg:beast-${cl.model}-${k}-${hash(p) % 999}`, file: `creatures/${cl.model}.glb`, pos: [Math.sin(ang) * dd, 0, -2 - Math.abs(Math.cos(ang)) * dd], rotY: bm.yaw + r() * Math.PI * 2, scale: bm.scale * SIZE_OF(p.toLowerCase()) * (0.9 + r() * 0.2), label: p } as any);
+          assets.push({ id: `pkg:beast-${cl.model}-${k}-${hash(p) % 999}`, file: `creatures/${cl.model}.glb`, pos: [(Math.sin(ang) < 0 ? -1 : 1) * (4 + Math.abs(Math.sin(ang)) * (dd - 1)), 0, /\b(sea|seas|ocean|shore|beach|waves?|water|waters|lake|coast)\b/.test(sceneText) ? -3 - r() * 3 : -3 - Math.abs(Math.cos(ang)) * dd], rotY: bm.yaw + r() * Math.PI * 2, scale: bm.scale * SIZE_OF(p.toLowerCase()) * (0.9 + r() * 0.2), label: p } as any);
         }
         continue;
       }
@@ -863,6 +867,12 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
     if (f === "scene" || !f) return false;
     return figures.some((g) => g.ref.toLowerCase() === f || f.includes(g.ref.toLowerCase()) || g.ref.toLowerCase().includes(f)) || /lever|dial|machine|rod|quartz/.test(f) || assets.some((a) => f.includes(a.label.toLowerCase()) || a.label.toLowerCase().includes(f));
   };
+  /** the height in metres of a placed animal model (null for anything else) */
+  const beastH = (a: { id: string; scale: number }): number | null => {
+    const m = /^pkg:beast-(.+)-\d+-\d+$/.exec(a.id);
+    const bm = m ? (beasts as any)[m[1]] : null;
+    return bm ? bm.height * (a.scale / bm.scale) : null;
+  };
   const focusPoint = (focus: string, framing: Shot["framing"]): [number, number, number] => {
     const f = focus.toLowerCase();
     const level = framing === "extreme_close" || framing === "close" ? 1.5 : framing === "medium" ? 1.15 : 0.95;
@@ -880,6 +890,8 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
       // a wide shot of a thing with people about keeps the nearest person in frame too: aim between them
       const who = (framing as string) === "wide" ? figures.filter((g) => !g.onMachine).sort((a, b) => Math.hypot(a.x - asset.pos[0], a.z - asset.pos[2]) - Math.hypot(b.x - asset.pos[0], b.z - asset.pos[2]))[0] : undefined;
       if (who) return [(who.x + asset.pos[0]) / 2, Math.max(0.6, level * 0.6), (who.z + asset.pos[2]) / 2];
+      const ah = beastH(asset); // an animal is aimed at its own middle, not at human chest height
+      if (ah) return [asset.pos[0], ah * 0.55, asset.pos[2]];
       return [asset.pos[0], Math.max(0.4, level * 0.6), asset.pos[2]];
     }
     // nothing in particular to look at: look at the people (their middle, at chest height) rather than an empty centre
@@ -906,7 +918,9 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
     if (landscape) tgt[1] = Math.max(tgt[1], 2.2);
     // a scene of small animals is framed close; of big ones, back
     const csc = figures.length && figures.every((g) => g.kind === "creature") ? Math.max(0.3, Math.min(3, figures.reduce((a, g) => a + g.scale, 0) / figures.length)) : 1;
-    const d0 = Math.min(kind === "interior" ? 5.2 : 45, (fr.frame * csc) / (2 * Math.tan((fr.fov * Math.PI) / 360)));
+    const fa = assets.find((a) => knownFocus(sh.focus) && !figures.some((g) => sh.focus.toLowerCase().includes(g.ref.toLowerCase())) && (sh.focus.toLowerCase().includes(a.label.toLowerCase()) || a.label.toLowerCase().includes(sh.focus.toLowerCase())) && beastH(a));
+    const fh = fa ? beastH(fa)! : 0;
+    const d0 = Math.min(kind === "interior" ? 5.2 : 45, ((fr.frame * csc) / (2 * Math.tan((fr.fov * Math.PI) / 360))) * (fh ? Math.max(1, fh / 1.5) * 1.6 : 1));
     // alternate the side the camera sits on, so a cut changes the view instead of repeating it
     const az = az0 + (i % 2 === 0 ? -0.3 : 0.55) + (sh.angle === "over_shoulder" ? 0.7 : 0);
     const camY = landscape ? tgt[1] + (sh.angle === "low" ? -0.5 : 0.25) : sh.angle === "low" ? Math.max(0.55, tgt[1] - Math.min(0.45, d0 * 0.17)) : sh.angle === "high" ? Math.max(2.4 * Math.min(1, csc * 1.5), tgt[1] + 1.4 * Math.min(1, csc * 1.5)) : sh.angle === "over_shoulder" ? tgt[1] + 0.15 : Math.max(0.9, Math.min(1.7, tgt[1] + 0.1));
@@ -1057,7 +1071,7 @@ export function assetsNeeded(r: Resolved): { kind: string; id: string; res: stri
 }
 
 /** Bump when runtime/scene.tsx changes in a way that alters frames, so cached renders are redone. */
-export const RUNTIME_VERSION = "rt114";
+export const RUNTIME_VERSION = "rt118";
 
 /** Cache key: changes whenever the resolved plan or the runtime does. */
 export function sceneKey(r: Resolved): string {
