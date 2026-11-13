@@ -330,8 +330,8 @@ function layoutFor(style: string, w: number, d: number): Slot[] {
     case "tavern": return [
       ...setTable(0.9, zb + 1.3, 2.0, 0.85),
       { ids: ["wooden_bowl_01"], x: 0.5, z: zb + 1.3, y: 0.76, label: "bowl" },
-      { ids: ["jug_01"], x: 1.3, z: zb + 1.2, y: 0.76, h: 0.24, label: "jug" },
-      { ids: ["vintage_oil_lamp"], x: 0.9, z: zb + 1.45, y: 0.76, h: 0.42, label: "lamp" },
+      { ids: ["metal_jug"], x: 1.3, z: zb + 1.2, y: 0.76, h: 0.24, label: "jug" },
+      { ids: ["wooden_lantern_01"], x: 0.9, z: zb + 1.45, y: 0.76, h: 0.32, label: "lamp" },
       P("round", xr - 1.1, 2.0, "table", { wid: 0.95, h: 0.74 }),
       P("stool", xr - 1.85, 2.0, "stool", { h: 0.46 }), P("stool", xr - 0.35, 2.0, "stool", { h: 0.46 }), P("stool", xr - 1.1, 2.75, "stool", { h: 0.46 }),
       { ids: ["wooden_candlestick"], x: xr - 1.1, z: 2.0, y: 0.74, h: 0.22, label: "candle" },
@@ -342,7 +342,7 @@ function layoutFor(style: string, w: number, d: number): Slot[] {
     ];
     case "kitchen": return [
       ...setTable(0.7, zb + 1.7, 1.7, 0.85, { ends: 1 }),
-      { ids: ["wooden_bowl_01"], x: 0.4, z: zb + 1.7, y: 0.76, label: "bowl" }, { ids: ["jug_01"], x: 1.1, z: zb + 1.6, y: 0.76, h: 0.24, label: "jug" },
+      { ids: ["wooden_bowl_01"], x: 0.4, z: zb + 1.7, y: 0.76, label: "bowl" }, { ids: ["metal_jug"], x: 1.1, z: zb + 1.6, y: 0.76, h: 0.24, label: "jug" },
       { ids: ["painted_wooden_cabinet"], x: xl + 0.8, z: zb + 0.4, h: 1.9, face: [xl + 0.8, 0], label: "cupboard" },
       { ids: ["barrel_stove"], x: xr - 0.6, z: zb + 0.6, h: 1.1, label: "stove" },
       { ids: ["wooden_bucket_01"], x: xl + 0.5, z: 0.6, h: 0.4, label: "bucket" }, { ids: ["wicker_basket_02"], x: xr - 0.6, z: 0.8, h: 0.25, label: "basket" },
