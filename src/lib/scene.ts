@@ -9,7 +9,13 @@ export type Bible = { characters: Character[]; locations: Location[] };
 
 /** A board: what a mathematical, scientific or technical passage is drawn as (typeset equations, a plot, notes), step by step as the text is read. */
 export type BoardPlot = { fns: { expr: string; label?: string }[]; x: [number, number]; y?: [number, number]; marks?: { x: number; label?: string }[]; chord?: [number, number]; tangent?: number };
-export type BoardItem = { t: "eq"; tex: string } | ({ t: "plot" } & BoardPlot) | { t: "note"; s: string };
+/** a schematic map (x east, y south, both 0-100): the places so far, and the route walked through them in order */
+export type BoardMap = { title?: string; points: { id: string; name: string; x: number; y: number }[]; route?: string[] };
+/** a family tree, an outline or any hierarchy: each node names its parent */
+export type BoardTree = { nodes: { id: string; label: string; parent?: string }[] };
+/** events along a line of time (or any scale): where each falls on 0-100 */
+export type BoardTimeline = { events: { label: string; at: number }[]; from?: string; to?: string };
+export type BoardItem = { t: "eq"; tex: string } | ({ t: "plot" } & BoardPlot) | { t: "note"; s: string } | ({ t: "map" } & BoardMap) | ({ t: "tree" } & BoardTree) | ({ t: "timeline" } & BoardTimeline);
 export type BoardStep = { at: number; say?: string; items: BoardItem[] };
 export type Board = { steps: BoardStep[] };
 
@@ -79,9 +85,9 @@ export const ACTS = ["walk_to", "sit", "stand", "reach", "use_lever", "look_at",
 export type Chunk = { scenes: Scene[]; bible: Bible };
 
 /** Bump when SYSTEM or the output contract changes, so cached model replies are not reused. */
-export const PROMPT_VERSION = "p6";
+export const PROMPT_VERSION = "p7";
 /** The previous contract, still readable: analyses made with it keep working (they are directed automatically). */
-export const LEGACY_PROMPT_VERSIONS = ["p1", "p2", "p3", "p4", "p5"];
+export const LEGACY_PROMPT_VERSIONS = ["p1", "p2", "p3", "p4", "p5", "p6"];
 
 export const SYSTEM = `Role: scene director for a book reader. Input: numbered sentences. Output: one JSON object, no prose, no code fence.
 Schema:
@@ -100,9 +106,9 @@ Schema:
 "acting":[{"at":<sentence id>,"who":"<character id>","do":"walk_to|sit|stand|reach|use_lever|look_at|turn|crouch|wave|point|drink|sing|cheer|slam|clap|shrug|nod|bow|cover_face|draw|shake_fist|beckon|think|laugh|plead|gesture","to":"left|center|right|back|front|machine|<character id>"}],
 "stage":[{"k":"moon|sun|grow|streak|flash|cam|quake|creature|dim","at":<sentence id>,"to":<sentence id>,"what":"<=3 words","how":"<exact word from the list>","amount":0-1}],
 "confidence":0-1}]}
-"board":{"steps":[{"at":<sentence id>,"say":"<=8 words","items":[{"t":"eq","tex":"<LaTeX>"},{"t":"plot","fns":[{"expr":"<JS expression in x, e.g. x*x - 2*x, Math.sin(x)>","label":"f"}],"x":[min,max],"y":[min,max],"marks":[{"x":<number>,"label":"c"}],"chord":[x1,x2],"tangent":<x>},{"t":"note","s":"<=14 words"}]}]}   (ONLY for mathematical, scientific or technical passages)
+"board":{"steps":[{"at":<sentence id>,"say":"<=8 words","items":[{"t":"eq","tex":"<LaTeX>"},{"t":"plot","fns":[{"expr":"<JS expression in x, e.g. x*x - 2*x, Math.sin(x)>","label":"f"}],"x":[min,max],"y":[min,max],"marks":[{"x":<number>,"label":"c"}],"chord":[x1,x2],"tangent":<x>},{"t":"note","s":"<=14 words"},{"t":"map","title":"<=4 words","points":[{"id":"a","name":"<place>","x":0-100,"y":0-100}],"route":["a","b"]},{"t":"tree","nodes":[{"id":"n1","label":"<name>","parent":"<id or omit>"}]},{"t":"timeline","events":[{"label":"<=4 words","at":0-100}],"from":"<label>","to":"<label>"}]}]}   (ONLY for mathematical, scientific, technical or structural passages)
 Rules:
-- BOARD: a theorem, proof, derivation, formula, algorithm or data passage is not a place: set visual:true, kind:"board", location:"board", no subjects, and give "board" with 2-8 steps. Each step "at" is the sentence where it appears; items show in order: eq (one LaTeX equation, display style, no $ signs), plot (a function drawn with optional marked points, a chord between two x values, a tangent at x; draw what the text describes, e.g. a theorem about a function gets a plot of an example function), note (a plain caption). A plot stays on screen until the next plot. Equations are exactly what the text states, step by step as it derives them. Prose with no math keeps its normal scene.
+- BOARD: a theorem, proof, derivation, formula, algorithm or data passage is not a place: set visual:true, kind:"board", location:"board", no subjects, and give "board" with 2-8 steps. Each step "at" is the sentence where it appears; items show in order: eq (one LaTeX equation, display style, no $ signs), plot (a function drawn with optional marked points, a chord between two x values, a tangent at x; draw what the text describes, e.g. a theorem about a function gets a plot of an example function), note (a plain caption). A plot stays on screen until the next plot. Equations are exactly what the text states, step by step as it derives them. Also a board (kind:"board"): a journey through named real places (map: x east, y south, put places where they really lie relative to each other; route lists the places in the order travelled), a genealogy or any hierarchy (tree), a run of dated events or stages (timeline). Maps, trees and timelines stay on screen until the next one; a map's route is drawn only as far as the step reached. Narrative prose with people in a scene keeps its normal scene.
 - Scenes contiguous, cover every given sentence, ordered, no overlap. New scene on location, time-jump, or mood change.
 - visual:false for dialogue/exposition with nothing to draw; keep other fields minimal.
 - kind timelapse: passage describes accelerated time. abstract: sensation/emotion, no concrete objects.
@@ -206,7 +212,16 @@ function normBoard(raw: any, from: number, to: number): Board | undefined {
     for (const it of arr<any>(st?.items).slice(0, 5)) {
       if (it?.t === "eq" && typeof it.tex === "string" && it.tex.trim()) items.push({ t: "eq", tex: it.tex.trim().slice(0, 400) });
       else if (it?.t === "note" && typeof it.s === "string" && it.s.trim()) items.push({ t: "note", s: it.s.trim().slice(0, 160) });
-      else if (it?.t === "plot") {
+      else if (it?.t === "map" && Array.isArray(it.points)) {
+        const points = arr<any>(it.points).filter((q) => typeof q?.id === "string" && typeof q?.name === "string" && num(q?.x) !== undefined && num(q?.y) !== undefined).slice(0, 14).map((q) => ({ id: q.id.slice(0, 20), name: q.name.slice(0, 22), x: Math.min(100, Math.max(0, Number(q.x))), y: Math.min(100, Math.max(0, Number(q.y))) }));
+        if (points.length) items.push({ t: "map", title: typeof it.title === "string" ? it.title.slice(0, 40) : undefined, points, route: arr<any>(it.route).map(String).filter((id) => points.some((q) => q.id === id)).slice(0, 20) });
+      } else if (it?.t === "tree" && Array.isArray(it.nodes)) {
+        const nodes = arr<any>(it.nodes).filter((q) => typeof q?.id === "string" && typeof q?.label === "string").slice(0, 30).map((q) => ({ id: q.id.slice(0, 20), label: q.label.slice(0, 24), parent: typeof q.parent === "string" ? q.parent : undefined }));
+        if (nodes.length) items.push({ t: "tree", nodes: nodes.map((q) => ({ ...q, parent: q.parent && nodes.some((x) => x.id === q.parent && x.id !== q.id) ? q.parent : undefined })) });
+      } else if (it?.t === "timeline" && Array.isArray(it.events)) {
+        const events = arr<any>(it.events).filter((q) => typeof q?.label === "string" && num(q?.at) !== undefined).slice(0, 12).map((q) => ({ label: q.label.slice(0, 26), at: Math.min(100, Math.max(0, Number(q.at))) })).sort((a, b) => a.at - b.at);
+        if (events.length) items.push({ t: "timeline", events, from: typeof it.from === "string" ? it.from.slice(0, 20) : undefined, to: typeof it.to === "string" ? it.to.slice(0, 20) : undefined });
+      } else if (it?.t === "plot") {
         const x = pair(it.x);
         const fns = arr<any>(it.fns).filter((f) => typeof f?.expr === "string" && f.expr.trim()).slice(0, 3).map((f) => ({ expr: String(f.expr).slice(0, 120), label: typeof f.label === "string" ? f.label.slice(0, 12) : undefined }));
         if (x && fns.length) {

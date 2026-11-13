@@ -4,7 +4,7 @@
 import { computed } from "vue";
 import katex from "katex";
 import "katex/dist/katex.min.css";
-import type { Board, BoardPlot } from "./lib/scene";
+import type { Board, BoardMap, BoardPlot, BoardTimeline, BoardTree } from "./lib/scene";
 
 const props = defineProps<{ board: Board; sid: number }>();
 
@@ -26,12 +26,52 @@ const eqs = computed(() => {
 });
 const notes = computed(() => step.value.items.filter((x) => x.t === "note").map((x: any) => x.s as string));
 /** a plot stays until the next one */
-const plot = computed<BoardPlot | null>(() => {
+const plot = computed(() => showPlot.value);
+
+/** the latest map / tree / timeline up to this step, and which step showed it (a plot, a map, a tree or a timeline: the newest is the picture) */
+const latest = computed(() => {
   for (let i = stepIdx.value; i >= 0; i--) {
-    const p = props.board.steps[i].items.find((x) => x.t === "plot");
-    if (p) return p as BoardPlot;
+    const it = [...props.board.steps[i].items].reverse().find((x) => x.t === "plot" || x.t === "map" || x.t === "tree" || x.t === "timeline");
+    if (it) return { kind: it.t as string, item: it as any, step: i };
   }
   return null;
+});
+const showPlot = computed(() => (latest.value?.kind === "plot" ? (latest.value.item as BoardPlot) : null));
+// a map: the places named up to this step, the route drawn only as far as the text has gone
+const mapView = computed(() => {
+  if (latest.value?.kind !== "map") return null;
+  const m = latest.value.item as BoardMap;
+  const sx = (x: number) => 40 + (x / 100) * (W - 80), sy = (y: number) => 30 + (y / 100) * (H - 70);
+  const reached = Math.min(m.route?.length ?? 0, 1 + Math.round(((stepIdx.value - latest.value.step) / Math.max(1, props.board.steps.length - 1 - latest.value.step)) * (m.route?.length ?? 1)));
+  const shown = m.route && m.route.length ? m.route.slice(0, Math.max(1, reached)) : [];
+  const byId = new Map(m.points.map((q) => [q.id, q]));
+  const path = shown.map((id) => byId.get(id)).filter(Boolean).map((q: any) => `${sx(q.x).toFixed(1)},${sy(q.y).toFixed(1)}`);
+  const lastId = shown[shown.length - 1];
+  return { title: m.title, pts: m.points.map((q) => ({ ...q, X: sx(q.x), Y: sy(q.y), on: !shown.length || shown.includes(q.id), now: q.id === lastId })), path: path.join(" ") };
+});
+// a tree: levels from the roots down, spread across the width
+const treeView = computed(() => {
+  if (latest.value?.kind !== "tree") return null;
+  const nodes = (latest.value.item as BoardTree).nodes;
+  const depth = new Map<string, number>();
+  const level = (id: string, seen = 0): number => { if (depth.has(id)) return depth.get(id)!; const n = nodes.find((x) => x.id === id); const d = n?.parent && seen < 30 ? level(n.parent, seen + 1) + 1 : 0; depth.set(id, d); return d; };
+  nodes.forEach((n) => level(n.id));
+  const maxD = Math.max(...nodes.map((n) => depth.get(n.id) ?? 0));
+  const cols = new Map<number, string[]>();
+  nodes.forEach((n) => { const d = depth.get(n.id) ?? 0; (cols.get(d) ?? cols.set(d, []).get(d)!).push(n.id); });
+  // order children under their parents: sort each level by the parent's position
+  const xs = new Map<string, number>();
+  for (let d = 0; d <= maxD; d++) {
+    const ids = (cols.get(d) ?? []).slice().sort((a, b) => (xs.get(nodes.find((n) => n.id === a)?.parent ?? "") ?? 0.5) - (xs.get(nodes.find((n) => n.id === b)?.parent ?? "") ?? 0.5));
+    ids.forEach((id, i) => xs.set(id, (i + 1) / (ids.length + 1)));
+  }
+  const pos = (id: string) => ({ x: 30 + (xs.get(id) ?? 0.5) * (W - 60), y: 34 + ((depth.get(id) ?? 0) / Math.max(1, maxD)) * (H - 110) });
+  return { nodes: nodes.map((n) => ({ ...n, ...pos(n.id) })), edges: nodes.filter((n) => n.parent).map((n) => ({ a: pos(n.parent!), b: pos(n.id) })) };
+});
+const timeView = computed(() => {
+  if (latest.value?.kind !== "timeline") return null;
+  const t = latest.value.item as BoardTimeline;
+  return { events: t.events.map((e, i) => ({ ...e, X: 40 + (e.at / 100) * (W - 80), up: i % 2 === 0 })), from: t.from, to: t.to };
 });
 
 function render(tex: string): string {
@@ -127,7 +167,34 @@ const drawing = computed(() => {
       </g>
       <text v-for="(l, i) in drawing.labels" :key="'l' + i" v-show="l" :x="W - M.r - 6" :y="M.t + 16 + i * 18" text-anchor="end" class="flabel">{{ l }}(x)</text>
     </svg>
-    <div class="eqs" :class="{ tall: !drawing }">
+    <svg v-if="mapView" class="plot" :class="{ solo: !eqs.length }" :viewBox="`0 0 ${W} ${H}`" preserveAspectRatio="xMidYMid meet">
+      <rect x="6" y="6" :width="W - 12" :height="H - 12" rx="14" class="mapbg" />
+      <text v-if="mapView.title" :x="W / 2" y="30" text-anchor="middle" class="maptitle">{{ mapView.title }}</text>
+      <polyline v-if="mapView.path" :points="mapView.path" class="route" />
+      <g v-for="q in mapView.pts" :key="q.id" :class="{ off: !q.on }">
+        <circle :cx="q.X" :cy="q.Y" :r="q.now ? 9 : 6" class="town" :class="{ now: q.now }" />
+        <text :x="q.X" :y="q.Y - 13" text-anchor="middle" class="townname">{{ q.name }}</text>
+      </g>
+      <text :x="W - 28" y="44" text-anchor="middle" class="maptitle">N</text><line :x1="W - 28" y1="52" :x2="W - 28" y2="82" class="route" style="stroke-dasharray:none" />
+    </svg>
+    <svg v-if="treeView" class="plot" :class="{ solo: !eqs.length }" :viewBox="`0 0 ${W} ${H}`" preserveAspectRatio="xMidYMid meet">
+      <line v-for="(e, i) in treeView.edges" :key="'e' + i" :x1="e.a.x" :y1="e.a.y + 14" :x2="e.b.x" :y2="e.b.y - 14" class="edge" />
+      <g v-for="n in treeView.nodes" :key="n.id">
+        <rect :x="n.x - 54" :y="n.y - 14" width="108" height="28" rx="8" class="nodebox" />
+        <text :x="n.x" :y="n.y + 5" text-anchor="middle" class="nodelabel">{{ n.label }}</text>
+      </g>
+    </svg>
+    <svg v-if="timeView" class="plot" :class="{ solo: !eqs.length }" :viewBox="`0 0 ${W} ${H}`" preserveAspectRatio="xMidYMid meet">
+      <line :x1="40" :x2="W - 40" :y1="H / 2" :y2="H / 2" class="axis" />
+      <g v-for="(e, i) in timeView.events" :key="i">
+        <line :x1="e.X" :x2="e.X" :y1="H / 2" :y2="H / 2 + (e.up ? -60 : 60)" class="edge" />
+        <circle :cx="e.X" :cy="H / 2" r="6" class="town now" />
+        <text :x="e.X" :y="H / 2 + (e.up ? -68 : 80)" text-anchor="middle" class="townname">{{ e.label }}</text>
+      </g>
+      <text v-if="timeView.from" x="40" :y="H / 2 + 28" class="maptitle">{{ timeView.from }}</text>
+      <text v-if="timeView.to" :x="W - 40" :y="H / 2 + 28" text-anchor="end" class="maptitle">{{ timeView.to }}</text>
+    </svg>
+    <div class="eqs" :class="{ tall: !drawing && !mapView && !treeView && !timeView }">
       <div v-for="(e, i) in eqs" :key="stepIdx + ':' + i + e.tex" class="eq" :class="{ now: e.now, old: !e.now }" v-html="e.html" />
     </div>
     <div v-if="notes.length" :key="'n' + stepIdx" class="notes"><p v-for="n in notes" :key="n">{{ n }}</p></div>
@@ -138,6 +205,7 @@ const drawing = computed(() => {
 .board { position: absolute; inset: 0; background: radial-gradient(120% 90% at 50% 0%, #1b1f2b 0%, #12141c 70%); color: #ece8dc; display: flex; flex-direction: column; gap: 10px; padding: 18px 20px 16px; overflow: hidden; font-family: system-ui, sans-serif; }
 .say { font: 600 11px/1.3 system-ui, sans-serif; letter-spacing: 0.2em; text-transform: uppercase; color: #d8b45a; animation: rise 0.4s ease both; }
 .plot { width: 100%; flex: 0 1 52%; min-height: 0; animation: rise 0.5s ease both; }
+.plot.solo { flex: 1 1 78%; }
 .grid line { stroke: #ffffff12; stroke-width: 1; }
 .axes line { stroke: #8a8fa0; stroke-width: 1.2; }
 .axes text { fill: #9aa0b2; font: 13px ui-monospace, Menlo, monospace; }
@@ -152,6 +220,17 @@ const drawing = computed(() => {
 .mark { fill: #fff7e0; }
 .mlabel { fill: #fff7e0; font: italic 600 22px Georgia, serif; }
 .flabel { fill: #d8b45a; font: italic 20px Georgia, serif; }
+.mapbg { fill: #1a1d28; stroke: #3a3f52; stroke-width: 1.5; }
+.maptitle { fill: #d8b45a; font: 600 13px system-ui, sans-serif; letter-spacing: 0.15em; text-transform: uppercase; }
+.route { fill: none; stroke: #ff8f70; stroke-width: 3; stroke-dasharray: 8 6; stroke-linecap: round; stroke-linejoin: round; }
+.town { fill: #fff7e0; stroke: #12141c; stroke-width: 2.5; }
+.town.now { fill: #ff8f70; }
+.townname { fill: #e9e4d4; font: 600 16px Georgia, serif; }
+.off { opacity: 0.28; }
+.edge { stroke: #7a8096; stroke-width: 2; }
+.axis { stroke: #d8b45a; stroke-width: 3; }
+.nodebox { fill: #232736; stroke: #d8b45a; stroke-width: 1.5; }
+.nodelabel { fill: #f2eee4; font: 600 14px Georgia, serif; }
 .eqs { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; justify-content: center; gap: 4px; overflow: hidden; }
 .eq { text-align: center; animation: rise 0.45s ease both; }
 .eq.now { font-size: 1.35em; color: #fff; }
