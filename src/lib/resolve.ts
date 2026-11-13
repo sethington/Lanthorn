@@ -608,8 +608,8 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
     if (nonPerson) {
       const cr = creatureLook(sj.ref, cdesc, rng(hash(`${sj.ref}:look`))) ?? genericCreature(`${sj.ref} ${cdesc}`);
       const bm = cr.model ? (beasts as any)[cr.model] : null;
-      const rig = bm ? ({ parts: [], gait: "walk", height: bm.height * SIZE_OF(`${sj.ref} ${cdesc}`.toLowerCase()) } as Rig) : opts.rigs?.[sj.ref] ?? rigFor({ ...cr, ears: cr.ears, species: cr.species });
-      figures.push({ ref: sj.ref, kind: "creature", creature: bm ? { ...cr, ...({ modelInfo: { name: cr.model, file: `creatures/${cr.model}.glb`, scale: bm.scale * SIZE_OF(`${sj.ref} ${cdesc}`.toLowerCase()), yaw: bm.yaw, idle: bm.idle ?? bm.any, walk: bm.walk ?? bm.idle ?? bm.any, jump: bm.jump } } as any) } : cr, rig, pose: pose === "seated" || pose === "crouch" ? "standing" : pose, x: sx, z: 0.3, yaw: walk ? Math.PI / 2 : 0, onMachine: false, walk, scale: Math.max(0.3, Math.min(1.6, rig.height * 0.6)) });
+      const rig = bm ? ({ parts: [], gait: "walk", height: Math.max(bm.height, bm.len * 0.55) * SIZE_OF(`${sj.ref} ${cdesc}`.toLowerCase()) } as Rig) /* (framed to fit its length as well as its height) */ : opts.rigs?.[sj.ref] ?? rigFor({ ...cr, ears: cr.ears, species: cr.species });
+      figures.push({ ref: sj.ref, kind: "creature", creature: bm ? { ...cr, ...({ modelInfo: { name: cr.model, file: `creatures/${cr.model}.glb`, scale: bm.scale * SIZE_OF(`${sj.ref} ${cdesc}`.toLowerCase()), yaw: bm.yaw, idle: bm.idle ?? bm.any, walk: bm.walk ?? bm.idle ?? bm.any, jump: bm.jump } } as any) } : cr, rig, pose: pose === "seated" || pose === "crouch" ? "standing" : pose, x: sx, z: 0.3, yaw: walk ? Math.PI / 2 : 0, onMachine: false, walk, scale: Math.max(0.3, Math.min(3, rig.height * 0.6)) });
       continue;
     }
     const pl = personLook(sj.ref, bible.characters.find((c) => c.id === sj.ref)?.desc ?? "", rng(hash(`${sj.ref}:look`)));
@@ -767,11 +767,14 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
   const gid = grey || /storm|hail|rain/.test(scene.weather) ? "brown_mud_leaves_01" : "forrest_ground_01";
   const ground = kind === "exterior" ? pickGround(`${locText} ${propText}`, gid, hash(`${scene.id}:ground`)) : null;
   // water: the sea, a lake, a shore. The land ends at a shoreline and the water runs on to the horizon.
-  const wet = /\b(sea|seas|ocean|shore|shoreline|beach|waves?|tide|tides|surf|harbou?r|bay|lake|coast|swell|brine|strand|shoal|lagoon|estuary|river|water)\b/.test(sceneText + " " + (scene.weather ?? ""));
+  const aquatic = figures.filter((g) => g.kind === "creature" && /^(whale|fish|piranha)$/.test(g.creature?.species ?? ""));
+  const wet = aquatic.length > 0 || /\b(sea|seas|ocean|shore|shoreline|beach|waves?|tide|tides|surf|harbou?r|bay|lake|coast|swell|brine|strand|shoal|lagoon|estuary|river|water)\b/.test(sceneText + " " + (scene.weather ?? ""));
   const water: Resolved["water"] = kind === "exterior" && wet && !/\b(rain|raindrop)\b/.test(locText) ? {
     zEdge: /\b(lakes?|rivers?|harbou?rs?)\b/.test(sceneText) ? -9 : -6,
     mood: /\b(red (?:water|sea|waters|seas)|crimson|scarlet (?:sea|water)|blood)\b/.test(sceneText) ? "red" : /\b(oily|black water|dark water|slick|tar|tarry)\b/.test(sceneText) ? "oily" : /\b(storm|stormy|rough|gale|tempest|heavy seas)\b/.test(sceneText + " " + scene.weather) ? "storm" : "calm",
   } : null;
+  // whales and fish live in the water: out in the sea, not on the shore
+  aquatic.forEach((g, k) => { if (water) { g.z = water.zEdge - 3 - k * 1.8; g.x = (k - (aquatic.length - 1) / 2) * 3.2; g.yaw = 0.6; } });
 
   // ---- life: between the acts the book names, everyone keeps moving: changing gestures, glances at the others, short strolls.
   // Each person has their own timeline (seeded by name), shaped by the mood of the scene, so no two move alike.
@@ -880,7 +883,7 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
     const fr = framing === "extreme_close" ? { ...fr0, frame: 0.7 } : framing === "close" ? { ...fr0, frame: 1.05 } : fr0;
     const tgt = focusPoint(sh.focus, sh.framing);
     // a scene of small animals is framed close; of big ones, back
-    const csc = figures.length && figures.every((g) => g.kind === "creature") ? Math.max(0.3, Math.min(1.5, figures.reduce((a, g) => a + g.scale, 0) / figures.length)) : 1;
+    const csc = figures.length && figures.every((g) => g.kind === "creature") ? Math.max(0.3, Math.min(3, figures.reduce((a, g) => a + g.scale, 0) / figures.length)) : 1;
     const d0 = Math.min(kind === "interior" ? 5.2 : 45, (fr.frame * csc) / (2 * Math.tan((fr.fov * Math.PI) / 360)));
     // alternate the side the camera sits on, so a cut changes the view instead of repeating it
     const az = az0 + (i % 2 === 0 ? -0.3 : 0.55) + (sh.angle === "over_shoulder" ? 0.7 : 0);
@@ -1026,7 +1029,7 @@ export function assetsNeeded(r: Resolved): { kind: string; id: string; res: stri
 }
 
 /** Bump when runtime/scene.tsx changes in a way that alters frames, so cached renders are redone. */
-export const RUNTIME_VERSION = "rt103";
+export const RUNTIME_VERSION = "rt105";
 
 /** Cache key: changes whenever the resolved plan or the runtime does. */
 export function sceneKey(r: Resolved): string {
