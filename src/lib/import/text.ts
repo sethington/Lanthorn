@@ -36,6 +36,7 @@ export function importText(rawIn: string, filename: string, kind: "text" | "mark
   // Project Gutenberg's own header and licence are not the book
   const gs = /\*\*\* ?START OF (?:THE|THIS) PROJECT GUTENBERG[^\n]*\n/i.exec(raw);
   if (gs) raw = raw.slice(gs.index + gs[0].length);
+  raw = raw.replace(/^[ \t]*\[Illustration[^\]\n]*\][ \t]*$/gim, ""); // (picture placeholders in a plain-text edition are not words to read)
   const ge = /\*\*\* ?END OF (?:THE|THIS) PROJECT GUTENBERG/i.exec(raw);
   if (ge) raw = raw.slice(0, ge.index);
   // Gutenberg marks italics with _underscores_: show the words, not the marks
