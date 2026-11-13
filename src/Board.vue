@@ -4,7 +4,7 @@
 import { computed } from "vue";
 import katex from "katex";
 import "katex/dist/katex.min.css";
-import type { Board, BoardMap, BoardPlot, BoardTimeline, BoardTree } from "./lib/scene";
+import type { Board, BoardMap, BoardPlot, BoardTimeline, BoardTree, DrawShape } from "./lib/scene";
 
 const props = defineProps<{ board: Board; sid: number; inset?: boolean }>();
 
@@ -31,7 +31,7 @@ const plot = computed(() => showPlot.value);
 /** the latest map / tree / timeline up to this step, and which step showed it (a plot, a map, a tree or a timeline: the newest is the picture) */
 const latest = computed(() => {
   for (let i = stepIdx.value; i >= 0; i--) {
-    const it = [...props.board.steps[i].items].reverse().find((x) => x.t === "plot" || x.t === "map" || x.t === "tree" || x.t === "timeline");
+    const it = [...props.board.steps[i].items].reverse().find((x) => x.t === "plot" || x.t === "map" || x.t === "tree" || x.t === "timeline" || x.t === "draw");
     if (it) return { kind: it.t as string, item: it as any, step: i };
   }
   return null;
@@ -74,8 +74,25 @@ const timeView = computed(() => {
   return { events: t.events.map((e, i) => ({ ...e, X: 40 + (e.at / 100) * (W - 80), up: i % 2 === 0 })), from: t.from, to: t.to };
 });
 
-function render(tex: string): string {
-  try { return katex.renderToString(tex, { displayMode: true, throwOnError: false, strict: false }); } catch { return `<span>${tex.replace(/[<&]/g, "")}</span>`; }
+// a free drawing: the shapes of this drawing from every step so far (it builds up as the text does)
+const drawView = computed(() => {
+  if (latest.value?.kind !== "draw") return null;
+  const id = latest.value.item.id ?? "d";
+  let shapes: (DrawShape & { n: number })[] = [];
+  props.board.steps.forEach((st, i) => {
+    if (i > stepIdx.value) return;
+    for (const it of st.items) {
+      if (it.t !== "draw" || (it.id ?? "d") !== id) continue;
+      if (it.replace) shapes = [];
+      shapes.push(...it.shapes.map((q) => ({ ...q, n: i })));
+    }
+  });
+  const sw = (q: any) => q.sw ?? 0.6;
+  return { title: latest.value.item.title as string | undefined, shapes: shapes.map((q, i) => ({ q, i, fresh: q.n === stepIdx.value, html: q.k === "tex" ? render(q.tex, false) : "" })), sw };
+});
+
+function render(tex: string, display = true): string {
+  try { return katex.renderToString(tex, { displayMode: display, throwOnError: false, strict: false }); } catch { return `<span>${tex.replace(/[<&]/g, "")}</span>`; }
 }
 
 // ---- a function written in x (JS-like), made safe: only numbers, x, operators and a few named functions
@@ -167,6 +184,20 @@ const drawing = computed(() => {
       </g>
       <text v-for="(l, i) in drawing.labels" :key="'l' + i" v-show="l" :x="W - M.r - 6" :y="M.t + 16 + i * 18" text-anchor="end" class="flabel">{{ l }}(x)</text>
     </svg>
+    <svg v-if="drawView" class="plot draw" :class="{ solo: !eqs.length }" viewBox="-4 -9 108 82" preserveAspectRatio="xMidYMid meet">
+      <defs><marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#e9e4d4" /></marker></defs>
+      <text v-if="drawView.title" x="50" y="-3" text-anchor="middle" class="dtitle">{{ drawView.title }}</text>
+      <g v-for="s in drawView.shapes" :key="s.i" class="shape" :class="{ fresh: s.fresh }">
+        <rect v-if="s.q.k === 'rect'" :x="s.q.x" :y="s.q.y" :width="s.q.w" :height="s.q.h" :rx="s.q.r" :fill="s.q.fill ?? 'none'" :stroke="s.q.stroke ?? (s.q.fill ? 'none' : '#e9e4d4')" :stroke-width="drawView.sw(s.q)" />
+        <circle v-else-if="s.q.k === 'circle'" :cx="s.q.x" :cy="s.q.y" :r="s.q.r" :fill="s.q.fill ?? 'none'" :stroke="s.q.stroke ?? (s.q.fill ? 'none' : '#e9e4d4')" :stroke-width="drawView.sw(s.q)" />
+        <line v-else-if="s.q.k === 'line'" :x1="s.q.x1" :y1="s.q.y1" :x2="s.q.x2" :y2="s.q.y2" :stroke="s.q.stroke ?? '#e9e4d4'" :stroke-width="drawView.sw(s.q)" :stroke-dasharray="s.q.dash ? '2 1.5' : undefined" :marker-end="s.q.arrow ? 'url(#arr)' : undefined" stroke-linecap="round" />
+        <polygon v-else-if="s.q.k === 'poly' && s.q.closed" :points="s.q.pts.map((p: number[]) => p.join(',')).join(' ')" :fill="s.q.fill ?? 'none'" :stroke="s.q.stroke ?? (s.q.fill ? 'none' : '#e9e4d4')" :stroke-width="drawView.sw(s.q)" stroke-linejoin="round" />
+        <polyline v-else-if="s.q.k === 'poly'" :points="s.q.pts.map((p: number[]) => p.join(',')).join(' ')" fill="none" :stroke="s.q.stroke ?? '#e9e4d4'" :stroke-width="drawView.sw(s.q)" stroke-linejoin="round" stroke-linecap="round" />
+        <path v-else-if="s.q.k === 'path'" :d="s.q.d" :fill="s.q.fill ?? 'none'" :stroke="s.q.stroke ?? (s.q.fill ? 'none' : '#e9e4d4')" :stroke-width="drawView.sw(s.q)" stroke-linecap="round" stroke-linejoin="round" />
+        <text v-else-if="s.q.k === 'text'" :x="s.q.x" :y="s.q.y" :text-anchor="s.q.anchor" :font-size="s.q.size" :fill="s.q.color ?? '#f2eee4'" :font-style="s.q.italic ? 'italic' : 'normal'" class="dtext">{{ s.q.s }}</text>
+        <foreignObject v-else-if="s.q.k === 'tex'" :x="s.q.x" :y="s.q.y - (s.q.size ?? 5)" width="70" :height="(s.q.size ?? 5) * 2.2"><div class="dtex" :style="{ fontSize: (s.q.size ?? 5) + 'px', color: s.q.color ?? '#f2eee4' }" v-html="s.html" /></foreignObject>
+      </g>
+    </svg>
     <svg v-if="mapView" class="plot" :class="{ solo: !eqs.length }" :viewBox="`0 0 ${W} ${H}`" preserveAspectRatio="xMidYMid meet">
       <rect x="6" y="6" :width="W - 12" :height="H - 12" rx="14" class="mapbg" />
       <text v-if="mapView.title" :x="W / 2" y="30" text-anchor="middle" class="maptitle">{{ mapView.title }}</text>
@@ -194,7 +225,7 @@ const drawing = computed(() => {
       <text v-if="timeView.from" x="40" :y="H / 2 + 28" class="maptitle">{{ timeView.from }}</text>
       <text v-if="timeView.to" :x="W - 40" :y="H / 2 + 28" text-anchor="end" class="maptitle">{{ timeView.to }}</text>
     </svg>
-    <div class="eqs" :class="{ tall: !drawing && !mapView && !treeView && !timeView }">
+    <div class="eqs" :class="{ tall: !drawing && !mapView && !treeView && !timeView && !drawView }">
       <div v-for="(e, i) in eqs" :key="stepIdx + ':' + i + e.tex" class="eq" :class="{ now: e.now, old: !e.now }" v-html="e.html" />
     </div>
     <div v-if="notes.length" :key="'n' + stepIdx" class="notes"><p v-for="n in notes" :key="n">{{ n }}</p></div>
@@ -235,6 +266,12 @@ const drawing = computed(() => {
 .axis { stroke: #d8b45a; stroke-width: 3; }
 .nodebox { fill: #232736; stroke: #d8b45a; stroke-width: 1.5; }
 .nodelabel { fill: #f2eee4; font: 600 14px Georgia, serif; }
+.plot.draw { overflow: visible; }
+.dtitle { fill: #d8b45a; font: 600 3px system-ui, sans-serif; letter-spacing: 0.3px; text-transform: uppercase; }
+.dtext { font-family: Georgia, serif; }
+.dtex { line-height: 1.2; white-space: nowrap; }
+.dtex :deep(.katex) { color: inherit; font-size: 1em; }
+.shape.fresh { animation: rise 0.5s ease both; }
 .eqs { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; justify-content: center; gap: 4px; overflow: hidden; }
 .eq { text-align: center; animation: rise 0.45s ease both; }
 .eq.now { font-size: 1.35em; color: #fff; }

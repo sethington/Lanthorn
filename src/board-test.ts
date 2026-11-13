@@ -17,4 +17,6 @@ const maps = { steps: [
 const tree = { steps: [{ at: 0, say: "The line of Abram", items: [{ t: "tree", nodes: [{ id: "terah", label: "Terah" }, { id: "abram", label: "Abram", parent: "terah" }, { id: "nahor", label: "Nahor", parent: "terah" }, { id: "haran", label: "Haran", parent: "terah" }, { id: "lot", label: "Lot", parent: "haran" }, { id: "isaac", label: "Isaac", parent: "abram" }, { id: "ishmael", label: "Ishmael", parent: "abram" }] }] }] };
 const line = { steps: [{ at: 0, say: "Seven days", items: [{ t: "timeline", events: [{ label: "Light", at: 5 }, { label: "Sky", at: 20 }, { label: "Land and plants", at: 38 }, { label: "Sun and moon", at: 55 }, { label: "Fish and birds", at: 72 }, { label: "Beasts and people", at: 88 }], from: "Day 1", to: "Day 7" }] }] };
 const sid = Number(new URLSearchParams(location.search).get("sid") ?? 9);
-createApp(Board, { board: which === 'map' ? (maps as any) : which === 'tree' ? (tree as any) : which === 'time' ? (line as any) : board, sid }).mount("#app");
+const f = new URLSearchParams(location.search).get("f");
+if (f) fetch(`/board-sample-${f}.json`).then((r) => r.json()).then((b) => createApp(Board, { board: b, sid }).mount("#app"));
+else createApp(Board, { board: which === 'map' ? (maps as any) : which === 'tree' ? (tree as any) : which === 'time' ? (line as any) : board, sid }).mount("#app");

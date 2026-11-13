@@ -15,7 +15,19 @@ export type BoardMap = { title?: string; points: { id: string; name: string; x: 
 export type BoardTree = { nodes: { id: string; label: string; parent?: string }[] };
 /** events along a line of time (or any scale): where each falls on 0-100 */
 export type BoardTimeline = { events: { label: string; at: number }[]; from?: string; to?: string };
-export type BoardItem = { t: "eq"; tex: string } | ({ t: "plot" } & BoardPlot) | { t: "note"; s: string } | ({ t: "map" } & BoardMap) | ({ t: "tree" } & BoardTree) | ({ t: "timeline" } & BoardTimeline);
+/** A free drawing: any diagram the text needs (a circuit, a molecule, a flowchart, a chessboard, a triangle with labelled sides, a diagram of an argument), in a 100 x 70 box (x right, y down). Shapes of the same id accumulate across steps, so a drawing builds up as the text does. */
+export type DrawShape =
+  | { k: "rect"; x: number; y: number; w: number; h: number; fill?: string; stroke?: string; r?: number; sw?: number }
+  | { k: "circle"; x: number; y: number; r: number; fill?: string; stroke?: string; sw?: number }
+  | { k: "line"; x1: number; y1: number; x2: number; y2: number; stroke?: string; sw?: number; dash?: boolean; arrow?: boolean }
+  | { k: "poly"; pts: [number, number][]; fill?: string; stroke?: string; sw?: number; closed?: boolean }
+  | { k: "path"; d: string; fill?: string; stroke?: string; sw?: number }
+  | { k: "text"; x: number; y: number; s: string; size?: number; color?: string; anchor?: "start" | "middle" | "end"; italic?: boolean }
+  | { k: "tex"; x: number; y: number; tex: string; size?: number; color?: string };
+export type BoardDraw = { id?: string; title?: string; replace?: boolean; shapes: DrawShape[] };
+export type BoardItem =
+  | ({ t: "draw" } & BoardDraw)
+  | { t: "eq"; tex: string } | ({ t: "plot" } & BoardPlot) | { t: "note"; s: string } | ({ t: "map" } & BoardMap) | ({ t: "tree" } & BoardTree) | ({ t: "timeline" } & BoardTimeline);
 export type BoardStep = { at: number; say?: string; items: BoardItem[] };
 export type Board = { steps: BoardStep[]; /** drawn small in a corner over a normal scene instead of replacing it */ inset?: boolean };
 
@@ -85,9 +97,9 @@ export const ACTS = ["walk_to", "sit", "stand", "reach", "use_lever", "look_at",
 export type Chunk = { scenes: Scene[]; bible: Bible };
 
 /** Bump when SYSTEM or the output contract changes, so cached model replies are not reused. */
-export const PROMPT_VERSION = "p7";
+export const PROMPT_VERSION = "p8";
 /** The previous contract, still readable: analyses made with it keep working (they are directed automatically). */
-export const LEGACY_PROMPT_VERSIONS = ["p1", "p2", "p3", "p4", "p5", "p6"];
+export const LEGACY_PROMPT_VERSIONS = ["p1", "p2", "p3", "p4", "p5", "p6", "p7"];
 
 export const SYSTEM = `Role: scene director for a book reader. Input: numbered sentences. Output: one JSON object, no prose, no code fence.
 Schema:
@@ -106,9 +118,9 @@ Schema:
 "acting":[{"at":<sentence id>,"who":"<character id>","do":"walk_to|sit|stand|reach|use_lever|look_at|turn|crouch|wave|point|drink|sing|cheer|slam|clap|shrug|nod|bow|cover_face|draw|shake_fist|beckon|think|laugh|plead|gesture","to":"left|center|right|back|front|machine|<character id>"}],
 "stage":[{"k":"moon|sun|grow|streak|flash|cam|quake|creature|dim","at":<sentence id>,"to":<sentence id>,"what":"<=3 words","how":"<exact word from the list>","amount":0-1}],
 "confidence":0-1}]}
-"board":{"steps":[{"at":<sentence id>,"say":"<=8 words","items":[{"t":"eq","tex":"<LaTeX>"},{"t":"plot","fns":[{"expr":"<JS expression in x, e.g. x*x - 2*x, Math.sin(x)>","label":"f"}],"x":[min,max],"y":[min,max],"marks":[{"x":<number>,"label":"c"}],"chord":[x1,x2],"tangent":<x>},{"t":"note","s":"<=14 words"},{"t":"map","title":"<=4 words","points":[{"id":"a","name":"<place>","x":0-100,"y":0-100}],"route":["a","b"]},{"t":"tree","nodes":[{"id":"n1","label":"<name>","parent":"<id or omit>"}]},{"t":"timeline","events":[{"label":"<=4 words","at":0-100}],"from":"<label>","to":"<label>"}]}]}   (ONLY for mathematical, scientific, technical or structural passages)
+"board":{"steps":[{"at":<sentence id>,"say":"<=8 words","items":[{"t":"eq","tex":"<LaTeX>"},{"t":"plot","fns":[{"expr":"<JS expression in x, e.g. x*x - 2*x, Math.sin(x)>","label":"f"}],"x":[min,max],"y":[min,max],"marks":[{"x":<number>,"label":"c"}],"chord":[x1,x2],"tangent":<x>},{"t":"note","s":"<=14 words"},{"t":"map","title":"<=4 words","points":[{"id":"a","name":"<place>","x":0-100,"y":0-100}],"route":["a","b"]},{"t":"tree","nodes":[{"id":"n1","label":"<name>","parent":"<id or omit>"}]},{"t":"timeline","events":[{"label":"<=4 words","at":0-100}],"from":"<label>","to":"<label>"},{"t":"draw","id":"d1","title":"<=4 words","replace":false,"shapes":[{"k":"rect|circle|line|poly|path|text|tex",...}]}]}]}   (ONLY for mathematical, scientific, technical or structural passages)
 Rules:
-- BOARD: a theorem, proof, derivation, formula, algorithm or data passage is not a place: set visual:true, kind:"board", location:"board", no subjects, and give "board" with 2-8 steps. Each step "at" is the sentence where it appears; items show in order: eq (one LaTeX equation, display style, no $ signs), plot (a function drawn with optional marked points, a chord between two x values, a tangent at x; draw what the text describes, e.g. a theorem about a function gets a plot of an example function), note (a plain caption). A plot stays on screen until the next plot. Equations are exactly what the text states, step by step as it derives them. Also a board (kind:"board"): a journey through named real places (map: x east, y south, put places where they really lie relative to each other; route lists the places in the order travelled), a genealogy or any hierarchy (tree), a run of dated events or stages (timeline). Maps, trees and timelines stay on screen until the next one; a map's route is drawn only as far as the step reached. Narrative prose with people in a scene keeps its normal scene; when such a scene is a journey or turns on a family or sequence, ALSO give it a \"board\" with \"inset\":true (a map or tree or timeline shown small in a corner while the scene plays) and keep visual:true with its normal fields.
+- BOARD: a theorem, proof, derivation, formula, algorithm or data passage is not a place: set visual:true, kind:"board", location:"board", no subjects, and give "board" with 2-8 steps. Each step "at" is the sentence where it appears; items show in order: eq (one LaTeX equation, display style, no $ signs), plot (a function drawn with optional marked points, a chord between two x values, a tangent at x; draw what the text describes, e.g. a theorem about a function gets a plot of an example function), note (a plain caption). A plot stays on screen until the next plot. Equations are exactly what the text states, step by step as it derives them. Also a board (kind:"board"): a journey through named real places (map: x east, y south, put places where they really lie relative to each other; route lists the places in the order travelled), a genealogy or any hierarchy (tree), a run of dated events or stages (timeline). ANYTHING ELSE that needs a picture (a circuit, a molecule, a flowchart, a state machine, a chessboard, a musical staff, a geometry figure, a diagram of an argument, a table, an org chart, a floor plan) is a \"draw\" item: shapes in a 100 x 70 box, x right, y down: rect {x,y,w,h,fill,stroke,r}, circle {x,y,r}, line {x1,y1,x2,y2,stroke,dash,arrow}, poly {pts:[[x,y]..],closed}, path {d: SVG path data}, text {x,y,s,size,anchor,color}, tex {x,y,tex,size}. Colours are #rrggbb. The board is DARK (#12141c): draw with light colours (strokes and text #e9e4d4, bright fills like #7fb3ff #ff8f70 #d8b45a #8fd0c0), never black or dark grey. Draw it properly: label parts, keep text inside the box, 4-40 shapes. Shapes with the same id accumulate across steps so the drawing builds up as the text explains it; replace:true starts it again. Prefer draw whenever the fixed kinds (plot, map, tree, timeline) do not fit. Maps, trees and timelines stay on screen until the next one; a map's route is drawn only as far as the step reached. Narrative prose with people in a scene keeps its normal scene; when such a scene is a journey or turns on a family or sequence, ALSO give it a \"board\" with \"inset\":true (a map or tree or timeline shown small in a corner while the scene plays) and keep visual:true with its normal fields.
 - Scenes contiguous, cover every given sentence, ordered, no overlap. New scene on location, time-jump, or mood change.
 - visual:false for dialogue/exposition with nothing to draw; keep other fields minimal.
 - kind timelapse: passage describes accelerated time. abstract: sensation/emotion, no concrete objects.
@@ -212,7 +224,22 @@ function normBoard(raw: any, from: number, to: number): Board | undefined {
     for (const it of arr<any>(st?.items).slice(0, 5)) {
       if (it?.t === "eq" && typeof it.tex === "string" && it.tex.trim()) items.push({ t: "eq", tex: it.tex.trim().slice(0, 400) });
       else if (it?.t === "note" && typeof it.s === "string" && it.s.trim()) items.push({ t: "note", s: it.s.trim().slice(0, 160) });
-      else if (it?.t === "map" && Array.isArray(it.points)) {
+      else if (it?.t === "draw" && Array.isArray(it.shapes)) {
+        const n = (v: any, d = 0) => (Number.isFinite(Number(v)) ? Math.min(140, Math.max(-40, Number(v))) : d);
+        const col = (v: any) => (typeof v === "string" && /^#[0-9a-fA-F]{6}$/.test(v) ? v : undefined);
+        const shapes: DrawShape[] = [];
+        for (const q of it.shapes.slice(0, 60)) {
+          const sw = n(q?.sw, 0.6) > 0 ? Math.min(4, Math.abs(n(q?.sw, 0.6))) : 0.6;
+          if (q?.k === "rect") shapes.push({ k: "rect", x: n(q.x), y: n(q.y), w: Math.max(0, n(q.w, 10)), h: Math.max(0, n(q.h, 10)), fill: col(q.fill), stroke: col(q.stroke), r: Math.min(10, Math.max(0, n(q.r))), sw });
+          else if (q?.k === "circle") shapes.push({ k: "circle", x: n(q.x), y: n(q.y), r: Math.min(60, Math.max(0.2, n(q.r, 3))), fill: col(q.fill), stroke: col(q.stroke), sw });
+          else if (q?.k === "line") shapes.push({ k: "line", x1: n(q.x1), y1: n(q.y1), x2: n(q.x2), y2: n(q.y2), stroke: col(q.stroke), sw, dash: q.dash === true, arrow: q.arrow === true });
+          else if (q?.k === "poly" && Array.isArray(q.pts)) { const pts = q.pts.slice(0, 40).filter((p: any) => Array.isArray(p)).map((p: any) => [n(p[0]), n(p[1])] as [number, number]); if (pts.length >= 2) shapes.push({ k: "poly", pts, fill: col(q.fill), stroke: col(q.stroke), sw, closed: q.closed !== false }); }
+          else if (q?.k === "path" && typeof q.d === "string" && /^[MmLlHhVvCcSsQqTtAaZz0-9eE.,\s-]+$/.test(q.d) && q.d.length < 600) shapes.push({ k: "path", d: q.d, fill: col(q.fill), stroke: col(q.stroke), sw });
+          else if (q?.k === "text" && typeof q.s === "string") shapes.push({ k: "text", x: n(q.x), y: n(q.y), s: q.s.slice(0, 60), size: Math.min(12, Math.max(1.5, n(q.size, 4))), color: col(q.color), anchor: q.anchor === "middle" || q.anchor === "end" ? q.anchor : "start", italic: q.italic === true });
+          else if (q?.k === "tex" && typeof q.tex === "string") shapes.push({ k: "tex", x: n(q.x), y: n(q.y), tex: q.tex.slice(0, 120), size: Math.min(12, Math.max(2, n(q.size, 5))), color: col(q.color) });
+        }
+        if (shapes.length) items.push({ t: "draw", id: typeof it.id === "string" ? it.id.slice(0, 16) : "d", title: typeof it.title === "string" ? it.title.slice(0, 40) : undefined, replace: it.replace === true, shapes });
+      } else if (it?.t === "map" && Array.isArray(it.points)) {
         const points = arr<any>(it.points).filter((q) => typeof q?.id === "string" && typeof q?.name === "string" && num(q?.x) !== undefined && num(q?.y) !== undefined).slice(0, 14).map((q) => ({ id: q.id.slice(0, 20), name: q.name.slice(0, 22), x: Math.min(100, Math.max(0, Number(q.x))), y: Math.min(100, Math.max(0, Number(q.y))) }));
         if (points.length) items.push({ t: "map", title: typeof it.title === "string" ? it.title.slice(0, 40) : undefined, points, route: arr<any>(it.route).map(String).filter((id) => points.some((q) => q.id === id)).slice(0, 20) });
       } else if (it?.t === "tree" && Array.isArray(it.nodes)) {
@@ -294,6 +321,7 @@ export function validateChunk(raw: unknown, first: number, last: number, prior: 
     scenes[i - 1].to = scenes[i].from - 1;
   }
   scenes[scenes.length - 1].to = last;
+  for (const sc of scenes) if (sc.kind === "board" && !sc.board) sc.kind = "abstract"; // (a board that did not survive validation is no board)
   const kept = scenes.filter((s) => s.from <= s.to);
   if (!kept.length) throw new Error("no scene survived range repair");
   return { scenes: kept, bible };
