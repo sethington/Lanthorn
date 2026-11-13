@@ -2,7 +2,7 @@
 
 import { strFromU8, unzipSync } from "fflate";
 import { type Book, type Chapter, MAX_IMPORT_BYTES, makeBook, makeChapter } from "../book";
-import { leafBlocks, norm, parseDoc } from "./dom";
+import { leafBlocks, norm, parseDoc, plain } from "./dom";
 
 const MAX_ENTRIES = 6000;
 const MAX_ENTRY_BYTES = 25 * 1024 * 1024;
@@ -84,9 +84,9 @@ export function importEpub(bytes: Uint8Array, filename: string): Book {
     const doc = parseDoc(markup);
     const body = doc.body ?? doc.documentElement;
     const blocks = leafBlocks(body);
-    const heading = norm(blocks.find((b) => /^h[1-6]$/i.test(b.tagName))?.textContent ?? "");
+    const heading = norm(plain(blocks.find((b) => /^h[1-6]$/i.test(b.tagName)) ?? ({ nodeType: 0 } as any)));
     const chTitle = toc.get(path) || heading || "";
-    let paras = blocks.map((b) => norm(b.textContent ?? "")).filter(Boolean);
+    let paras = blocks.map((b) => norm(plain(b))).filter(Boolean);
     if (paras[0] && (paras[0] === heading || paras[0] === chTitle)) paras = paras.slice(1); // the heading is shown separately
     const body_ = paras.join("\n\n");
     if (body_.length < 300 || FRONT.test(chTitle)) continue; // cover, title page, contents, copyright…

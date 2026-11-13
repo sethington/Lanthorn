@@ -2,7 +2,7 @@
 
 import { Readability } from "@mozilla/readability";
 import { type Book, type Chapter, makeBook, makeChapter } from "../book";
-import { leafBlocks, norm } from "./dom";
+import { leafBlocks, norm, plain } from "./dom";
 
 export function importHtml(html: string, ref: string, kind: "html" | "url" = "html", baseUrl?: string): Book {
   const doc = new DOMParser().parseFromString(html, "text/html");
@@ -25,7 +25,7 @@ export function importHtml(html: string, ref: string, kind: "html" | "url" = "ht
     let cur: { title: string; paras: string[] } = { title, paras: [] };
     const flush = () => { if (cur.paras.join(" ").length > 200) chapters.push(makeChapter(chapters.length, cur.title, cur.paras.join("\n\n"))); };
     for (const b of blocks) {
-      const t = norm(b.textContent ?? "");
+      const t = norm(plain(b));
       if (!t) continue;
       if (b.tagName === "H2") { flush(); cur = { title: t, paras: [] }; }
       else cur.paras.push(t);
@@ -33,7 +33,7 @@ export function importHtml(html: string, ref: string, kind: "html" | "url" = "ht
     flush();
   }
   if (!chapters.length) {
-    const paras = blocks.map((b) => norm(b.textContent ?? "")).filter(Boolean);
+    const paras = blocks.map((b) => norm(plain(b))).filter(Boolean);
     if (paras.join(" ").length < 200) throw new Error("That page doesn't have enough text to read.");
     chapters.push(makeChapter(0, title, paras.join("\n\n")));
   }
