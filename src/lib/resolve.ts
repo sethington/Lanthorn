@@ -28,7 +28,7 @@ export type Fig = {
   walk: [number, number, number, number] | null; // x0, z0, x1, z1 over the scene
   scale: number;
   /** what they wear and look like, from the book's own description of them */
-  look?: { coat: string; vest: string; trou: string; boot: string; hair: string; skin: string; old: boolean; beard?: boolean };
+  look?: { coat: string; vest: string; trou: string; boot: string; hair: string; skin: string; old: boolean; beard?: boolean; robe?: boolean; headcloth?: string };
   /** what this character does, in the world's 0..1 progress: sit, stand, crouch, walk_to (with a target), reach, use_lever, gesture, look_at, turn */
   acts?: { p0: number; p1: number; do: string; tx?: number; tz?: number }[];
 };
@@ -233,13 +233,16 @@ export function personLook(ref: string, desc: string, rnd: () => number): { body
   const pick = <T,>(a: T[]) => a[Math.floor(rnd() * a.length)];
   const cloth = nearby(/\b(coat|jacket|dress|robe|suit|uniform|gown|cloak|tunic|shirt|clothes|clothing|garb|attire|cassock|frock)\b/)
     ?? pick(body === "woman" ? ["#7a5590", "#5b6f58", "#7f3f45", "#3f4f6b", "#6d5a4a", "#2f3037"] : ["#6a5340", "#3f4a58", "#4a4a50", "#5a6048", "#5d4a3a", "#2e3036"]);
+  // dress of the ancient world: a long robe to the ankle, a cloth over the head (shepherds, patriarchs, prophets, veiled women)
+  const robe = /\b(robe|robes|robed|tunic|mantle|garment|garments|sackcloth|shepherd|prophet|patriarch|apostle|disciple|rabbi|pharaoh|psalmist|levite|nazarite|sandals|sandaled|biblical|ancient|toga|caftan|kaftan|djellaba|burnous)\b/.test(t) && !/\b(coat|jacket|waistcoat|trousers|uniform|suit|breeches)\b/.test(t);
+  const veil = /\b(veil|veiled|headcloth|head-cloth|turban|headdress|keffiyeh|kaffiyeh|head covering|shawl over)\b/.test(t) || (robe && /\b(shepherd|patriarch|nomad|prophet)\b/.test(t));
   const hairWord = /(black|brown|blond|blonde|golden|flaxen|red|ginger|auburn|grey|gray|white|silver|dark)[- ]?(?:hair|haired|beard|bearded)/.exec(t)?.[1];
   const hairMap: Record<string, string> = { black: "#1f1b18", brown: "#4a3626", blond: "#c7a65a", blonde: "#c7a65a", golden: "#d6b45c", flaxen: "#d6b45c", red: "#8a3a22", ginger: "#a2481f", auburn: "#6e3320", grey: "#9a9a9a", gray: "#9a9a9a", white: "#e2e0da", silver: "#c4c4c4", dark: "#2a2220" };
   const hair = old && !hairWord ? "#b9b6b0" : hairMap[hairWord ?? ""] ?? pick(["#4a3626", "#2a2220", "#6a4a2e", "#8a6a3e", "#1f1b18"]);
   const skin = /\b(pale|fair|white-skinned)\b/.test(t) ? "#ecc9ad" : /\b(dark-skinned|black-skinned|dark skin|ebony)\b/.test(t) ? "#8a5a3c" : /\b(tanned|swarthy|olive|brown-skinned|sunburnt|weathered)\b/.test(t) ? "#c08e66" : pick(["#e8c39d", "#d7b08f", "#c99a73", "#e3bd9f", "#b98458", "#f0d2b3"]);
   return {
     body,
-    look: { coat: cloth, vest: mixHexC(cloth, "#d8cba8", 0.45), trou: body === "woman" ? cloth : mixHexC(cloth, "#2a2a2e", 0.55), boot: "#2a211b", hair, skin, old, ...(body === "man" && (/\b(beard|bearded|whisker|whiskers|unshaven|stubble|sailor|seaman|pirate|buccaneer|captain|bearded|sea-dog)\b/.test(t) || rnd() < 0.3) ? { beard: true } : {}) },
+    look: { coat: cloth, vest: mixHexC(cloth, "#d8cba8", 0.45), trou: body === "woman" ? cloth : mixHexC(cloth, "#2a2a2e", 0.55), boot: "#2a211b", hair, skin, old, ...(robe ? { robe: true } : {}), ...(veil ? { headcloth: mixHexC(cloth, "#e8e0cc", 0.55) } : {}), ...(body === "man" && (/\b(beard|bearded|whisker|whiskers|unshaven|stubble|sailor|seaman|pirate|buccaneer|captain|bearded|sea-dog)\b/.test(t) || rnd() < 0.3) ? { beard: true } : {}) },
   };
 }
 
@@ -902,7 +905,7 @@ export function assetsNeeded(r: Resolved): { kind: string; id: string; res: stri
 }
 
 /** Bump when runtime/scene.tsx changes in a way that alters frames, so cached renders are redone. */
-export const RUNTIME_VERSION = "rt90";
+export const RUNTIME_VERSION = "rt91";
 
 /** Cache key: changes whenever the resolved plan or the runtime does. */
 export function sceneKey(r: Resolved): string {

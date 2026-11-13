@@ -566,12 +566,19 @@ function Figure({ fig, f, p, leverA = 0 }: { fig: any; f: number; p: number; lev
     let skirt: any = null;
     {
       const hp = ((skinJoints(skel, annyPose(skel, P)) as any[]).find((j) => j.name === "spine05")?.pos ?? [0, 1, 0]) as V3;
+      const hj = ((skinJoints(skel, annyPose(skel, P)) as any[]).find((j) => j.name === "head")?.pos ?? [0, 1.55, 0.03]) as V3; // (the base of the skull)
       skirt = (
         <Entity transform={at(px, rootY, pz, rot(0, yawA)).withScale([sc, sc, sc])}>
-          <Mesh3d transform={at(hp[0], hp[1] - (woman ? 0.36 : eloi ? 0.2 : 0.2), hp[2] + 0.015)}>
-            <Cone radius={woman ? 0.4 : eloi ? 0.26 : 0.185} height={woman ? 0.92 : eloi ? 0.5 : 0.42} />
+          <Mesh3d transform={at(hp[0], fig.look?.robe && !woman ? 0.56 : hp[1] - (woman ? 0.36 : eloi ? 0.2 : 0.2), hp[2] + 0.015)}>
+            <Cone radius={woman ? 0.4 : eloi ? 0.26 : fig.look?.robe ? 0.27 : 0.185} height={woman ? 0.92 : eloi ? 0.5 : fig.look?.robe ? 1.12 : 0.42} />
             <StandardMaterial base_color={tint} perceptual_roughness={0.95} metallic={0} reflectance={0.08} />
           </Mesh3d>
+          {fig.look?.headcloth && (
+            <>
+              <Blob p={[hj[0], hj[1] + 0.145, hj[2] - 0.01]} r={[0.112, 0.088, 0.12]} c={fig.look.headcloth} rough={0.95} />
+              <Blob p={[hj[0], hj[1] + 0.02, hj[2] - 0.1]} r={[0.095, 0.17, 0.06]} c={fig.look.headcloth} rough={0.95} />
+            </>
+          )}
         </Entity>
       );
     }
