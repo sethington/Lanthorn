@@ -260,7 +260,7 @@ fn render_thread(rx: mpsc::Receiver<Msg>, layer: usize, pw: u32, ph: u32) {
     let mut live: Option<Live> = None;
     let mut cur_key = PathBuf::new();
     let mut parked: Vec<(PathBuf, Live)> = Vec::new();
-    let keep: usize = std::env::var("LANTHORN_WORLD_CACHE").ok().and_then(|v| v.parse().ok()).unwrap_or(1);
+    let keep: usize = std::env::var("LANTHORN_WORLD_CACHE").ok().and_then(|v| v.parse().ok()).unwrap_or(3);
     let mut input = Input::default();
     let (mut frame, mut fps, mut next) = (0i64, 30.0f64, Instant::now());
     loop {
@@ -269,7 +269,7 @@ fn render_thread(rx: mpsc::Receiver<Msg>, layer: usize, pw: u32, ph: u32) {
                 Ok(Msg::Quit) | Err(mpsc::TryRecvError::Disconnected) => return,
                 Ok(Msg::Load { js, dir, w, h }) => {
                     let _ = stage.set_transparent(false); // drops a drawable the window may be holding (a covered window never frees it)
-                    // a world loaded a moment ago comes straight back: the last few are kept (LANTHORN_WORLD_CACHE, 1 by default; 0 keeps none)
+                    // a world loaded a moment ago comes straight back: the last few are kept (LANTHORN_WORLD_CACHE, 3 by default; 0 keeps none)
                     if let Some(pos) = parked.iter().position(|(k, _)| *k == js) {
                         let (_, l) = parked.remove(pos);
                         if let Some(cur) = live.take() {
