@@ -105,7 +105,7 @@ export const LEGACY_PROMPT_VERSIONS = ["p1", "p2", "p3", "p4", "p5", "p6", "p7",
 
 export const SYSTEM = `Role: scene director for a book reader. Input: numbered sentences. Output: one JSON object, no prose, no code fence.
 Schema:
-{"bible":{"characters":[{"id":"snake_case","desc":"<=15 words, look only","kind":"person|animal|creature|presence"}],"locations":[{"id":"snake_case","desc":"<=15 words"}]},
+{"bible":{"characters":[{"id":"snake_case","desc":"<=15 words, look only; a person starts with man, woman, boy or girl","kind":"person|animal|creature|presence"}],"locations":[{"id":"snake_case","desc":"<=15 words"}]},
 "scenes":[{"id":"s<n>","from":<sentence id>,"to":<sentence id>,"visual":bool,
 "kind":"static|timelapse|motion|abstract|interior","location":"<location id>","interior":bool,
 "time":{"start":"dawn|morning|noon|afternoon|dusk|night","end":"<same set>","progression":"steady|accelerating|slowing"},

@@ -18,7 +18,7 @@ const TEXTURES = (catalog as any).textures as Tagged[];
 
 export type Placed = { id: string; file: string; pos: [number, number, number]; rotY: number; scale: number; label: string; parts?: import("./props").Part[] };
 type SkyRef = { id: string; file: string };
-export type Creature = { /** a real low-poly model of it (src/catalog/creatures.json), else it is built from the book's words */ model?: string; species: string; cls: "quad" | "bird"; size: number; body: string; belly: string; dark: string; ears: "long" | "round" | "point" | "floppy" | "none"; tail: "puff" | "long" | "bushy" | "short" | "none"; snout: "short" | "long" | "beak" | "flat"; dress?: string; legs: number };
+export type Creature = { /** a real low-poly model of it (src/catalog/creatures.json), else it is built from the book's words */ model?: string; species: string; cls: "quad" | "bird" | "snake"; size: number; body: string; belly: string; dark: string; ears: "long" | "round" | "point" | "floppy" | "none"; tail: "puff" | "long" | "bushy" | "short" | "none"; snout: "short" | "long" | "beak" | "flat"; dress?: string; legs: number };
 export type Fig = {
   ref: string;
   kind: "man" | "woman" | "eloi" | "generic" | "creature";
@@ -183,6 +183,7 @@ const mixHexC = (a: string, b: string, k: number) => {
 
 const SPECIES: [RegExp, Omit<Creature, "body" | "belly" | "dark" | "dress">, string][] = [
   // [words, build, usual colour]
+  [/\b(snake|snakes|serpent|serpents|viper|adder|cobra|asp|python)\b/, { species: "snake", cls: "snake", size: 1, ears: "none", tail: "none", snout: "short", legs: 0 }, "#6a7a3a"],
   [/\b(rabbit|rabbits|bunny|bunnies|hare)\b/, { species: "rabbit", cls: "quad", size: 0.4, ears: "long", tail: "puff", snout: "short", legs: 4 }, "#8a6a4a"],
   [/\b(cat|kitten|kitty|tabby)\b/, { species: "cat", cls: "quad", size: 0.45, ears: "point", tail: "long", snout: "short", legs: 4 }, "#7a6a5a"],
   [/\b(dog|puppy|hound|pup|spaniel|terrier)\b/, { species: "dog", cls: "quad", size: 0.7, ears: "floppy", tail: "long", snout: "long", legs: 4 }, "#8a6a40"],
@@ -280,7 +281,7 @@ export function personLook(ref: string, desc: string, rnd: () => number): { body
   const skin = /\b(pale|fair|white-skinned)\b/.test(t) ? "#ecc9ad" : /\b(dark-skinned|black-skinned|dark skin|ebony)\b/.test(t) ? "#8a5a3c" : /\b(tanned|swarthy|olive|brown-skinned|sunburnt|weathered)\b/.test(t) ? "#c08e66" : pick(["#e8c39d", "#d7b08f", "#c99a73", "#e3bd9f", "#b98458", "#f0d2b3"]);
   return {
     body,
-    look: { coat: cloth, vest: mixHexC(cloth, "#d8cba8", 0.45), trou: body === "woman" ? cloth : mixHexC(cloth, "#2a2a2e", 0.55), boot: "#2a211b", hair, skin, old, ...(robe ? { robe: true } : {}), ...(veil ? { headcloth: mixHexC(cloth, "#e8e0cc", 0.55) } : {}), ...(body === "man" && (/\b(beard|bearded|whisker|whiskers|unshaven|stubble|sailor|seaman|pirate|buccaneer|captain|bearded|sea-dog)\b/.test(t) || rnd() < 0.3) ? { beard: true } : {}) },
+    look: { coat: cloth, vest: mixHexC(cloth, "#d8cba8", 0.45), trou: body === "woman" ? cloth : mixHexC(cloth, "#2a2a2e", 0.55), boot: "#2a211b", hair, skin, old, ...(robe ? { robe: true } : {}), ...(veil ? { headcloth: mixHexC(cloth, "#e8e0cc", 0.55) } : {}), ...(body === "man" && (/\b(beard|bearded|whisker|whiskers|unshaven|stubble|sailor|seaman|pirate|buccaneer|captain|bearded|sea-dog|patriarch|prophet|elder|hermit|wizard|moses|noah|abraham|isaac|jacob)\b/.test(t) || (old && rnd() < 0.4)) ? { beard: true } : {}) },
   };
 }
 
@@ -715,7 +716,7 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
   const extraKind = new Map((opts.extra ?? []).map((e) => [e.what.toLowerCase(), e.kind]));
   for (const p of [...scene.props, ...(opts.extra ?? []).map((e) => e.what)]) {
     if (heroish.test(p.toLowerCase())) continue;
-    if (ENVIRONMENT.test(headWord(p))) continue; // a sea, the land, the sky, light, mist: the world itself, not an object to find in a catalogue
+    if (ENVIRONMENT.test(headWord(p)) && !/\b(beasts?|animals?|cattle|kine|herds?|flocks?)\b/.test(p.toLowerCase())) continue; // a sea, the land, the sky, light, mist: the world itself, not an object to find in a catalogue
     if (room) {
       const lp = p.toLowerCase();
       if ((room.fixtures ?? []).includes("hearth") && /fireplace|hearth|chimney|mantel|fire\b|firelight|embers|flames?/.test(lp)) continue; // the room has one built in
@@ -724,7 +725,7 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
     }
     // an animal named as a thing in the scene (cattle, a horse, the beasts of the field): the real model, a few of them if it is a herd, never a box
     if (!room && kind === "exterior") {
-      const hw = headWord(p);
+      const hw = /\b(cattle|kine)\b/.test(p.toLowerCase()) ? "cattle" : headWord(p);
       const generic = /\b(beast|beasts|animal|animals)\b/.test(p.toLowerCase());
       const pickSp = generic ? ["horse", "wolf", "zebra", "llama", "cow", "sheep"][Math.floor(r() * 6)] : hw;
       const cl = creatureLook(pickSp === hw ? p : pickSp, "", r);
@@ -1001,9 +1002,11 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
       // a path across the ground in front of the default camera, left to right or right to left
       const dir = sr() < 0.5 ? -1 : 1;
       // a four-legged one that has a real model crosses as that model (a generic "beast" is one of the field animals)
+      const birdM = type === "bird" ? (/eagle|hawk|vulture|falcon/.test(w) ? "eagle" : "bird") : null;
       const cl = type === "beast" ? creatureLook(/\b(beasts?|animals?)\b/.test(w) && !/horse|cow|dog|cat|wolf|fox|sheep|pig/.test(w) ? "beast" : w, w, sr) : null;
-      const bm = cl?.model ? (beasts as any)[cl.model] : null;
-      const model = bm ? { file: `creatures/${cl!.model}.glb`, scale: bm.scale * SIZE_OF(w), yaw: bm.yaw, clip: bm.walk ?? bm.idle ?? bm.any } : undefined;
+      const mname = birdM ?? cl?.model;
+      const bm = mname ? (beasts as any)[mname] : null;
+      const model = bm ? { file: `creatures/${mname}.glb`, scale: bm.scale * SIZE_OF(w) * (birdM ? 4 : 1), yaw: bm.yaw, clip: bm.walk ?? bm.idle ?? bm.any } : undefined;
       stage.push({ ...base, what: type, kind: w, az: fwdAz + dir * 0.0, items: [{ id: type, file: "", pos: [lookX + dir * -9, 0, 2.2 + sr() * 1.6], rotY: dir > 0 ? Math.PI / 2 : -Math.PI / 2, scale: 1, d: 0, ...(model ? { model } : {}) } as any] });
     } else if (cue.k === "dim") {
       stage.push({ ...base, az: fwdAz + 0.3, el: 38 });
@@ -1054,7 +1057,7 @@ export function assetsNeeded(r: Resolved): { kind: string; id: string; res: stri
 }
 
 /** Bump when runtime/scene.tsx changes in a way that alters frames, so cached renders are redone. */
-export const RUNTIME_VERSION = "rt110";
+export const RUNTIME_VERSION = "rt114";
 
 /** Cache key: changes whenever the resolved plan or the runtime does. */
 export function sceneKey(r: Resolved): string {

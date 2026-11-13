@@ -1445,6 +1445,14 @@ function Creature({ c, p, f }: { c: any; p: number; f: number }) {
   if (vis < 0.01 || p < c.p0 - 0.01 || p > c.p1 + 0.01) return null;
   const cr = creatureAt(c, q, f);
   const gait = Math.sin(f * 0.45);
+  if (c.what === "bird" && c.items[0]?.model) {
+    const mdl = c.items[0].model;
+    return (
+      <Entity transform={at(cr.x, cr.y, cr.z, rot(0, cr.yaw, 0))}>
+        <Model src={media(mdl.file)} rotation={[0, mdl.yaw, 0]} scale={mdl.scale * vis} animation={mdl.clip} time={(f / 30) * 1.6} loop />
+      </Entity>
+    );
+  }
   if (c.what === "butterfly" || c.what === "bird") {
     const flap = 0.55 + Math.sin(f * (c.what === "bird" ? 0.35 : 0.6)) * (c.what === "bird" ? 0.6 : 0.8); // wings held up in a V so they show from the side
     const col = c.what === "bird" ? "#2a2a33" : "#f4f1e8";

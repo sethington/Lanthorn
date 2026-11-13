@@ -58,7 +58,7 @@ export function parseRig(text: string): Rig | null {
 }
 
 // ---- the built-in builders (and the examples the model is shown)
-export type Traits = { cls: "quad" | "bird"; size: number; body: string; belly: string; dark: string; ears: string; tail: string; snout: string; dress?: string; species?: string };
+export type Traits = { cls: "quad" | "bird" | "snake"; size: number; body: string; belly: string; dark: string; ears: string; tail: string; snout: string; dress?: string; species?: string };
 const LEGS: Record<string, number> = { rabbit: 0.26, hedgehog: 0.14, mouse: 0.2, cat: 0.38, squirrel: 0.28, pig: 0.3, sheep: 0.48, bear: 0.45, dog: 0.5, fox: 0.45, wolf: 0.55, goat: 0.5, cow: 0.55, horse: 0.78, deer: 0.78, lion: 0.5, frog: 0.14 };
 export function rigFor(t: Traits): Rig {
   const s = t.size;
@@ -66,6 +66,18 @@ export function rigFor(t: Traits): Rig {
   const add = (id: string, parent: string | null, sh: RigPart["s"], d: number[], c: string, p: [number, number, number], o: Partial<RigPart> = {}) => P.push({ id, parent, s: sh, d, c, p: p.map((x) => +(x * s).toFixed(4)) as [number, number, number], ...o, o: (o.o ?? [0, 0, 0]).map((x) => +(x * s).toFixed(4)) as [number, number, number] });
   const R = (a: number[]) => a.map((x) => +(x * s).toFixed(4));
   const eye = (parent: string, x: number, y: number, z: number, r = 0.034) => { add(`${parent}_eye${x > 0 ? "R" : "L"}`, parent, "ell", R([r, r, r]), "#14100e", [x, y, z]); };
+  if (t.species === "snake") {
+    // a chain of segments that ripples (role seg): fat in the middle, thin at the tail, a flat head with eyes and a tongue
+    const N = 14;
+    for (let i = 0; i < N; i++) {
+      const w = 0.075 * Math.sin(Math.PI * (0.18 + 0.78 * (i / N))) + 0.02;
+      add(`s${i}`, i === 0 ? null : `s${i - 1}`, "ell", R([w, w * 0.9, 0.12]), i % 3 === 1 ? t.dark : t.body, i === 0 ? [0, 0.08, 0.9] : [0, 0, -0.15], { role: "seg" });
+    }
+    add("head", "s0", "ell", R([0.075, 0.055, 0.12]), t.body, [0, 0.01, 0.17], { role: "head" });
+    for (const sd of [-1, 1]) add(`eye${sd}`, "head", "ell", R([0.016, 0.016, 0.016]), "#e8c030", [sd * 0.055, 0.03, 0.07]);
+    add("tongue", "head", "ell", R([0.008, 0.004, 0.06]), "#b0303c", [0, -0.01, 0.18]);
+    return { parts: P, gait: "walk", height: s * 0.3 };
+  }
   if (t.cls === "bird") {
     add("body", null, "ell", R([0.2, 0.22, 0.3]), t.body, [0, 0.55, 0], { role: "body", r: [0.25, 0, 0] });
     add("belly", "body", "ell", R([0.16, 0.15, 0.22]), t.belly, [0, -0.08, 0.06]);
