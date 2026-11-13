@@ -337,7 +337,7 @@ function layoutFor(style: string, w: number, d: number): Slot[] {
       { ids: ["wooden_candlestick"], x: xr - 1.1, z: 2.0, y: 0.74, h: 0.22, label: "candle" },
       { ids: ["wine_barrel_01"], x: xr - 0.7, z: zb + 0.7, h: 0.9, label: "barrel" }, { ids: ["wine_barrel_01"], x: xr - 1.65, z: zb + 0.65, h: 0.9, label: "barrel" },
       { ids: ["wooden_crate_01"], x: xr - 0.6, z: zb + 1.6, h: 0.4, label: "crate", face: [0, 0] },
-      { ids: ["wooden_display_shelves_01"], x: -2.9, z: zb + 0.3, h: 1.7, face: [-2.9, 0], label: "shelf" },
+      { ids: ["wooden_bookshelf_worn"], x: -2.7, z: zb + 0.4, h: 1.9, face: [-2.7, 0], label: "shelf" },
       { ids: ["lantern_chandelier_01"], x: 0.9, z: zb + 1.3, y: -0.55, h: 0.88, label: "chandelier" },
     ];
     case "kitchen": return [
@@ -548,6 +548,8 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
   } else {
     // furnished for the kind of room it is
     assets.push(...furnishRoom(room, pkg.files));
+    // whoever is sat has something to sit on, right under them (without it the hips float at seat height)
+    for (const fg of figures) if (fg.pose === "seated" && !fg.onMachine) assets.push({ id: "proc:fx-stool", file: "", pos: [fg.x, 0, fg.z], rotY: 0, scale: 1, label: "stool", parts: furniture("stool", 0, 0, 0.46) });
   }
   // anything named that we couldn't place (and isn't part of the hero) is reported, not invented
   const heroish = /machine|lever|quartz|dial|saddle|traveller|rod/;
@@ -848,7 +850,7 @@ export function assetsNeeded(r: Resolved): { kind: string; id: string; res: stri
 }
 
 /** Bump when runtime/scene.tsx changes in a way that alters frames, so cached renders are redone. */
-export const RUNTIME_VERSION = "rt86";
+export const RUNTIME_VERSION = "rt87";
 
 /** Cache key: changes whenever the resolved plan or the runtime does. */
 export function sceneKey(r: Resolved): string {
