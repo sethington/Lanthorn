@@ -11,6 +11,7 @@ import { api } from "./lib/api";
 import { Player, buildTimeline, type Frame, type Timeline } from "./lib/director";
 import { makeProps } from "./lib/props";
 import { makeRig, type Rig } from "./lib/rigs";
+import { makeOutfit, type Outfit } from "./lib/outfits";
 import { makeRoom } from "./lib/roomspec";
 import { assetsNeeded, needsDesign, resolveScene, sceneKey, type Resolved } from "./lib/resolve";
 import type { Bible, Scene } from "./lib/scene";
@@ -190,6 +191,16 @@ function prepare(gi: number, full = true): Promise<Prep> {
         tLlm += performance.now() - tl1;
         if (Object.keys(procs).length) { procsMade = procs; r = resolveScene(whole, props.bible, { ...ropts, procs, roomSpec: r.room?.style === "custom" ? r.room : undefined }); }
       }
+      // what each person wears and carries: the model dresses them from the book's description (kept for later)
+      const people = r.figures.filter((g) => g.kind !== "creature" && !g.onMachine);
+      const outfits: Record<string, Outfit> = {};
+      if (people.length) {
+        const tl3 = performance.now();
+        const seen = new Set<string>();
+        await Promise.all(people.filter((g) => !seen.has(g.ref) && seen.add(g.ref)).map(async (g) => { const d = props.bible.characters.find((c) => c.id === g.ref)?.desc ?? ""; const o = await makeOutfit(g.ref, `${g.ref.replace(/_/g, " ")}, ${d}. Setting: ${whole.location.replace(/_/g, " ")}, ${props.bible.locations.find((l) => l.id === whole.location)?.desc ?? ""}`, !full); if (o) outfits[g.ref] = o; }));
+        tLlm += performance.now() - tl3;
+        if (Object.keys(outfits).length) r = resolveScene(whole, props.bible, { ...ropts, outfits, procs: procsMade, roomSpec: r.room?.style === "custom" ? r.room : undefined });
+      }
       // living things that are not people: the model draws each one for this book (a rabbit, a dragon, an angel), kept for later
       const creatures = r.figures.filter((g) => g.kind === "creature");
       if (creatures.length) {
@@ -197,7 +208,7 @@ function prepare(gi: number, full = true): Promise<Prep> {
         const rigs: Record<string, Rig> = {};
         await Promise.all(creatures.map(async (g) => { const d = props.bible.characters.find((c) => c.id === g.ref)?.desc ?? ""; const rg = await makeRig(g.ref, `${g.ref.replace(/_/g, " ")}, ${d}`, !full); if (rg) rigs[g.ref] = rg; }));
         tLlm += performance.now() - tl2;
-        if (Object.keys(rigs).length) r = resolveScene(whole, props.bible, { ...ropts, rigs, procs: procsMade, roomSpec: r.room?.style === "custom" ? r.room : undefined });
+        if (Object.keys(rigs).length) r = resolveScene(whole, props.bible, { ...ropts, rigs, outfits: Object.keys(outfits).length ? outfits : undefined, procs: procsMade, roomSpec: r.room?.style === "custom" ? r.room : undefined });
       }
       r.live = true;
       r.t0 = 0;

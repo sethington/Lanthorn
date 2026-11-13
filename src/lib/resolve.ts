@@ -7,6 +7,7 @@ import type { PackageAsset } from "./book";
 import type { Act, Bible, Cue, Scene, Shot } from "./scene";
 import { furniture, type FurnKind } from "./furniture";
 import { rigFor, type Rig } from "./rigs";
+import type { Outfit, OutfitItem } from "./outfits";
 
 type Model = { id: string; name: string; tags: string[]; cats: string[]; dims: number[]; poly: number };
 type Tagged = { id: string; name: string; tags: string[]; cats: string[] };
@@ -31,7 +32,7 @@ export type Fig = {
   walk: [number, number, number, number] | null; // x0, z0, x1, z1 over the scene
   scale: number;
   /** what they wear and look like, from the book's own description of them */
-  look?: { coat: string; vest: string; trou: string; boot: string; hair: string; skin: string; old: boolean; beard?: boolean; robe?: boolean; headcloth?: string };
+  look?: { coat: string; vest: string; trou: string; boot: string; hair: string; skin: string; old: boolean; beard?: boolean; robe?: boolean; headcloth?: string; /** written by the model: a skirt or gown, and what is worn or carried */ custom?: boolean; skirt?: { len: number; flare: number; c: string }; items?: OutfitItem[] };
   /** what this character does, in the world's 0..1 progress: sit, stand, crouch, walk_to (with a target), reach, use_lever, gesture, look_at, turn */
   acts?: { p0: number; p1: number; do: string; tx?: number; tz?: number }[];
 };
@@ -480,7 +481,7 @@ export function furnishRoom(room: RoomR | null, files: Map<string, string> = new
   return out;
 }
 
-export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number; size?: [number, number]; pkg?: PackageAsset[]; shots?: { shot: Shot; p0: number; p1: number }[]; stage?: { cue: Cue; p0: number; p1: number }[]; acting?: { act: Act; p0: number; p1: number }[]; style?: string; place?: "interior" | "exterior"; roomStyle?: string; roomSpec?: RoomR; seconds?: number; extra?: { kind: "prop" | "set"; what: string }[]; procs?: Record<string, import("./props").Part[]>; rigs?: Record<string, Rig> } = {}): Resolved {
+export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number; size?: [number, number]; pkg?: PackageAsset[]; shots?: { shot: Shot; p0: number; p1: number }[]; stage?: { cue: Cue; p0: number; p1: number }[]; acting?: { act: Act; p0: number; p1: number }[]; style?: string; place?: "interior" | "exterior"; roomStyle?: string; roomSpec?: RoomR; seconds?: number; extra?: { kind: "prop" | "set"; what: string }[]; procs?: Record<string, import("./props").Part[]>; rigs?: Record<string, Rig>; outfits?: Record<string, Outfit> } = {}): Resolved {
   const pkg = pkgModels(opts.pkg);
   const loc = bible.locations.find((l) => l.id === scene.location);
   const locText = `${scene.location} ${loc?.desc ?? ""}`;
@@ -546,6 +547,11 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
       continue;
     }
     const pl = personLook(sj.ref, bible.characters.find((c) => c.id === sj.ref)?.desc ?? "", rng(hash(`${sj.ref}:look`)));
+    const of = opts.outfits?.[sj.ref];
+    if (of) {
+      const L = pl.look;
+      pl.look = { ...L, coat: of.coat ?? L.coat, vest: of.vest ?? L.vest, trou: of.trousers ?? L.trou, boot: of.boots ?? L.boot, hair: of.hair ?? L.hair, skin: of.skin ?? L.skin, beard: of.beard ?? L.beard, old: of.old ?? L.old, robe: undefined, headcloth: undefined, custom: true, skirt: of.skirt, items: of.items };
+    }
     figures.push({
       ref: sj.ref,
       kind: pl.body === "kid" && kind !== "eloi" ? "eloi" : kind === "generic" ? (pl.body === "woman" ? "woman" : "man") : kind,
@@ -656,7 +662,19 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
 
   // the place itself is a building (an inn, a church, a castle...) when the scene is outdoors at it and no prop already stands for it
   if (kind === "exterior" && !assets.some((a) => a.id.startsWith("bld:"))) {
-    const bk = buildingKind(locText);
+    let bk = buildingKind(locText);
+    // the model designs the structures of this place for its period and setting; a plain house until it has (never a modern skyline unless the text says so)
+    if (bk && bk[0] !== "pyramid" && bk[0] !== "obelisk" && bk[0] !== "cyclopean") {
+      const phrase = `set: ${locText.replace(/\s+/g, " ").slice(0, 160)}`;
+      const made = opts.procs?.[phrase.toLowerCase()];
+      if (made) {
+        assets.push({ id: `proc:place-${hash(phrase) % 99999}`, file: "", pos: [(r() - 0.5) * 6 + 5, 0, -Math.max(10, bk[3] * 0.55)], rotY: -0.3 + (r() - 0.5) * 0.4, scale: 1, label: locText.slice(0, 24), parts: made });
+        bk = undefined;
+      } else {
+        unresolved.push(phrase);
+        if (bk[0] === "city" && !/skyscraper|skyline|metropolis|modern|neon|traffic/.test(locText)) bk = BUILDINGS.find((b) => b[0] === "house");
+      }
+    }
     if (bk) assets.push({ id: `bld:${bk[0]}`, file: "", pos: [(r() - 0.5) * 6 + 6, 0, -Math.max(9, bk[3] * 0.6)], rotY: -0.35 + (r() - 0.5) * 0.4, scale: bk[2] * 1.15, label: locText.slice(0, 24) });
   }
 
@@ -919,7 +937,7 @@ export function assetsNeeded(r: Resolved): { kind: string; id: string; res: stri
 }
 
 /** Bump when runtime/scene.tsx changes in a way that alters frames, so cached renders are redone. */
-export const RUNTIME_VERSION = "rt92";
+export const RUNTIME_VERSION = "rt94";
 
 /** Cache key: changes whenever the resolved plan or the runtime does. */
 export function sceneKey(r: Resolved): string {

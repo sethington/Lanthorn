@@ -7,7 +7,7 @@ const EXAMPLES = `Examples (follow their style and economy):
 Prop: tankard -> {"parts":[{"s":"cyl","p":[0,0.07,0],"d":[0.045,0.14],"c":"#8a8d91","m":1},{"s":"cyl","p":[0,0.145,0],"d":[0.04,0.01],"c":"#5a3a1a"},{"s":"box","p":[0.06,0.08,0],"d":[0.015,0.09,0.02],"c":"#8a8d91","m":1}]}
 Prop: ship's wheel -> {"parts":[{"s":"cyl","p":[0,1.0,0],"d":[0.38,0.05],"c":"#6a4a2a","r":[1.5708,0,0]},{"s":"cyl","p":[0,1.0,0],"d":[0.05,0.2],"c":"#c9953a","m":1,"r":[1.5708,0,0]},{"s":"cyl","p":[0,0.5,0],"d":[0.05,1.0],"c":"#4a3320"},{"s":"box","p":[0,0.03,0],"d":[0.5,0.06,0.3],"c":"#4a3320"}]}
 Set piece: lighthouse -> {"parts":[{"s":"cone","p":[0,6,0],"d":[3.2,12],"c":"#e8e4da"},{"s":"cyl","p":[0,12.4,0],"d":[2.0,0.8],"c":"#2a2a2e"},{"s":"cyl","p":[0,13.4,0],"d":[1.2,1.4],"c":"#fff0c0"},{"s":"cone","p":[0,14.6,0],"d":[1.6,1.2],"c":"#8a2a22"}]}`;
-const SYSTEM = (big: boolean) => `You build a simple 3D ${big ? "set piece (a structure or landmark, up to 30 m)" : "prop"} from basic shapes, in metres, standing on the ground. Reply with one JSON object only: {"parts":[...]} with 2 to 14 parts.
+export const propSystem = (big: boolean) => `You build a simple 3D ${big ? "set piece (a structure or landmark, up to 30 m)" : "prop"} from basic shapes, in metres, standing on the ground. Reply with one JSON object only: {"parts":[...]} with 2 to 14 parts.
 Each part: {"s":"box|cyl|sphere|cone","p":[x,y,z],"d":[...],"c":"#rrggbb","m":0 or 1,"r":[rx,ry,rz]}.
 p is the part's centre: x sideways, y up from the floor (0 = floor), z toward the viewer. d is the size: box [width,height,depth] (full lengths), cyl [radius,height], sphere [radius], cone [radius,height]. c is the colour. m is 1 for metal. r is an optional rotation in radians (a cylinder lying on its side is r [0,0,1.5708]).
 Make it recognisable and true to size (a tankard is 0.14 m tall, a telescope 0.7 m long, a counter 1.1 m high and 2.5 m wide). Use a few well-placed parts, not many tiny ones. Use period-appropriate materials and colours.\n${EXAMPLES}`;
@@ -38,13 +38,14 @@ export function parseParts(text: string, big = false): Part[] | null {
 export async function makeProps(phrases: string[], kinds: Record<string, "prop" | "set"> = {}, cacheOnly = false): Promise<Record<string, Part[]>> {
   const out: Record<string, Part[]> = {};
   await Promise.all(phrases.slice(0, 3).map(async (ph) => {
-    const big = kinds[ph.toLowerCase()] === "set";
-    const key = `${big ? "set-" : ""}${ph.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 60)}`;
+    const big = ph.startsWith("set: ") || kinds[ph.toLowerCase()] === "set";
+    const what = ph.replace(/^set:\s*/, "");
+    const key = `${big ? "set-" : ""}${what.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 60)}`;
     try {
       const hit = await api.cacheGet("prop", key);
       if (hit) { const p = parseParts(hit, big); if (p) { out[ph.toLowerCase()] = p; return; } }
       if (cacheOnly) return;
-      const c = await api.llmComplete("scan", SYSTEM(big), `${big ? "Set piece" : "Prop"}: ${ph}`);
+      const c = await api.llmComplete("scan", propSystem(big), `${big ? "Set piece" : "Prop"}: ${what}${big ? ". Build what belongs in this place and period (its own architecture and materials), never a modern building unless the text says so. A cluster of 3-8 buildings or one great structure." : ""}`);
       const p = parseParts(c.text, big);
       if (p) { out[ph.toLowerCase()] = p; await api.cachePut("prop", key, c.text); }
     } catch { /* no model routed, or it failed: the prop stays out */ }

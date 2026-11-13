@@ -525,10 +525,39 @@ function Figure({ fig, f, p, leverA = 0 }: { fig: any; f: number; p: number; lev
       const hj = ((skinJoints(skel, annyPose(skel, P)) as any[]).find((j) => j.name === "head")?.pos ?? [0, 1.55, 0.03]) as V3; // (the base of the skull)
       skirt = (
         <Entity transform={at(px, rootY, pz, rot(0, yawA)).withScale([sc, sc, sc])}>
-          <Mesh3d transform={at(hp[0], fig.look?.robe && !woman ? 0.56 : hp[1] - (woman ? 0.36 : eloi ? 0.2 : 0.2), hp[2] + 0.015)}>
-            <Cone radius={woman ? 0.4 : eloi ? 0.26 : fig.look?.robe ? 0.27 : 0.185} height={woman ? 0.92 : eloi ? 0.5 : fig.look?.robe ? 1.12 : 0.42} />
-            <StandardMaterial base_color={tint} perceptual_roughness={0.95} metallic={0} reflectance={0.08} />
-          </Mesh3d>
+          {(() => {
+            const sk = fig.look?.skirt;
+            if (fig.look?.custom && !sk) return null; // dressed in trousers: no skirt
+            const bottom = sk ? Math.max(0.02, 1.0 - sk.len) : 0;
+            const cy = sk ? (bottom + 1.12) / 2 : fig.look?.robe && !woman ? 0.56 : hp[1] - (woman ? 0.36 : eloi ? 0.2 : 0.2);
+            const cr = sk ? sk.flare : woman ? 0.4 : eloi ? 0.26 : fig.look?.robe ? 0.27 : 0.185;
+            const ch = sk ? 1.12 - bottom : woman ? 0.92 : eloi ? 0.5 : fig.look?.robe ? 1.12 : 0.42;
+            return (
+              <Mesh3d transform={at(hp[0], cy, hp[2] + 0.015)}>
+                <Cone radius={cr} height={ch} />
+                <StandardMaterial base_color={sk?.c ?? tint} perceptual_roughness={0.95} metallic={0} reflectance={0.08} />
+              </Mesh3d>
+            );
+          })()}
+          {(fig.look?.items ?? []).map((it: any, n: number) => {
+            const JN: Record<string, string> = { head: "head", chest: "spine01", hips: "spine05", back: "spine02", hand_r: "wrist.R", hand_l: "wrist.L", feet: "foot.R" };
+            const jt = (skinJoints(skel, annyPose(skel, P)) as any[]).find((j) => j.name === JN[it.at]);
+            if (!jt) return null;
+            const r = it.r ?? [0, 0, 0];
+            const mat = <StandardMaterial base_color={it.c} perceptual_roughness={it.m ? 0.35 : 0.9} metallic={it.m ? 1 : 0} reflectance={0.08} />;
+            return (
+              <Entity key={`it${n}`} transform={at(jt.pos[0], jt.pos[1], jt.pos[2], jt.rot)}>
+                {it.s === "ell" ? (
+                  <Entity transform={at(it.p[0], it.p[1], it.p[2], rot(r[0], r[1], r[2])).withScale([it.d[0], it.d[1], it.d[2]])}><Mesh3d><Sphere radius={1} />{mat}</Mesh3d></Entity>
+                ) : (
+                  <Mesh3d transform={at(it.p[0], it.p[1], it.p[2], rot(r[0], r[1], r[2]))}>
+                    {it.s === "box" ? <Cuboid half_size={[it.d[0] / 2, it.d[1] / 2, it.d[2] / 2]} /> : it.s === "cyl" ? <Cylinder radius={it.d[0]} half_height={it.d[1] / 2} /> : <Cone radius={it.d[0]} height={it.d[1]} />}
+                    {mat}
+                  </Mesh3d>
+                )}
+              </Entity>
+            );
+          })}
           {fig.look?.headcloth && (
             <>
               <Blob p={[hj[0], hj[1] + 0.145, hj[2] - 0.01]} r={[0.112, 0.088, 0.12]} c={fig.look.headcloth} rough={0.95} />
