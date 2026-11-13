@@ -6,6 +6,7 @@ import catalog from "../catalog/polyhaven.json" with { type: "json" };
 import type { PackageAsset } from "./book";
 import type { Act, Bible, Cue, Scene, Shot } from "./scene";
 import { furniture, type FurnKind } from "./furniture";
+import { rigFor, type Rig } from "./rigs";
 
 type Model = { id: string; name: string; tags: string[]; cats: string[]; dims: number[]; poly: number };
 type Tagged = { id: string; name: string; tags: string[]; cats: string[] };
@@ -20,6 +21,8 @@ export type Fig = {
   kind: "man" | "woman" | "eloi" | "generic" | "creature";
   /** an animal, built from what the book says it is (species, colours, ears, tail, what it wears) */
   creature?: Creature;
+  /** how it is built and moves: written by the model for the book, or the built-in guess from its species */
+  rig?: Rig;
   pose: "seated" | "standing" | "walking" | "crouch";
   x: number;
   z: number;
@@ -215,6 +218,13 @@ export function creatureLook(ref: string, desc: string, rnd: () => number): Crea
   return { ...hit[1], size, body, belly: light ? "#f2eee4" : mixHexC(body, "#f2eee4", 0.55), dark: mixHexC(body, "#1a1612", 0.55), dress: wears ? dress ?? ["#3f5f9a", "#9a3f45", "#4a7a58", "#b08a3a"][Math.floor(rnd() * 4)] : undefined };
 }
 
+/** A living thing no species word names (a dragon, an angel, a ghost): a plain four-legged build in the colours the words give, until the model has drawn it. */
+function genericCreature(t: string): Creature {
+  const low = t.toLowerCase().replace(/_/g, " ");
+  let body = "#8a7a6a";
+  for (const [c, hex] of COLOURS) if (c.test(low)) { body = hex; break; }
+  return { species: "creature", cls: "quad", size: 0.8, ears: "point", tail: "long", snout: "short", legs: 4, body, belly: mixHexC(body, "#f2eee4", 0.45), dark: mixHexC(body, "#1a1612", 0.5) };
+}
 /** Who this is, from the book's description of them: which body, how old, what they wear. Seeded by name so the same person always looks the same. */
 export function personLook(ref: string, desc: string, rnd: () => number): { body: "man" | "woman" | "kid"; look: NonNullable<Fig["look"]> } {
   const t = `${ref.replace(/_/g, " ")} ${desc}`.toLowerCase();
@@ -470,7 +480,7 @@ export function furnishRoom(room: RoomR | null, files: Map<string, string> = new
   return out;
 }
 
-export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number; size?: [number, number]; pkg?: PackageAsset[]; shots?: { shot: Shot; p0: number; p1: number }[]; stage?: { cue: Cue; p0: number; p1: number }[]; acting?: { act: Act; p0: number; p1: number }[]; style?: string; place?: "interior" | "exterior"; roomStyle?: string; roomSpec?: RoomR; seconds?: number; extra?: { kind: "prop" | "set"; what: string }[]; procs?: Record<string, import("./props").Part[]> } = {}): Resolved {
+export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number; size?: [number, number]; pkg?: PackageAsset[]; shots?: { shot: Shot; p0: number; p1: number }[]; stage?: { cue: Cue; p0: number; p1: number }[]; acting?: { act: Act; p0: number; p1: number }[]; style?: string; place?: "interior" | "exterior"; roomStyle?: string; roomSpec?: RoomR; seconds?: number; extra?: { kind: "prop" | "set"; what: string }[]; procs?: Record<string, import("./props").Part[]>; rigs?: Record<string, Rig> } = {}): Resolved {
   const pkg = pkgModels(opts.pkg);
   const loc = bible.locations.find((l) => l.id === scene.location);
   const locText = `${scene.location} ${loc?.desc ?? ""}`;
@@ -526,9 +536,13 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
     }
     const walk = pose === "walking" ? ([sx - 2.4, -1.4, sx + 2.4, -1.4] as [number, number, number, number]) : null;
     const cdesc = bible.characters.find((c) => c.id === sj.ref)?.desc ?? "";
-    const cr = creatureLook(sj.ref, cdesc, rng(hash(`${sj.ref}:look`)));
-    if (cr) {
-      figures.push({ ref: sj.ref, kind: "creature", creature: cr, pose: pose === "seated" || pose === "crouch" ? "standing" : pose, x: sx, z: 0.3, yaw: walk ? Math.PI / 2 : 0, onMachine: false, walk, scale: Math.max(0.3, cr.size * 0.9) });
+    const chr = bible.characters.find((c) => c.id === sj.ref);
+    // the analysis says what each character is; an older analysis without it is judged from the words
+    const nonPerson = chr?.kind ? chr.kind !== "person" : !!creatureLook(sj.ref, cdesc, rng(hash(`${sj.ref}:look`)));
+    if (nonPerson) {
+      const cr = creatureLook(sj.ref, cdesc, rng(hash(`${sj.ref}:look`))) ?? genericCreature(`${sj.ref} ${cdesc}`);
+      const rig = opts.rigs?.[sj.ref] ?? rigFor({ ...cr, ears: cr.ears, species: cr.species });
+      figures.push({ ref: sj.ref, kind: "creature", creature: cr, rig, pose: pose === "seated" || pose === "crouch" ? "standing" : pose, x: sx, z: 0.3, yaw: walk ? Math.PI / 2 : 0, onMachine: false, walk, scale: Math.max(0.3, Math.min(1.6, rig.height * 0.6)) });
       continue;
     }
     const pl = personLook(sj.ref, bible.characters.find((c) => c.id === sj.ref)?.desc ?? "", rng(hash(`${sj.ref}:look`)));
@@ -905,7 +919,7 @@ export function assetsNeeded(r: Resolved): { kind: string; id: string; res: stri
 }
 
 /** Bump when runtime/scene.tsx changes in a way that alters frames, so cached renders are redone. */
-export const RUNTIME_VERSION = "rt91";
+export const RUNTIME_VERSION = "rt92";
 
 /** Cache key: changes whenever the resolved plan or the runtime does. */
 export function sceneKey(r: Resolved): string {

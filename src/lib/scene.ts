@@ -3,7 +3,7 @@
 
 import type { Sentence } from "./text";
 
-export type Character = { id: string; desc: string };
+export type Character = { id: string; desc: string; /** what it is: a person, an animal, or some other living thing (a dragon, an angel, a robot) */ kind?: "person" | "animal" | "creature" };
 export type Location = { id: string; desc: string };
 export type Bible = { characters: Character[]; locations: Location[] };
 
@@ -79,13 +79,13 @@ export const ACTS = ["walk_to", "sit", "stand", "reach", "use_lever", "look_at",
 export type Chunk = { scenes: Scene[]; bible: Bible };
 
 /** Bump when SYSTEM or the output contract changes, so cached model replies are not reused. */
-export const PROMPT_VERSION = "p5";
+export const PROMPT_VERSION = "p6";
 /** The previous contract, still readable: analyses made with it keep working (they are directed automatically). */
-export const LEGACY_PROMPT_VERSIONS = ["p1", "p2", "p3", "p4"];
+export const LEGACY_PROMPT_VERSIONS = ["p1", "p2", "p3", "p4", "p5"];
 
 export const SYSTEM = `Role: scene director for a book reader. Input: numbered sentences. Output: one JSON object, no prose, no code fence.
 Schema:
-{"bible":{"characters":[{"id":"snake_case","desc":"<=15 words, look only"}],"locations":[{"id":"snake_case","desc":"<=15 words"}]},
+{"bible":{"characters":[{"id":"snake_case","desc":"<=15 words, look only","kind":"person|animal|creature"}],"locations":[{"id":"snake_case","desc":"<=15 words"}]},
 "scenes":[{"id":"s<n>","from":<sentence id>,"to":<sentence id>,"visual":bool,
 "kind":"static|timelapse|motion|abstract|interior","location":"<location id>","interior":bool,
 "time":{"start":"dawn|morning|noon|afternoon|dusk|night","end":"<same set>","progression":"steady|accelerating|slowing"},
@@ -106,6 +106,7 @@ Rules:
 - Scenes contiguous, cover every given sentence, ordered, no overlap. New scene on location, time-jump, or mood change.
 - visual:false for dialogue/exposition with nothing to draw; keep other fields minimal.
 - kind timelapse: passage describes accelerated time. abstract: sensation/emotion, no concrete objects.
+- kind: person = a human; animal = a real animal (a rabbit, a horse, a wolf); creature = any other living or moving thing (a dragon, an angel, a ghost, a robot, a talking teapot). Anything that is not a human gets animal or creature, so it is drawn as itself.
 - Ids reuse bible entries. Add new characters/locations only when first seen. Describe look, never plot.
 - beats/spots anchor to sentence ids inside the scene. Only what the text states or directly implies.
 - Direct it like a film. shots: first shot at scene.from establishes (wide); new shot every 2-5 sentences or on a change of focus; close on dialogue/emotion; into:fade only across time jumps, dissolve for soft changes, else cut.
@@ -228,7 +229,7 @@ export function validateChunk(raw: unknown, first: number, last: number, prior: 
     locations: [...prior.locations],
   };
   for (const c of arr<Character>(r.bible?.characters)) {
-    if (c?.id && !bible.characters.some((x) => x.id === c.id)) bible.characters.push({ id: str(c.id), desc: str(c.desc) });
+    if (c?.id && !bible.characters.some((x) => x.id === c.id)) bible.characters.push({ id: str(c.id), desc: str(c.desc), ...(c.kind === "animal" || c.kind === "creature" || c.kind === "person" ? { kind: c.kind } : {}) });
   }
   for (const l of arr<Location>(r.bible?.locations)) {
     if (l?.id && !bible.locations.some((x) => x.id === l.id)) bible.locations.push({ id: str(l.id), desc: str(l.desc) });

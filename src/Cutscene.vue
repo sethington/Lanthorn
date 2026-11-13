@@ -10,6 +10,7 @@ import Board from "./Board.vue";
 import { api } from "./lib/api";
 import { Player, buildTimeline, type Frame, type Timeline } from "./lib/director";
 import { makeProps } from "./lib/props";
+import { makeRig, type Rig } from "./lib/rigs";
 import { makeRoom } from "./lib/roomspec";
 import { assetsNeeded, needsDesign, resolveScene, sceneKey, type Resolved } from "./lib/resolve";
 import type { Bible, Scene } from "./lib/scene";
@@ -166,6 +167,7 @@ function prepare(gi: number, full = true): Promise<Prep> {
     p = (async () => {
       const T0 = performance.now();
       let tLlm = 0;
+      let procsMade: Record<string, any> | undefined;
       let r: Resolved = resolveScene(whole, props.bible, ropts);
       const tResolve = performance.now() - T0;
       // no recipe fits this place (or the judge named one in its own words): the language model designs the room
@@ -186,7 +188,16 @@ function prepare(gi: number, full = true): Promise<Prep> {
         const tl1 = performance.now();
         const procs = await makeProps(missing, Object.fromEntries(madeFor(key0).map((q) => [q.what.toLowerCase(), q.kind])), !full);
         tLlm += performance.now() - tl1;
-        if (Object.keys(procs).length) r = resolveScene(whole, props.bible, { ...ropts, procs, roomSpec: r.room?.style === "custom" ? r.room : undefined });
+        if (Object.keys(procs).length) { procsMade = procs; r = resolveScene(whole, props.bible, { ...ropts, procs, roomSpec: r.room?.style === "custom" ? r.room : undefined }); }
+      }
+      // living things that are not people: the model draws each one for this book (a rabbit, a dragon, an angel), kept for later
+      const creatures = r.figures.filter((g) => g.kind === "creature");
+      if (creatures.length) {
+        const tl2 = performance.now();
+        const rigs: Record<string, Rig> = {};
+        await Promise.all(creatures.map(async (g) => { const d = props.bible.characters.find((c) => c.id === g.ref)?.desc ?? ""; const rg = await makeRig(g.ref, `${g.ref.replace(/_/g, " ")}, ${d}`, !full); if (rg) rigs[g.ref] = rg; }));
+        tLlm += performance.now() - tl2;
+        if (Object.keys(rigs).length) r = resolveScene(whole, props.bible, { ...ropts, rigs, procs: procsMade, roomSpec: r.room?.style === "custom" ? r.room : undefined });
       }
       r.live = true;
       r.t0 = 0;
