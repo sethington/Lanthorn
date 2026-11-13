@@ -289,7 +289,8 @@ const mainFile = (id: string) => {
   return `polyhaven/${id}/${id}_1k.gltf`;
 };
 
-function pickSky(time: string, weather: string, taken: Set<string>): { id: string; file: string } {
+function pickSky(time: string, weather: string, taken: Set<string>, words = ""): { id: string; file: string } {
+  const wantWords = words.toLowerCase().split(/[^a-z]+/).filter((w) => w.length > 3 && !/^(with|from|that|this|over|into|dark|light|like|heavy|thick|thin)$/.test(w));
   const night = time === "night";
   const dusk = time === "dawn" || time === "dusk";
   const grey = weather === "overcast" || weather === "rain" || weather === "storm" || weather === "fog";
@@ -304,6 +305,7 @@ function pickSky(time: string, weather: string, taken: Set<string>): { id: strin
     if (c.has("indoor") || c.has("studio")) s -= 10;
     if (c.has("urban")) s -= 2;
     if (night && c.has("artificial light")) s -= 1;
+    if (wantWords.length) { const hw = `${h.id} ${h.name} ${h.tags.join(" ")} ${h.cats.join(" ")}`.toLowerCase(); for (const w of wantWords) if (hw.includes(w)) s += 3; } // the text's own words for the sky
     if (s > 0 && (!best || s > best.s || (s === best.s && h.id < best.h.id))) best = { h, s };
   }
   const h = best?.h ?? HDRIS[0];
@@ -537,9 +539,10 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
   const bucket = (tm: string) => (tm === "night" ? "night" : tm === "dawn" ? "dawn" : tm === "dusk" ? "dusk" : "day");
   // indoors the sky only lights and reflects: an overcast one has no sun disc to glint off every surface (a clear one speckles)
   const skyWeather = kind === "interior" ? "overcast" : scene.weather;
-  const one = pickSky(t0, skyWeather, taken);
+  const skyWords = scene.atmosphere?.sky ?? "";
+  const one = pickSky(t0, skyWeather, taken, skyWords);
   const skyPool: Record<string, SkyRef> = { night: one, dawn: one, day: one, dusk: one };
-  if (moving) for (const b of ["night", "dawn", "day", "dusk"]) skyPool[b] = pickSky(b === "day" ? "noon" : b, skyWeather, taken);
+  if (moving) for (const b of ["night", "dawn", "day", "dusk"]) skyPool[b] = pickSky(b === "day" ? "noon" : b, skyWeather, taken, skyWords);
   else skyPool[bucket(t0)] = one;
   const cycles = scene.kind === "timelapse" ? (scene.time.progression === "accelerating" ? 3 : 2) : 0;
 
@@ -934,11 +937,11 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
     size: opts.size ?? [720, 900],
     interior: kind === "interior",
     sky: { night: skyPool.night, dawn: skyPool.dawn, day: skyPool.day, dusk: skyPool.dusk, intensity: grey ? 0.9 : t0 === "night" ? 0.7 : 0.6, rotation: (hash(scene.id) % 628) / 100 },
-    sun: { startElev: SUN_ELEV[t0] ?? 30, endElev: SUN_ELEV[t1] ?? 30, cycles, azimuth: -0.8 + r() * 1.6, color: SUN_COLOR[t0] ?? "#ffe9c9", strength: grey ? 0.35 : 1 },
+    sun: { startElev: SUN_ELEV[t0] ?? 30, endElev: SUN_ELEV[t1] ?? 30, cycles, azimuth: -0.8 + r() * 1.6, color: scene.atmosphere?.light ?? SUN_COLOR[t0] ?? "#ffe9c9", strength: grey ? 0.35 : 1 },
     ground,
     water,
     room,
-    fog: { color: grey ? "#8f98a3" : (FOG[t0] ?? "#c6d4e6"), density: grey ? 0.03 : kind === "interior" ? 0 : 0.012 },
+    fog: { color: scene.atmosphere?.fog ?? (grey ? "#8f98a3" : (FOG[t0] ?? "#c6d4e6")), density: kind === "interior" ? 0 : scene.atmosphere?.fogDensity ?? (grey ? 0.03 : 0.012) },
     assets,
     hero,
     figures,
@@ -969,7 +972,7 @@ export function assetsNeeded(r: Resolved): { kind: string; id: string; res: stri
 }
 
 /** Bump when runtime/scene.tsx changes in a way that alters frames, so cached renders are redone. */
-export const RUNTIME_VERSION = "rt95";
+export const RUNTIME_VERSION = "rt96";
 
 /** Cache key: changes whenever the resolved plan or the runtime does. */
 export function sceneKey(r: Resolved): string {

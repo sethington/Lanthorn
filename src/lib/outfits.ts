@@ -39,13 +39,13 @@ Examples:
 Description: Abram, a tall robed elder, grey beard, desert traveller with a staff -> {"coat":"#8a6a48","vest":"#b49a6a","trousers":"#6a5238","boots":"#4a3a2a","hair":"#c8c4bc","skin":"#b88a64","beard":true,"old":true,"skirt":{"len":1.0,"flare":0.28,"c":"#8a6a48"},"items":[{"at":"head","s":"ell","d":[0.115,0.09,0.12],"c":"#d8cdb0","p":[0,0.16,-0.01]},{"at":"head","s":"ell","d":[0.095,0.17,0.06],"c":"#d8cdb0","p":[0,0.02,-0.1]},{"at":"hand_r","s":"cyl","d":[0.022,1.7],"c":"#5a4128","p":[0,0.1,0]},{"at":"hips","s":"box","d":[0.34,0.05,0.2],"c":"#4a3320","p":[0,0,0]}]}
 Description: Captain Flint, a sea captain in a blue coat and tricorn hat, with a cutlass -> {"coat":"#2f3f6a","vest":"#c8b88a","trousers":"#cfc8b0","boots":"#2a211b","hair":"#3a2a1c","skin":"#c99a7a","skirt":{"len":0.45,"flare":0.22,"c":"#2f3f6a"},"items":[{"at":"head","s":"cyl","d":[0.17,0.07],"c":"#1f1f26","p":[0,0.16,0.02]},{"at":"head","s":"cone","d":[0.13,0.08],"c":"#1f1f26","p":[0,0.2,0.02]},{"at":"hips","s":"box","d":[0.05,0.05,0.85],"c":"#b0b4bc","p":[0.17,-0.05,0.0],"r":[1.2,0,0],"m":1},{"at":"hips","s":"box","d":[0.42,0.06,0.12],"c":"#3a2a1c","p":[0,0.02,0]}]}`;
 
-export async function makeOutfit(key: string, desc: string, cacheOnly = false): Promise<Outfit | null> {
+export async function makeOutfit(key: string, desc: string, cacheOnly = false, feedback?: string): Promise<Outfit | null> {
   const k = `${desc}`.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 90) || key;
   try {
-    const hit = await api.cacheGet("outfit", k);
+    const hit = feedback ? null : await api.cacheGet("outfit", k);
     if (hit) { const o = parseOutfit(hit); if (o) return o; }
     if (cacheOnly) return null;
-    const c = await api.llmComplete("scan", outfitSystem(), `Description: ${desc}`);
+    const c = await api.llmComplete("scan", outfitSystem(), `Description: ${desc}${feedback ? `\nA previous attempt was criticised: ${feedback}. Dress them again, fixing that.` : ""}`);
     const o = parseOutfit(c.text);
     if (o) await api.cachePut("outfit", k, c.text);
     return o;

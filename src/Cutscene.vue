@@ -17,7 +17,7 @@ import { assetsNeeded, needsDesign, resolveScene, sceneKey, type Resolved } from
 import type { Bible, Scene } from "./lib/scene";
 import type { PackageAsset } from "./lib/book";
 import type { Sentence } from "./lib/text";
-import { alreadyJudged, applyVerdict, budgetLeft, describeCue, brightFor, styleOf, aimFor, crowdFor, placeFor, madeFor, isDropped, judgeSettings, parseVerdict, RUBRIC, widenFor } from "./lib/judge";
+import { alreadyJudged, applyVerdict, budgetLeft, describeCue, brightFor, styleOf, aimFor, crowdFor, placeFor, madeFor, isDropped, takeRedo, judgeSettings, parseVerdict, RUBRIC, widenFor } from "./lib/judge";
 
 // `sid` is the sentence under the reading line, `frac` how far through it (0..1). The picture sits in the element matched by `host`.
 const props = defineProps<{ sentences: Sentence[]; scenes: Scene[]; bible: Bible; pkg?: PackageAsset[]; host: string; sid: number; frac: number; styleFor?: (s: Scene) => string | undefined; styleVer?: number }>();
@@ -197,7 +197,7 @@ function prepare(gi: number, full = true): Promise<Prep> {
       if (people.length) {
         const tl3 = performance.now();
         const seen = new Set<string>();
-        await Promise.all(people.filter((g) => !seen.has(g.ref) && seen.add(g.ref)).map(async (g) => { const d = props.bible.characters.find((c) => c.id === g.ref)?.desc ?? ""; const o = await makeOutfit(g.ref, `${g.ref.replace(/_/g, " ")}, ${d}`, !full); if (o) outfits[g.ref] = o; }));
+        await Promise.all(people.filter((g) => !seen.has(g.ref) && seen.add(g.ref)).map(async (g) => { const d = props.bible.characters.find((c) => c.id === g.ref)?.desc ?? ""; const o = await makeOutfit(g.ref, `${g.ref.replace(/_/g, " ")}, ${d}`, !full, full ? takeRedo("outfit", g.ref) : undefined); if (o) outfits[g.ref] = o; }));
         tLlm += performance.now() - tl3;
         if (Object.keys(outfits).length) r = resolveScene(whole, props.bible, { ...ropts, outfits, procs: procsMade, roomSpec: r.room?.style === "custom" ? r.room : undefined });
       }
@@ -206,7 +206,7 @@ function prepare(gi: number, full = true): Promise<Prep> {
       if (creatures.length) {
         const tl2 = performance.now();
         const rigs: Record<string, Rig> = {};
-        await Promise.all(creatures.map(async (g) => { const d = props.bible.characters.find((c) => c.id === g.ref)?.desc ?? ""; const rg = await makeRig(g.ref, `${g.ref.replace(/_/g, " ")}, ${d}`, !full); if (rg) rigs[g.ref] = rg; }));
+        await Promise.all(creatures.map(async (g) => { const d = props.bible.characters.find((c) => c.id === g.ref)?.desc ?? ""; const rg = await makeRig(g.ref, `${g.ref.replace(/_/g, " ")}, ${d}`, !full, full ? takeRedo("rig", g.ref) : undefined); if (rg) rigs[g.ref] = rg; }));
         tLlm += performance.now() - tl2;
         if (Object.keys(rigs).length) r = resolveScene(whole, props.bible, { ...ropts, rigs, outfits: Object.keys(outfits).length ? outfits : undefined, procs: procsMade, roomSpec: r.room?.style === "custom" ? r.room : undefined });
       }

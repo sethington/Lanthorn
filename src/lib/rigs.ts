@@ -129,13 +129,13 @@ Examples:
 Description: Peter, a small brown rabbit in a blue jacket -> ${EX_RABBIT}
 Description: a white duck -> ${EX_DUCK}`;
 /** A rig for this character (kept across books). Null when no model is routed or it fails: the caller falls back to the built-in. */
-export async function makeRig(key: string, desc: string, cacheOnly = false): Promise<Rig | null> {
+export async function makeRig(key: string, desc: string, cacheOnly = false, feedback?: string): Promise<Rig | null> {
   const k = `${desc}`.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 80) || key;
   try {
-    const hit = await api.cacheGet("rig", k);
+    const hit = feedback ? null : await api.cacheGet("rig", k);
     if (hit) { const r = parseRig(hit); if (r) return r; }
     if (cacheOnly) return null;
-    const c = await api.llmComplete("scan", rigSystem(), `Description: ${desc}`);
+    const c = await api.llmComplete("scan", rigSystem(), `Description: ${desc}${feedback ? `\nA previous attempt was criticised: ${feedback}. Design it again, fixing that: a clear, well-formed body with every part joined where it belongs.` : ""}`);
     const r = parseRig(c.text);
     if (r) await api.cachePut("rig", k, c.text);
     return r;

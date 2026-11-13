@@ -47,6 +47,8 @@ export type Scene = {
   props: string[];
   effects: string[];
   mood: string;
+  /** only when the text gives the sky or air a distinctive look (a blood-red dusk, an ash cloud, a golden haze, thick smog) */
+  atmosphere?: { sky?: string; fog?: string; fogDensity?: number; light?: string };
   camera: { framing: string; motion: string };
   beats: { at: number; action: string }[];
   audio: { bed: string; spots: { at: number; sound: string }[] };
@@ -97,9 +99,9 @@ export const ACTS = ["walk_to", "sit", "stand", "reach", "use_lever", "look_at",
 export type Chunk = { scenes: Scene[]; bible: Bible };
 
 /** Bump when SYSTEM or the output contract changes, so cached model replies are not reused. */
-export const PROMPT_VERSION = "p9";
+export const PROMPT_VERSION = "p10";
 /** The previous contract, still readable: analyses made with it keep working (they are directed automatically). */
-export const LEGACY_PROMPT_VERSIONS = ["p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8"];
+export const LEGACY_PROMPT_VERSIONS = ["p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8", "p9"];
 
 export const SYSTEM = `Role: scene director for a book reader. Input: numbered sentences. Output: one JSON object, no prose, no code fence.
 Schema:
@@ -110,6 +112,7 @@ Schema:
 "weather":"clear|overcast|rain|snow|fog|storm",
 "subjects":[{"ref":"<character id>","pose":"<=3 words","action":"<=4 words","position":"left|center|right|back|front"}],
 "props":["<=3 words each, max 8"],"effects":["<=3 words each, max 4"],"mood":"1-2 words",
+"atmosphere":{"sky":"<=8 words: how the sky and air look","fog":"#rrggbb","fogDensity":0-1,"light":"#rrggbb light colour"},
 "camera":{"framing":"wide|medium|close","motion":"static|push|pull|orbit|drift"},
 "beats":[{"at":<sentence id>,"action":"<=6 words, visible change"}],
 "audio":{"bed":"<=5 words ambient","spots":[{"at":<sentence id>,"sound":"<=4 words"}]},
@@ -126,6 +129,7 @@ Rules:
 - visual:false for dialogue/exposition with nothing to draw; keep other fields minimal.
 - kind timelapse: passage describes accelerated time. abstract: sensation/emotion, no concrete objects.
 - kind: person = a human; animal = a real animal (a rabbit, a horse, a wolf); creature = any other living or moving thing (a dragon, an angel, a ghost, a robot, a talking teapot). Anything that is not a human gets animal or creature, so it is drawn as itself.
+- atmosphere: ONLY when the text gives the sky or air a distinctive look (a blood-red dusk, ash clouds, green aurora, thick yellow smog, golden haze, a dust storm); say it plainly and choose the colours the text implies. Otherwise omit the whole field.
 - Ids reuse bible entries. Add new characters/locations only when first seen. Describe look, never plot.
 - beats/spots anchor to sentence ids inside the scene. Only what the text states or directly implies.
 - Direct it like a film. shots: first shot at scene.from establishes (wide); new shot every 2-5 sentences or on a change of focus; close on dialogue/emotion; into:fade only across time jumps, dissolve for soft changes, else cut.
@@ -213,6 +217,38 @@ function normShots(raw: any[], from: number, to: number): Shot[] {
   return shots;
 }
 
+/** Labels in a drawing that run into each other, or sit half on a box (the model's placement is approximate): each is moved the least distance to where it is clear, or wholly inside the box it belongs to. */
+type Box = { x0: number; y0: number; x1: number; y1: number };
+function textBox(q: DrawShape): Box | null {
+  if (q.k === "text") { const w = q.s.length * (q.size ?? 4) * 0.5, h = (q.size ?? 4); const x0 = q.anchor === "middle" ? q.x - w / 2 : q.anchor === "end" ? q.x - w : q.x; return { x0, x1: x0 + w, y0: q.y - h * 0.85, y1: q.y + h * 0.25 }; }
+  if (q.k === "tex") { const h = q.size ?? 5, w = Math.min(60, q.tex.length * h * 0.42); return { x0: q.x, x1: q.x + w, y0: q.y - h, y1: q.y + h * 0.8 }; }
+  return null;
+}
+const solidBox = (q: DrawShape): Box | null => (q.k === "rect" ? { x0: q.x, y0: q.y, x1: q.x + q.w, y1: q.y + q.h } : q.k === "circle" ? { x0: q.x - q.r, y0: q.y - q.r, x1: q.x + q.r, y1: q.y + q.r } : null);
+const hit = (a: Box, b: Box) => a.x0 < b.x1 && a.x1 > b.x0 && a.y0 < b.y1 && a.y1 > b.y0;
+const inside = (a: Box, b: Box) => a.x0 >= b.x0 - 0.3 && a.x1 <= b.x1 + 0.3 && a.y0 >= b.y0 - 0.3 && a.y1 <= b.y1 + 0.3;
+export function fixDraw(shapes: DrawShape[]): DrawShape[] {
+  const solids = shapes.map(solidBox).filter(Boolean) as Box[];
+  const placed: Box[] = [];
+  return shapes.map((q) => {
+    const b = textBox(q);
+    if (!b) return q;
+    const bad = (bb: Box) => solids.some((sb) => hit(bb, sb) && !inside(bb, sb)) || placed.some((pb) => hit(bb, pb)) || bb.x0 < -3 || bb.x1 > 103 || bb.y0 < -6 || bb.y1 > 72;
+    let best: { dx: number; dy: number } | null = null;
+    if (!bad(b)) best = { dx: 0, dy: 0 };
+    else for (const r of [1.5, 3, 4.5, 6, 8, 10]) {
+      for (const [ux, uy] of [[0, -1], [0, 1], [1, 0], [-1, 0], [1, -1], [-1, -1], [1, 1], [-1, 1]]) {
+        const dx = ux * r, dy = uy * r;
+        if (!bad({ x0: b.x0 + dx, x1: b.x1 + dx, y0: b.y0 + dy, y1: b.y1 + dy })) { best = { dx, dy }; break; }
+      }
+      if (best) break;
+    }
+    const d = best ?? { dx: 0, dy: 0 };
+    placed.push({ x0: b.x0 + d.dx, x1: b.x1 + d.dx, y0: b.y0 + d.dy, y1: b.y1 + d.dy });
+    return d.dx || d.dy ? { ...q, x: (q as any).x + d.dx, y: (q as any).y + d.dy } : q;
+  });
+}
+
 /** A board's steps, inside the scene, in order; an item that is not understood is left out. A board with nothing left is no board. */
 function normBoard(raw: any, from: number, to: number): Board | undefined {
   if (!raw || !Array.isArray(raw.steps)) return undefined;
@@ -239,7 +275,7 @@ function normBoard(raw: any, from: number, to: number): Board | undefined {
           else if (q?.k === "text" && typeof q.s === "string") shapes.push({ k: "text", x: n(q.x), y: n(q.y), s: q.s.slice(0, 60), size: Math.min(12, Math.max(1.5, n(q.size, 4))), color: col(q.color), anchor: q.anchor === "middle" || q.anchor === "end" ? q.anchor : "start", italic: q.italic === true });
           else if (q?.k === "tex" && typeof q.tex === "string") shapes.push({ k: "tex", x: n(q.x), y: n(q.y), tex: q.tex.slice(0, 120), size: Math.min(12, Math.max(2, n(q.size, 5))), color: col(q.color) });
         }
-        if (shapes.length) items.push({ t: "draw", id: typeof it.id === "string" ? it.id.slice(0, 16) : "d", title: typeof it.title === "string" ? it.title.slice(0, 40) : undefined, replace: it.replace === true, shapes });
+        if (shapes.length) items.push({ t: "draw", id: typeof it.id === "string" ? it.id.slice(0, 16) : "d", title: typeof it.title === "string" ? it.title.slice(0, 40) : undefined, replace: it.replace === true, shapes: fixDraw(shapes) });
       } else if (it?.t === "map" && Array.isArray(it.points)) {
         const points = arr<any>(it.points).filter((q) => typeof q?.id === "string" && typeof q?.name === "string" && num(q?.x) !== undefined && num(q?.y) !== undefined).slice(0, 14).map((q) => ({ id: q.id.slice(0, 20), name: q.name.slice(0, 22), x: Math.min(100, Math.max(0, Number(q.x))), y: Math.min(100, Math.max(0, Number(q.y))) }));
         if (points.length) items.push({ t: "map", title: typeof it.title === "string" ? it.title.slice(0, 40) : undefined, points, route: arr<any>(it.route).map(String).filter((id) => points.some((q) => q.id === id)).slice(0, 20) });
@@ -261,6 +297,13 @@ function normBoard(raw: any, from: number, to: number): Board | undefined {
   }
   steps.sort((a, b) => a.at - b.at);
   return steps.length ? { steps, ...(raw.inset === true ? { inset: true } : {}) } : undefined;
+}
+
+function normAtmosphere(a: any): Scene["atmosphere"] {
+  if (!a || typeof a !== "object") return undefined;
+  const hex = (v: any) => (typeof v === "string" && /^#[0-9a-fA-F]{6}$/.test(v) ? v : undefined);
+  const out = { sky: typeof a.sky === "string" && a.sky.trim() ? a.sky.trim().slice(0, 80) : undefined, fog: hex(a.fog), fogDensity: Number.isFinite(Number(a.fogDensity)) ? Math.min(0.1, Math.max(0, Number(a.fogDensity) * 0.1)) : undefined, light: hex(a.light) };
+  return out.sky || out.fog || out.light || out.fogDensity !== undefined ? out : undefined;
 }
 
 /** Validate against the chunk's sentence range; repair what's safe, throw on what isn't. */
@@ -300,6 +343,7 @@ export function validateChunk(raw: unknown, first: number, last: number, prior: 
       props: arr<string>(s.props).map(String).slice(0, 8),
       effects: arr<string>(s.effects).map(String).slice(0, 4),
       mood: str(s.mood),
+      atmosphere: normAtmosphere(s.atmosphere),
       camera: { framing: str(s.camera?.framing, "medium"), motion: str(s.camera?.motion, "static") },
       beats: arr<any>(s.beats).filter((b) => inRange(b?.at)).map((b) => ({ at: Number(b.at), action: str(b.action) })),
       audio: {
