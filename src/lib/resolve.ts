@@ -13,6 +13,7 @@ type Model = { id: string; name: string; tags: string[]; cats: string[]; dims: n
 type Tagged = { id: string; name: string; tags: string[]; cats: string[] };
 const MODELS = catalog.models as Model[];
 const HDRIS = catalog.hdris as Tagged[];
+const TEXTURES = (catalog as any).textures as Tagged[];
 
 export type Placed = { id: string; file: string; pos: [number, number, number]; rotY: number; scale: number; label: string; parts?: import("./props").Part[] };
 type SkyRef = { id: string; file: string };
@@ -367,6 +368,37 @@ export function roomFor(text: string, forced?: string): RoomR {
 }
 
 
+
+/** The ground this place stands on, chosen from the words of the place (sand for a desert, snow, cobbles, grass, mud, rock) among the catalogue's textures. */
+const TERRAIN: [RegExp, string[], number][] = [
+  [/\b(desert|dune|dunes|sahara|arid|sandy|sand|beach|shore|dust|dusty|wadi|oasis|canaan|mesopotamia|egypt)\b/, ["sand", "desert", "dune"], 3],
+  [/\b(snow|snowy|ice|icy|frozen|glacier|arctic|tundra|frost|winter)\b/, ["snow", "ice"], 3],
+  [/\b(cobble|cobbled|cobblestone|street|streets|pavement|lane|alley|square|market|plaza)\b/, ["cobblestone", "cobble", "pavement"], 3],
+  [/\b(road|highway|asphalt|tarmac|motorway)\b/, ["asphalt", "road"], 2],
+  [/\b(grass|meadow|lawn|pasture|field|fields|garden|green|hill|hills|prairie|moor|heath)\b/, ["grass", "meadow"], 2],
+  [/\b(mud|muddy|swamp|marsh|bog|fen|mire|quagmire)\b/, ["mud", "swamp"], 3],
+  [/\b(rock|rocky|cliff|crag|mountain|mountains|stone|scree|quarry|cave)\b/, ["rock", "stone", "cliff"], 2],
+  [/\b(gravel|path|track|trail|stony)\b/, ["gravel", "dirt"], 1],
+  [/\b(forest|wood|woods|woodland|jungle|leaves|undergrowth|copse|grove)\b/, ["forest", "leaves", "ground"], 2],
+  [/\b(farm|plough|ploughed|field of|crop|soil|earth|dirt)\b/, ["soil", "dirt", "ground"], 1],
+];
+function pickGround(text: string, fallback: string, seed: number): { id: string; tile: number } {
+  const t = text.toLowerCase();
+  const want: [string[], number][] = TERRAIN.filter(([re]) => re.test(t)).map(([, w, k]) => [w, k] as [string[], number]);
+  if (!want.length) return { id: fallback, tile: 2.5 };
+  let best: { id: string; s: number } | null = null;
+  for (const x of TEXTURES) {
+    if (!x.cats.some((c) => ["terrain", "floor", "ground", "outdoor", "natural", "road"].includes(c)) || x.cats.includes("indoor") || x.cats.includes("wall") || x.cats.includes("roofing") || x.cats.includes("wood")) continue;
+    const words = `${x.id} ${x.name} ${x.tags.join(" ")} ${x.cats.join(" ")}`.toLowerCase();
+    let sc = 0;
+    for (const [ws, k] of want) for (const w of ws) if (words.includes(w)) sc += k * (x.id.includes(w) ? 2 : 1);
+    if (x.cats.includes("aerial")) sc -= 6; // aerial photographs are too big and flat to walk on
+    if (sc > 0 && (!best || sc > best.s || (sc === best.s && ((hashStr(x.id) ^ seed) & 1)))) best = { id: x.id, s: sc };
+  }
+  return { id: best?.id ?? fallback, tile: 2.5 };
+}
+const hashStr = (s: string) => { let h = 5381; for (const c of s) h = ((h * 33) ^ c.charCodeAt(0)) >>> 0; return h; };
+
 /** What furnishes each kind of room: real models at real sizes, set against the walls and round the tables (x across, z back to front; the back wall is at -d/2).
  *  h is the height the model is scaled to (a table 0.78 m, a chair 0.92 m), y the height it stands at (on a table), face the spot it turns toward. */
 type Slot = { proc?: { kind: FurnKind; len?: number; wid?: number; h?: number }; ids: string[]; x: number; z: number; h?: number; y?: number; face?: [number, number]; label: string; rot?: number };
@@ -680,7 +712,7 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
 
   // ---- ground / room
   const gid = grey || /storm|hail|rain/.test(scene.weather) ? "brown_mud_leaves_01" : "forrest_ground_01";
-  const ground = kind === "exterior" ? { id: gid, tile: 2.5 } : null;
+  const ground = kind === "exterior" ? pickGround(`${locText} ${propText}`, gid, hash(`${scene.id}:ground`)) : null;
   // water: the sea, a lake, a shore. The land ends at a shoreline and the water runs on to the horizon.
   const wet = /\b(sea|seas|ocean|shore|shoreline|beach|waves?|tide|tides|surf|harbou?r|bay|lake|coast|swell|brine|strand|shoal|lagoon|estuary|river|water)\b/.test(sceneText + " " + (scene.weather ?? ""));
   const water: Resolved["water"] = kind === "exterior" && wet && !/\b(rain|raindrop)\b/.test(locText) ? {
@@ -937,7 +969,7 @@ export function assetsNeeded(r: Resolved): { kind: string; id: string; res: stri
 }
 
 /** Bump when runtime/scene.tsx changes in a way that alters frames, so cached renders are redone. */
-export const RUNTIME_VERSION = "rt94";
+export const RUNTIME_VERSION = "rt95";
 
 /** Cache key: changes whenever the resolved plan or the runtime does. */
 export function sceneKey(r: Resolved): string {
