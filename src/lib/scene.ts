@@ -283,7 +283,7 @@ function normBoard(raw: any, from: number, to: number): Board | undefined {
         const nodes = arr<any>(it.nodes).filter((q) => typeof q?.id === "string" && typeof q?.label === "string").slice(0, 30).map((q) => ({ id: q.id.slice(0, 20), label: q.label.slice(0, 24), parent: typeof q.parent === "string" ? q.parent : undefined }));
         if (nodes.length) items.push({ t: "tree", nodes: nodes.map((q) => ({ ...q, parent: q.parent && nodes.some((x) => x.id === q.parent && x.id !== q.id) ? q.parent : undefined })) });
       } else if (it?.t === "timeline" && Array.isArray(it.events)) {
-        const events = arr<any>(it.events).filter((q) => typeof q?.label === "string" && num(q?.at) !== undefined).slice(0, 12).map((q) => ({ label: q.label.slice(0, 26), at: Math.min(100, Math.max(0, Number(q.at))) })).sort((a, b) => a.at - b.at);
+        const events = arr<any>(it.events).filter((q) => typeof q?.label === "string" && num(q?.at) !== undefined).slice(0, 12).map((q) => ({ label: q.label.slice(0, 44), at: Math.min(100, Math.max(0, Number(q.at))) })).sort((a, b) => a.at - b.at);
         if (events.length) items.push({ t: "timeline", events, from: typeof it.from === "string" ? it.from.slice(0, 20) : undefined, to: typeof it.to === "string" ? it.to.slice(0, 20) : undefined });
       } else if (it?.t === "plot") {
         const x = pair(it.x);

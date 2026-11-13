@@ -84,15 +84,32 @@ export function importEpub(bytes: Uint8Array, filename: string): Book {
     const doc = parseDoc(markup);
     const body = doc.body ?? doc.documentElement;
     const blocks = leafBlocks(body);
-    const heading = norm(plain(blocks.find((b) => /^h[1-6]$/i.test(b.tagName)) ?? ({ nodeType: 0 } as any)));
-    const chTitle = toc.get(path) || heading || "";
-    let paras = blocks.map((b) => norm(plain(b))).filter(Boolean);
-    if (paras[0] && (paras[0] === heading || paras[0] === chTitle)) paras = paras.slice(1); // the heading is shown separately
-    const body_ = paras.join("\n\n");
-    if (body_.length < 300 || FRONT.test(chTitle)) continue; // cover, title page, contents, copyright…
-    // "IV. Time Travelling" -> number IV, title Time Travelling (same shape the text importer produces)
-    const m = chTitle.match(/^([IVXLC]+|\d{1,3})\.\s+(.+)$/);
-    chapters.push(makeChapter(chapters.length, m ? m[2] : chTitle || `Section ${chapters.length + 1}`, body_, m ? m[1] : undefined));
+    const isHead = (b: Element) => /^h[1-4]$/i.test(b.tagName);
+    const heads = blocks.filter((b) => isHead(b) && norm(plain(b)).length > 0 && norm(plain(b)).length < 90);
+    // a file that holds several chapters (each under its own heading) is several chapters: split it at the headings that have a chapter's worth of text under them
+    const spans: { title: string; blocks: Element[] }[] = [];
+    if (heads.length >= 2) {
+      let cur: { title: string; blocks: Element[] } | null = null;
+      for (const b of blocks) {
+        if (heads.includes(b)) { if (cur && !cur.blocks.length) cur.title += " " + norm(plain(b)); else { if (cur) spans.push(cur); cur = { title: norm(plain(b)), blocks: [] }; } } // (a numeral heading and the title under it are one heading)
+        else if (cur) cur.blocks.push(b);
+      }
+      if (cur) spans.push(cur);
+    }
+    const real = spans.filter((sp) => sp.blocks.map((b) => norm(plain(b))).join(" ").length >= 1200);
+    const parts = real.length >= 2 && real.length >= spans.length / 2 ? real : null;
+    const sets = parts ?? [{ title: toc.get(path) || norm(plain(blocks.find((b) => /^h[1-6]$/i.test(b.tagName)) ?? ({ nodeType: 0 } as any))) || "", blocks }];
+    for (const set of sets) {
+      let chTitle = set.title;
+      if (/ebook|project gutenberg|courtesy of|copyright|all rights reserved|license/i.test(chTitle) && chTitle.length > 25) chTitle = title; // boilerplate in the heading's place: the book's own title
+      let paras = set.blocks.map((b) => norm(plain(b))).filter(Boolean);
+      if (paras[0] && (paras[0] === chTitle || (!parts && paras[0] === set.title))) paras = paras.slice(1); // the heading is shown separately
+      const body_ = paras.join("\n\n");
+      if (body_.length < 300 || FRONT.test(chTitle)) continue; // cover, title page, contents, copyright…
+      // "IV. Time Travelling" -> number IV, title Time Travelling (same shape the text importer produces)
+      const m = chTitle.match(/^([IVXLC]+|\d{1,3})\.\s+(.+)$/);
+      chapters.push(makeChapter(chapters.length, m ? m[2] : chTitle || `Section ${chapters.length + 1}`, body_, m ? m[1] : undefined));
+    }
   }
   if (!chapters.length) throw new Error("No readable text found in this EPUB (it may be image-based or DRM-protected).");
   return makeBook({ title, author, source: { kind: "epub", ref: filename }, chapters });

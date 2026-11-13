@@ -71,7 +71,8 @@ const treeView = computed(() => {
 const timeView = computed(() => {
   if (latest.value?.kind !== "timeline") return null;
   const t = latest.value.item as BoardTimeline;
-  return { events: t.events.map((e, i) => ({ ...e, X: 40 + (e.at / 100) * (W - 80), up: i % 2 === 0 })), from: t.from, to: t.to };
+  const wrap = (label: string, n = 16) => { const words = label.split(" "); const out: string[] = []; let cur = ""; for (const w of words) { if (cur && (cur + " " + w).length > n) { out.push(cur); cur = w; } else cur = cur ? cur + " " + w : w; } if (cur) out.push(cur); return out.slice(0, 3); }; // (long labels go over two or three lines)
+  return { events: t.events.map((e, i) => ({ ...e, lines: wrap(e.label), X: 40 + (e.at / 100) * (W - 80), up: i % 2 === 0 })), from: t.from, to: t.to };
 });
 
 // a free drawing: the shapes of this drawing from every step so far (it builds up as the text does)
@@ -220,10 +221,10 @@ const drawing = computed(() => {
       <g v-for="(e, i) in timeView.events" :key="i">
         <line :x1="e.X" :x2="e.X" :y1="H / 2" :y2="H / 2 + (e.up ? -60 : 60)" class="edge" />
         <circle :cx="e.X" :cy="H / 2" r="6" class="town now" />
-        <text :x="e.X" :y="H / 2 + (e.up ? -68 : 80)" text-anchor="middle" class="townname">{{ e.label }}</text>
+        <text :x="e.X" :y="H / 2 + (e.up ? -68 - (e.lines.length - 1) * 18 : 80)" :text-anchor="e.X < 130 ? 'start' : e.X > W - 130 ? 'end' : 'middle'" class="townname"><tspan v-for="(ln, k) in e.lines" :key="k" :x="e.X < 130 ? Math.max(8, e.X - 20) : e.X > W - 130 ? Math.min(W - 8, e.X + 20) : e.X" :dy="k ? 18 : 0">{{ ln }}</tspan></text>
       </g>
-      <text v-if="timeView.from" x="40" :y="H / 2 + 28" class="maptitle">{{ timeView.from }}</text>
-      <text v-if="timeView.to" :x="W - 40" :y="H / 2 + 28" text-anchor="end" class="maptitle">{{ timeView.to }}</text>
+      <text v-if="timeView.from" x="12" :y="H / 2 + 128" class="maptitle">{{ timeView.from }}</text>
+      <text v-if="timeView.to" :x="W - 12" :y="H / 2 + 128" text-anchor="end" class="maptitle">{{ timeView.to }}</text>
     </svg>
     <div class="eqs" :class="{ tall: !drawing && !mapView && !treeView && !timeView && !drawView }">
       <div v-for="(e, i) in eqs" :key="stepIdx + ':' + i + e.tex" class="eq" :class="{ now: e.now, old: !e.now }" v-html="e.html" />
