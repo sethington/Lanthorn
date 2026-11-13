@@ -213,7 +213,7 @@ def dress(name):
         if name == "woman": hair = hair | (head & (z < eyes[2] - 0.03) & (y > neck_y - 0.12) & (np.hypot(x, z) < 0.13))
         if name == "man":
             # a man's hair is cropped: a higher hairline and the back and sides cut at the ear, not a bob down to the neck
-            hair = head & ((y > eyes[1] + 0.05 + arch) | ((z < eyes[2] - 0.085) & (y > eyes[1] - 0.005)))
+            hair = head & ((y > eyes[1] + 0.05 + arch) | ((z < eyes[2] - 0.085) & (y > eyes[1] - 0.005)) | ((ax > 0.06) & (z < 0.045) & (y > eyes[1] - 0.012)))  # (and over the temples)
         reg[hair] = 1
         if name == "man":
             # a beard region (jaw, chin, upper lip), painted in the skin's colour unless the character has one (scene.tsx: look.beard)
@@ -237,7 +237,9 @@ def dress(name):
         ex, ey, ez = np.abs(pts[:, 0]), pts[:, 1], pts[:, 2]
         eyes_band = (np.abs(ey - (eyes[1] + 0.012)) < 0.022) & (ex < 0.058)      # eyes and brows
         mouth_band = (np.abs(ey - (eyes[1] - 0.068)) < 0.011) & (ex < 0.028)
-        return (ez > 0.06) & (eyes_band | mouth_band)
+        face = (ez > 0.06) & (eyes_band | mouth_band)
+        wrist = (np.abs(np.abs(pts[:, 0]) - (wrist_x - 0.035)) < 0.025) & (ey > hips_y - 0.3) & (ey < neck_y)  # the cuff: the sleeve ends round the wrist
+        return face | wrist
     pos, nrm, uv, jt, wt, idx = refine(pos, nrm, uv, jt, wt, idx, classify, passes=int(os.environ.get("PASSES", "3")) + 1, force=face_zone, force_passes=1)
     cen = pos[idx].mean(axis=1)
     reg = classify(cen)
