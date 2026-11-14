@@ -25,7 +25,7 @@ export type RigPart = {
   phase?: number;
   m?: number;
 };
-export type Rig = { parts: RigPart[]; gait: "walk" | "hop" | "fly" | "slither" | "none"; height: number };
+export type Rig = { parts: RigPart[]; gait: "walk" | "hop" | "fly" | "slither" | "none"; height: number; /** the body's own height (a whale is long, not tall) */ body?: number };
 
 const num = (v: any, lo: number, hi: number, d: number) => { const x = Number(v); return Number.isFinite(x) ? Math.min(hi, Math.max(lo, x)) : d; };
 const v3 = (v: any, d: [number, number, number] = [0, 0, 0]): [number, number, number] => (Array.isArray(v) ? [num(v[0], -30, 30, d[0]), num(v[1], -30, 30, d[1]), num(v[2], -30, 30, d[2])] : d);

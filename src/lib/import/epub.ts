@@ -91,7 +91,7 @@ export function importEpub(bytes: Uint8Array, filename: string): Book {
     if (heads.length >= 2) {
       let cur: { title: string; blocks: Element[] } | null = null;
       for (const b of blocks) {
-        if (heads.includes(b)) { if (cur && !cur.blocks.length) cur.title += " " + norm(plain(b)); else { if (cur) spans.push(cur); cur = { title: norm(plain(b)), blocks: [] }; } } // (a numeral heading and the title under it are one heading)
+        if (heads.includes(b)) { if (cur && !cur.blocks.length && (cur.title.length < 12 || norm(plain(b)).length < 40) && !/[.!?:]$/.test(norm(plain(b)))) cur.title += " " + norm(plain(b)); else if (cur && !cur.blocks.length) cur.blocks.push(b); else { if (cur) spans.push(cur); cur = { title: norm(plain(b)), blocks: [] }; } } // (a numeral heading and the title under it are one heading)
         else if (cur) cur.blocks.push(b);
       }
       if (cur) spans.push(cur);
