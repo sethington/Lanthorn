@@ -17,7 +17,7 @@ import { assetsNeeded, needsDesign, resolveScene, sceneKey, type Resolved } from
 import type { Bible, Scene } from "./lib/scene";
 import type { PackageAsset } from "./lib/book";
 import type { Sentence } from "./lib/text";
-import { alreadyJudged, applyVerdict, budgetLeft, describeCue, brightFor, styleOf, aimFor, crowdFor, placeFor, madeFor, isDropped, takeRedo, takeRedoPeek, judgeSettings, parseVerdict, RUBRIC, widenFor } from "./lib/judge";
+import { alreadyJudged, applyVerdict, budgetLeft, describeCue, brightFor, styleOf, aimFor, crowdFor, placeFor, madeFor, isDropped, takeRedo, takeRedoPeek, frameFor, judgeSettings, parseVerdict, RUBRIC, widenFor } from "./lib/judge";
 
 // `sid` is the sentence under the reading line, `frac` how far through it (0..1). The picture sits in the element matched by `host`.
 const props = defineProps<{ sentences: Sentence[]; scenes: Scene[]; bible: Bible; pkg?: PackageAsset[]; host: string; sid: number; frac: number; styleFor?: (s: Scene) => string | undefined; styleVer?: number }>();
@@ -374,16 +374,16 @@ function step(now: number) {
     if (import.meta.env.DEV) (window as any).__lwN = { narr, shot: sh, shotp: f.shotProgress, gi: loaded, g0: loadedG?.t0, g1: loadedG?.t1 };
     // the judge's corrections for what is on screen now: a shot that was too tight, a cue that needed more room
     let widen = 0;
-    let bright = 0, aim = 0, crowd = 0;
+    let bright = 0, aim = 0, crowd = 0, frame = "";
     {
       const si = localOf(f.shot);
-      if (si !== undefined) { widen = widenFor(`${sig(loadedG)}|s${si}`); bright = brightFor(`${sig(loadedG)}|s${si}`); aim = aimFor(`${sig(loadedG)}|s${si}`); crowd = crowdFor(`${sig(loadedG)}|s${si}`); }
+      if (si !== undefined) { widen = widenFor(`${sig(loadedG)}|s${si}`); bright = brightFor(`${sig(loadedG)}|s${si}`); aim = aimFor(`${sig(loadedG)}|s${si}`); crowd = crowdFor(`${sig(loadedG)}|s${si}`); frame = frameFor(`${sig(loadedG)}|s${si}`) ?? ""; }
       for (const i of loadedG.scenes) for (const cue of props.scenes[i].stage ?? []) if (props.sid >= cue.at && props.sid <= cue.to) { widen = Math.max(widen, widenFor(cueKey(loadedG, cue))); bright = Math.max(bright, brightFor(cueKey(loadedG, cue))); }
     }
     if (ui.controlling) { widen = 0; aim = 0; } // the viewer has the camera: the people and the light stay as the judge left them, the framing is theirs
     api.worldCmd({
       cmd: "input",
-      keys: [...keys, ...(widen > 0.01 ? [`Widen:${widen.toFixed(2)}`] : []), ...(bright > 0.01 ? [`Bright:${bright.toFixed(2)}`] : []), ...(aim > 0.01 ? [`Aim:${aim.toFixed(2)}`] : []), ...(crowd > 0 ? [`Crowd:${crowd}`] : [])],
+      keys: [...keys, ...(widen > 0.01 ? [`Widen:${widen.toFixed(2)}`] : []), ...(bright > 0.01 ? [`Bright:${bright.toFixed(2)}`] : []), ...(aim > 0.01 ? [`Aim:${aim.toFixed(2)}`] : []), ...(crowd > 0 ? [`Crowd:${crowd}`] : []), ...(frame && !ui.controlling ? [`Frame:${frame}`] : [])],
       pointer: pointer ?? undefined,
       narrative: loadedG ? Math.min(1, Math.max(0, (tNow - loadedG.t0) / Math.max(0.001, loadedG.t1 - loadedG.t0))) : f.sceneProgress,
       shot: ui.controlling ? undefined : sh,

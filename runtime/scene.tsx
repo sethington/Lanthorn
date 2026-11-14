@@ -102,6 +102,7 @@ function stepWorld(s: World, input: FrameInput, _frame: number): World {
   brightS += (num("Bright:", 0) - brightS) * 0.06;
   aimS += (num("Aim:", 0) - aimS) * 0.06;
   crowdN = Math.round(num("Crowd:", 0));
+  { const fk = input.keys.find((x) => x.startsWith("Frame:")); if (fk) frameRef = fk.slice(6); frameS += ((fk ? 1 : 0) - frameS) * 0.06; }
   widenS += (num("Widen:", 0) - widenS) * 0.06; // the picture judge asks for a wider view when a shot is too tight
   const shotP = num("ShotP:", -1);
   const fade = clamp(num("Fade:", 0));
@@ -1323,6 +1324,8 @@ const bell = (q: number) => Math.sin(Math.PI * clamp(q));
 let aimS = 0; // the judge swings the lens onto the people (0..1), eased
 let crowdN = 0; // the judge asks for more people in the picture
 let brightS = 0; // the judge lifts a frame it found too dark (0..1), eased
+let frameS = 0; // the judge puts the camera on a character that was not in the picture (0..1), eased
+let frameRef = "";
 let widenS = 0; // how much extra room the camera is asked to give (0..1.5), eased
 const vsub = (a: V3, b: V3): V3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const vnorm = (a: V3): V3 => { const n = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / n, a[1] / n, a[2] / n]; };
@@ -1803,6 +1806,23 @@ function Scene() {
         const fwd = vnorm(vsub(lookS, camS));
         camS = [camS[0] - fwd[0] * b * 7 * a, camS[1] - fwd[1] * b * 7 * a, camS[2] - fwd[2] * b * 7 * a];
         fovS = fovS * (1 - 0.42 * b * a);
+      }
+    }
+    // the judge's request: this character was not in the picture, so the camera goes onto it, far enough back to take in its whole body
+    if (frameS > 0.01 && frameRef) {
+      const fg = (R.figures as any[]).find((x) => x.ref === frameRef) ?? (R.figures as any[]).find((x) => String(x.ref).includes(frameRef) || frameRef.includes(String(x.ref)));
+      if (fg) {
+        const cr = fg.kind === "creature";
+        const hgt = cr ? (fg.rig?.body ?? fg.rig?.height ?? 0.5) : 1.75 * (fg.scale ?? 1);
+        const ext = cr ? (fg.creature?.modelInfo ? (fg.rig?.height ?? 0.5) / 0.55 : (fg.rig?.height ?? 0.5) * 1.8) : 1.9 * (fg.scale ?? 1);
+        const tgt: V3 = [fg.x, Math.max(0.15, hgt * 0.55), fg.z];
+        const dist = Math.max(2.4, ext * 1.7);
+        const hx = camS[0] - tgt[0], hz = camS[2] - tgt[2], hd = Math.hypot(hx, hz) || 1;
+        const ux = Math.abs(hx) + Math.abs(hz) < 0.01 ? 0 : hx / hd, uz = Math.abs(hx) + Math.abs(hz) < 0.01 ? 1 : hz / hd;
+        let want: V3 = [tgt[0] + ux * dist, Math.max(0.9, tgt[1] + ext * 0.2), tgt[2] + uz * dist];
+        if (R.room) want = [Math.max(-R.room.w / 2 + 0.3, Math.min(R.room.w / 2 - 0.3, want[0])), Math.max(0.3, Math.min(R.room.h - 0.3, want[1])), Math.max(-R.room.d / 2 + 0.3, Math.min(R.room.d / 2 - 0.3, want[2]))];
+        camS = [mix(camS[0], want[0], frameS), mix(camS[1], want[1], frameS), mix(camS[2], want[2], frameS)];
+        lookS = [mix(lookS[0], tgt[0], frameS), mix(lookS[1], tgt[1], frameS), mix(lookS[2], tgt[2], frameS)];
       }
     }
     // the judge's request: a shot that was too tight is pulled back
