@@ -17,7 +17,7 @@ import { assetsNeeded, needsDesign, resolveScene, sceneKey, type Resolved } from
 import type { Bible, Scene } from "./lib/scene";
 import type { PackageAsset } from "./lib/book";
 import type { Sentence } from "./lib/text";
-import { alreadyJudged, applyVerdict, budgetLeft, describeCue, brightFor, styleOf, aimFor, crowdFor, placeFor, madeFor, isDropped, takeRedo, takeRedoPeek, frameFor, judgeSettings, parseVerdict, RUBRIC, widenFor } from "./lib/judge";
+import { alreadyJudged, applyVerdict, budgetLeft, describeCue, brightFor, styleOf, aimFor, crowdFor, placeFor, madeFor, isDropped, takeRedo, takeRedoPeek, frameFor, seedFor, judgeSettings, parseVerdict, RUBRIC, widenFor } from "./lib/judge";
 
 // `sid` is the sentence under the reading line, `frac` how far through it (0..1). The picture sits in the element matched by `host`.
 const props = defineProps<{ sentences: Sentence[]; scenes: Scene[]; bible: Bible; pkg?: PackageAsset[]; host: string; sid: number; frac: number; styleFor?: (s: Scene) => string | undefined; styleVer?: number }>();
@@ -164,7 +164,7 @@ function prepare(gi: number, full = true): Promise<Prep> {
         return { act, p0: (t0 - g.t0) / span, p1: (t1 - g.t0) / span };
       });
     });
-    const ropts = { pkg: props.pkg, size: SIZE, shots, stage, acting, style: props.styleFor?.(rep), place: placeFor(key0), roomStyle: styleOf(key0), extra: madeFor(key0), seconds: span };
+    const ropts = { pkg: props.pkg, size: SIZE, shots, stage, acting, style: props.styleFor?.(rep), place: placeFor(key0), seed: seedFor(key0), roomStyle: styleOf(key0), extra: madeFor(key0), seconds: span };
     p = (async () => {
       const T0 = performance.now();
       let tLlm = 0;

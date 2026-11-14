@@ -546,13 +546,13 @@ export function furnishRoom(room: RoomR | null, files: Map<string, string> = new
   return out;
 }
 
-export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number; size?: [number, number]; pkg?: PackageAsset[]; shots?: { shot: Shot; p0: number; p1: number }[]; stage?: { cue: Cue; p0: number; p1: number }[]; acting?: { act: Act; p0: number; p1: number }[]; style?: string; place?: "interior" | "exterior"; roomStyle?: string; roomSpec?: RoomR; seconds?: number; extra?: { kind: "prop" | "set"; what: string }[]; procs?: Record<string, import("./props").Part[]>; rigs?: Record<string, Rig>; outfits?: Record<string, Outfit> } = {}): Resolved {
+export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number; size?: [number, number]; pkg?: PackageAsset[]; shots?: { shot: Shot; p0: number; p1: number }[]; stage?: { cue: Cue; p0: number; p1: number }[]; acting?: { act: Act; p0: number; p1: number }[]; style?: string; place?: "interior" | "exterior"; roomStyle?: string; roomSpec?: RoomR; seconds?: number; extra?: { kind: "prop" | "set"; what: string }[]; procs?: Record<string, import("./props").Part[]>; rigs?: Record<string, Rig>; outfits?: Record<string, Outfit>; /** the judge found things placed badly: lay the scene out again differently (0 = as first made) */ seed?: number } = {}): Resolved {
   const pkg = pkgModels(opts.pkg);
   const loc = bible.locations.find((l) => l.id === scene.location);
   const locText = `${scene.location} ${loc?.desc ?? ""}`;
   const lw = words(locText.replace(/_/g, " "));
   const kind: Kind = opts.place ?? (scene.interior && !EXT_WORDS.some((e) => lw.includes(e)) ? "interior" : "exterior");
-  const r = rng(hash(`${scene.id}:${scene.from}:${scene.to}`));
+  const r = rng(hash(`${scene.id}:${scene.from}:${scene.to}${opts.seed ? ":re" + opts.seed : ""}`));
   const nSent = scene.to - scene.from + 1;
   // frames are scrubbed by reading position, so a scene needs resolution only where something changes: a static scene
   // barely moves, a time-lapse changes constantly. Fewer frames is the biggest lever on cache size.

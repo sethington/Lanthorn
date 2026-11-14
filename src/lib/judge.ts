@@ -31,13 +31,13 @@ export type Verdict = { ok: boolean; issues: string[]; note: string; place?: "in
 export type Redo = { kind: "rig" | "outfit"; who: string; why: string };
 /** Something the text names that the picture lacks and the language model can build: a prop (a tankard), or a set piece (a lighthouse, a stockade). */
 export type Make = { kind: "prop" | "set"; what: string };
-export const ISSUES = ["too_close", "element_missing", "wrong_subject", "too_dark", "empty", "clipped", "people_missing", "off_centre"] as const;
+export const ISSUES = ["too_close", "element_missing", "wrong_subject", "too_dark", "empty", "clipped", "people_missing", "off_centre", "misplaced"] as const;
 
 export const RUBRIC =
   'You judge one frame of a 3D illustration that follows a book as it is read. Say if the picture suits the text. A still cannot show motion or change over time: accept any moment of a change. ' +
   'Reply with one JSON object only: {"ok":bool,"issues":[...],"note":"<=12 words","place":"interior|exterior","style":"<room kind>","make":[{"kind":"prop|set","what":"<=4 words"}],"redo":[{"kind":"rig|outfit","who":"<character id>","why":"<=12 words"}],"frame":"<character id>"}. frame: when a person or animal listed under People in the world is not visible, cut off, tiny or hidden behind something, give its id and the camera is moved onto it; never use make for a living thing, only frame (or redo when it is drawn wrong). redo: up to 2 characters whose drawn body (an animal or creature: rig) or clothes (a person: outfit) look wrong: a shapeless blob, parts floating apart or missing, a pose or costume that does not suit the text. who is the character id given under People in the world. Only for a clear fault. make: up to 3 things the text names that are missing from the picture and would help it (a prop is something small a person handles; a set piece is a building or landmark). Name only things the text mentions. style only for an indoor place whose room does not suit the text: one of cellar, church, tavern (an inn or alehouse), hall, study, kitchen, ship, bedroom, future, room (a plain parlour); or, when none of those fits, a short description of the room in your own words (e.g. a chandlers shop, a ships wheelhouse). place only when wrong_subject is because the text is indoors but the picture is outdoors, or the reverse: say what the TEXT needs. ' +
   'issues, only from: too_close (subject cut off or a blur of one object), element_missing (the directed element is not visible), wrong_subject (something unrelated dominates), too_dark, empty (just sky or ground), clipped (camera inside or against an object). ' +
-  'element_missing is only for something the direction lists (a person, a prop, the named place); never for details only the prose mentions. wrong_subject with place when the picture is indoors but the text is outdoors or the reverse. people_missing (the direction lists a crowd or several people but few are visible), off_centre (the main subject sits at an edge of the frame or is cropped). ok=true when no issue is clear. Do not nitpick details of the text.';
+  'element_missing is only for something the direction lists (a person, a prop, the named place); never for details only the prose mentions. wrong_subject with place when the picture is indoors but the text is outdoors or the reverse. people_missing (the direction lists a crowd or several people but few are visible), off_centre (the main subject sits at an edge of the frame or is cropped), misplaced (things are in the wrong place: land animals standing in water, sea creatures on land, objects floating, overlapping or blocking the view, people or animals inside each other). ok=true when no issue is clear. Do not nitpick details of the text.';
 
 export function parseVerdict(raw: string): Verdict | null {
   const m = raw.match(/\{[\s\S]*\}/);
@@ -67,7 +67,7 @@ export function describeCue(c: { k: string; what?: string; how?: string }): stri
 }
 
 // ---- what the judge has learned about this book: per place and shot, saved
-type Memory = { frame?: Record<string, string>; redo?: Record<string, { why: string; n: number; used?: number }>; made?: Record<string, Make[]>; style?: Record<string, string>; aim?: Record<string, number>; crowd?: Record<string, number>; place?: Record<string, "interior" | "exterior">; bright?: Record<string, number>; widen: Record<string, number>; fails: Record<string, number>; done: Record<string, 1>; drop: string[]; stats: Record<string, { ok: number; bad: number }> };
+type Memory = { seed?: Record<string, number>; frame?: Record<string, string>; redo?: Record<string, { why: string; n: number; used?: number }>; made?: Record<string, Make[]>; style?: Record<string, string>; aim?: Record<string, number>; crowd?: Record<string, number>; place?: Record<string, "interior" | "exterior">; bright?: Record<string, number>; widen: Record<string, number>; fails: Record<string, number>; done: Record<string, 1>; drop: string[]; stats: Record<string, { ok: number; bad: number }> };
 const MKEY = (book: string) => `lanthorn:judge:${book}`;
 export const memory = reactive<{ book: string; m: Memory }>({ book: "", m: { widen: {}, fails: {}, done: {}, drop: [], stats: {} } });
 export function judgeUseBook(id: string) {
@@ -90,6 +90,7 @@ export function takeRedo(kind: "rig" | "outfit", who: string): string | undefine
 }
 export const styleOf = (groupKey: string) => memory.m.style?.[groupKey];
 export const placeFor = (groupKey: string) => memory.m.place?.[groupKey];
+export const seedFor = (groupKey: string) => memory.m.seed?.[groupKey] ?? 0;
 export const frameFor = (key: string) => memory.m.frame?.[key];
 export const aimFor = (key: string) => memory.m.aim?.[key] ?? 0;
 export const crowdFor = (key: string) => memory.m.crowd?.[key] ?? 0;
@@ -102,6 +103,7 @@ export function applyVerdict(key: string, kind: string, v: Verdict, groupKey?: s
   const m = memory.m;
   let flipped = false;
   if (!v.ok && v.place && groupKey && kind === "shot" && m.place?.[groupKey] !== v.place) { (m.place ??= {})[groupKey] = v.place; flipped = true; } // the whole place is the wrong kind: make it again
+  if (!v.ok && v.issues.includes("misplaced") && groupKey && kind === "shot" && (m.seed?.[groupKey] ?? 0) < 2) { (m.seed ??= {})[groupKey] = (m.seed[groupKey] ?? 0) + 1; flipped = true; } // laid out badly: lay it out again, differently (twice at most)
   if (!v.ok && v.make?.length && groupKey && kind === "shot") { // the language model builds what is missing (next time the place is made)
     const have = (m.made ??= {})[groupKey] ?? [];
     const add = v.make.filter((q) => !have.some((h) => h.what.toLowerCase() === q.what.toLowerCase()));
