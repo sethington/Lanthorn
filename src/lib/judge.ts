@@ -3,6 +3,7 @@
 // is dropped the next time that place loads. It works on any book because it only uses the text and the picture, and it stops at a budget.
 import { reactive } from "vue";
 import { usage } from "./usage";
+import { isLiving } from "./resolve";
 
 export type JudgeSettings = { on: boolean; cap: number }; // cap: dollars per book (tokens at a rough price when the model reports no cost); 0 = no limit
 const SKEY = "lanthorn:judge-settings";
@@ -45,7 +46,7 @@ export function parseVerdict(raw: string): Verdict | null {
   try {
     const j = JSON.parse(m[0]);
     const issues = Array.isArray(j.issues) ? j.issues.filter((x: unknown) => (ISSUES as readonly string[]).includes(String(x))).map(String) : [];
-    return { ok: j.ok !== false && issues.length === 0, issues, note: String(j.note ?? "").slice(0, 120), place: j.place === "interior" || j.place === "exterior" ? j.place : undefined, style: typeof j.style === "string" && j.style.trim().length > 1 ? j.style.trim().slice(0, 60) : undefined, make: (Array.isArray(j.make) ? j.make : []).filter((q: any) => (q?.kind === "prop" || q?.kind === "set") && typeof q.what === "string" && q.what.trim().length > 1).slice(0, 3).map((q: any) => ({ kind: q.kind, what: q.what.trim().slice(0, 40) })), frame: typeof j.frame === "string" && j.frame.trim().length > 0 ? j.frame.trim().slice(0, 40) : undefined, redo: (Array.isArray(j.redo) ? j.redo : []).filter((q: any) => (q?.kind === "rig" || q?.kind === "outfit") && typeof q.who === "string" && typeof q.why === "string").slice(0, 2).map((q: any) => ({ kind: q.kind, who: q.who.slice(0, 40), why: q.why.trim().slice(0, 120) })) };
+    return { ok: j.ok !== false && issues.length === 0, issues, note: String(j.note ?? "").slice(0, 120), place: j.place === "interior" || j.place === "exterior" ? j.place : undefined, style: typeof j.style === "string" && j.style.trim().length > 1 ? j.style.trim().slice(0, 60) : undefined, make: (Array.isArray(j.make) ? j.make : []).filter((q: any) => (q?.kind === "prop" || q?.kind === "set") && typeof q.what === "string" && q.what.trim().length > 1 && !isLiving(q.what)).slice(0, 3).map((q: any) => ({ kind: q.kind, what: q.what.trim().slice(0, 40) })), frame: typeof j.frame === "string" && j.frame.trim().length > 0 ? j.frame.trim().slice(0, 40) : undefined, redo: (Array.isArray(j.redo) ? j.redo : []).filter((q: any) => (q?.kind === "rig" || q?.kind === "outfit") && typeof q.who === "string" && typeof q.why === "string").slice(0, 2).map((q: any) => ({ kind: q.kind, who: q.who.slice(0, 40), why: q.why.trim().slice(0, 120) })) };
   } catch { return null; }
 }
 

@@ -247,6 +247,9 @@ export function creatureLook(ref: string, desc: string, rnd: () => number): Crea
   return { ...hit[1], ...(model ? { model, size: size * SIZE_OF(t) } : {}), size: model ? size * SIZE_OF(t) : size, body, belly: light ? "#f2eee4" : mixHexC(body, "#f2eee4", 0.55), dark: mixHexC(body, "#1a1612", 0.55), dress: wears ? dress ?? ["#3f5f9a", "#9a3f45", "#4a7a58", "#b08a3a"][Math.floor(rnd() * 4)] : undefined };
 }
 
+/** Is this phrase an animal or other living thing (so it is drawn as a creature, never built as a prop)? */
+export const isLiving = (what: string): boolean => !!creatureLook(what, "", () => 0.5) || /\b(\w*fish|\w*fishes|crabs?|eels?|dab|plaice|skate|dace|pickerel|pickereel|mackerel|shrimp|insects?|worms?|snails?|beetles?|spiders?|birds?|serpents?|dragons?|beasts?|animals?|creatures?|men|man|women|woman|people|children)\b/i.test(what);
+
 /** A living thing no species word names (a dragon, an angel, a ghost): a plain four-legged build in the colours the words give, until the model has drawn it. */
 function genericCreature(t: string): Creature {
   const low = t.toLowerCase().replace(/_/g, " ");

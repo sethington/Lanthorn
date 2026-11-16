@@ -130,6 +130,7 @@ function onResize() {
 // ---- a group of scenes becomes one world bundle, prepared on demand
 type Prep = { bundle: string; dir: string };
 const preps = new Map<string, Promise<Prep>>();
+const ready = new Set<string>(); // the keys whose preparation has finished
 const prepTimes = new Map<string, { resolve: number; llm: number; bundle: number }>(); // dev: where a place's preparation went
 const prepKeyOf = new Map<string, string>(); // group -> the key its world is prepared under (progress events carry it)
 const repOf = (g: Group) => g.scenes.find((i) => props.scenes[i].visual && !(props.scenes[i].board && !props.scenes[i].board!.inset));
@@ -215,6 +216,7 @@ function prepare(gi: number, full = true): Promise<Prep> {
     })();
     p.catch(() => preps.delete(pk)); // a failed prepare may be retried
     preps.set(pk, p);
+    p.then(() => ready.add(pk), () => {});
   }
   return p;
 }
@@ -461,7 +463,7 @@ async function judgeTick() {
     const c = await api.llmVision("judge", RUBRIC, `Text being read: "${text}"\nThe world was directed to show: ${what}.\nDoes the picture suit it?`, path);
     const v = parseVerdict(c.text);
     if (v) {
-      if (applyVerdict(key, kind, v, sig(g))) { preps.delete(sig(g)); preps.delete(sig(g) + "|fast"); if (loadedG && sig(loadedG) === sig(g)) { loadedSig = ""; loadedG = null; } } // wrong kind of place: build it again
+      if (applyVerdict(key, kind, v, sig(g))) { preps.delete(sig(g)); preps.delete(sig(g) + "|fast"); ready.delete(sig(g)); if (loadedG && sig(loadedG) === sig(g)) { loadedSig = ""; loadedG = null; } } // wrong kind of place: build it again
       stats.judged++;
       if (import.meta.env.DEV) fetch("/__debug", { method: "POST", body: JSON.stringify({ kind: "judge", data: { key, kind, ...v } }) }).catch(() => {});
     }
@@ -472,6 +474,66 @@ async function judgeTick() {
     judging = false;
   }
 }
+// ---- judging the places ahead of the reader: each is opened off-screen in the world, looked at, corrected, and kept ready, so what the reader scrolls into has already been checked
+let aheadBusy = false;
+async function judgeAheadTick() {
+  if (aheadBusy || judging || judgeBroken || !judgeSettings.on || !budgetLeft() || ui.controlling || loading || !ui.up || !loadedG) return;
+  const gi = groups.findIndex((g) => sig(g) === sig(loadedG!));
+  if (gi < 0) return;
+  aheadBusy = true;
+  try {
+    for (let k = gi + 1, seen = 0; k < groups.length && seen < AHEAD_PLACES; k++) {
+      if (!usable(k)) continue;
+      seen++;
+      const g = groups[k];
+      const key0 = sig(g);
+      const pp = preps.get(key0); // only a place already prepared in full: this never starts the language model on its own
+      if (!pp) continue;
+      if (!ready.has(key0)) continue;
+      const p = await pp;
+      const shots = groupShots(g);
+      if (!shots.length) continue;
+      for (const si of Array.from(new Set([0, Math.floor(shots.length / 2)]))) {
+        const key = `${key0}|s${si}`;
+        if (alreadyJudged(key)) continue;
+        const x = shots[si];
+        const sc = props.scenes[x.scene];
+        const dir = await api.cacheDir();
+        const out = `${dir}/ahead-frame.png`;
+        const st0 = (await api.worldCmd({ cmd: "status" })) as { judged: number };
+        const span = Math.max(0.001, g.t1 - g.t0);
+        const narr = Math.min(1, Math.max(0, ((x.t0 + x.t1) / 2 - g.t0) / span));
+        const widen = widenFor(key), bright = brightFor(key), aim = aimFor(key), crowd = crowdFor(key), frame = frameFor(key) ?? "";
+        const kk = [`Shot:${si}`, "ShotP:0.5", `Narrative:${narr.toFixed(4)}`, ...(widen > 0.01 ? [`Widen:${widen.toFixed(2)}`] : []), ...(bright > 0.01 ? [`Bright:${bright.toFixed(2)}`] : []), ...(aim > 0.01 ? [`Aim:${aim.toFixed(2)}`] : []), ...(crowd > 0 ? [`Crowd:${crowd}`] : []), ...(frame ? [`Frame:${frame}`] : [])];
+        await api.worldCmd({ cmd: "judge", bundle: p.bundle, dir: p.dir, out, w: SIZE[0], h: SIZE[1], keys: kk });
+        for (let n = 0; n < 400; n++) { // (the load can take a few seconds)
+          const st = (await api.worldCmd({ cmd: "status" })) as { judged: number };
+          if (st.judged > st0.judged) break;
+          await new Promise((r) => setTimeout(r, 150));
+        }
+        const loc = props.bible.locations.find((l) => l.id === sc.location);
+        const who = sc.subjects.map((q) => `${q.ref} (${q.pose})`).join(", ");
+        const what = `${sc.interior ? "an indoor" : "an outdoor"} place: ${(loc?.desc ?? sc.location).slice(0, 140)}; ${sc.time.start}, ${sc.weather}. People in the world: ${who || "none"}. Props: ${sc.props.slice(0, 6).join(", ") || "none"}. Camera: ${x.framing ?? "wide"} shot on ${x.focus ?? "the scene"}`;
+        const sid = Math.min(props.sentences.length - 1, Math.max(0, x.from ?? sc.from));
+        const text = props.sentences.slice(Math.max(0, sid - 1), sid + 2).map((q) => q.text.trim()).join(" ");
+        const c = await api.llmVision("judge", RUBRIC, `Text being read: "${text}"\nThe world was directed to show: ${what}.\nDoes the picture suit it?`, out);
+        const v = parseVerdict(c.text);
+        if (v) {
+          if (applyVerdict(key, "shot", v, key0)) { preps.delete(key0); preps.delete(key0 + "|fast"); ready.delete(key0); }
+          stats.judged++;
+          if (import.meta.env.DEV) fetch("/__debug", { method: "POST", body: JSON.stringify({ kind: "judge", data: { ahead: true, key, ...v } }) }).catch(() => {});
+        }
+        return; // one look per tick
+      }
+    }
+  } catch (e) {
+    if (import.meta.env.DEV) fetch("/__debug", { method: "POST", body: JSON.stringify({ kind: "judge-error", data: "ahead: " + String(e) }) }).catch(() => {});
+  } finally { aheadBusy = false; }
+}
+let aheadTimer = 0;
+onMounted(() => { aheadTimer = window.setInterval(judgeAheadTick, 5000); });
+onBeforeUnmount(() => clearInterval(aheadTimer));
+
 let judgeTimer = 0;
 onMounted(() => { judgeTimer = window.setInterval(judgeTick, 4000); });
 onBeforeUnmount(() => clearInterval(judgeTimer));
@@ -479,7 +541,7 @@ onBeforeUnmount(() => clearInterval(judgeTimer));
 watch(() => props.scenes, build);
 watch(() => props.styleVer, () => {
   // the look changed: every world is made again; the old picture stays up until the new one is ready
-  preps.clear();
+  preps.clear(); ready.clear();
   failedGroups.clear();
   loadedSig = "";
   loadedG = null;

@@ -48,6 +48,8 @@ enum Msg {
     Size(u32, u32),
     Fps(f64),
     Snap(PathBuf),
+    /// look at a place that is not on screen: open it (or take it from the kept worlds), put it at a shot, snapshot it, and keep it ready
+    Judge { js: PathBuf, dir: PathBuf, w: u32, h: u32, keys: Vec<String>, out: PathBuf },
     Quit,
 }
 
@@ -151,6 +153,7 @@ pub extern "C" fn lw_open(window: *mut c_void, json: *const c_char) -> *mut c_ch
 
 /// Loads sent / finished / failed, so the host can tell when a scene is on screen.
 static LOADS: [std::sync::atomic::AtomicU64; 3] = [std::sync::atomic::AtomicU64::new(0), std::sync::atomic::AtomicU64::new(0), std::sync::atomic::AtomicU64::new(0)];
+static JUDGED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 static FRAMES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 #[unsafe(no_mangle)]
@@ -213,11 +216,17 @@ pub extern "C" fn lw_cmd(json: *const c_char) -> *mut c_char {
         },
         "status" => {
             let o = std::sync::atomic::Ordering::SeqCst;
-            ok(serde_json::json!({"sent": LOADS[0].load(o), "done": LOADS[1].load(o), "failed": LOADS[2].load(o), "frames": FRAMES.load(o)}))
+            ok(serde_json::json!({"sent": LOADS[0].load(o), "done": LOADS[1].load(o), "failed": LOADS[2].load(o), "frames": FRAMES.load(o), "judged": JUDGED.load(o)}))
         }
         "snapshot" => {
             let Some(path) = v["path"].as_str() else { return err("snapshot needs a path") };
             let _ = h.tx.send(Msg::Snap(path.into()));
+            ok(serde_json::json!({}))
+        }
+        "judge" => {
+            let (Some(js), Some(dir), Some(out)) = (v["bundle"].as_str(), v["dir"].as_str(), v["out"].as_str()) else { return err("judge needs bundle, dir and out") };
+            let keys = v["keys"].as_array().map(|a| a.iter().filter_map(|k| k.as_str().map(String::from)).collect()).unwrap_or_default();
+            let _ = h.tx.send(Msg::Judge { js: js.into(), dir: dir.into(), w: f("w") as u32, h: f("h") as u32, keys, out: out.into() });
             ok(serde_json::json!({}))
         }
         "fps" => {
@@ -260,7 +269,7 @@ fn render_thread(rx: mpsc::Receiver<Msg>, layer: usize, pw: u32, ph: u32) {
     let mut live: Option<Live> = None;
     let mut cur_key = PathBuf::new();
     let mut parked: Vec<(PathBuf, Live)> = Vec::new();
-    let keep: usize = std::env::var("LANTHORN_WORLD_CACHE").ok().and_then(|v| v.parse().ok()).unwrap_or(3);
+    let keep: usize = std::env::var("LANTHORN_WORLD_CACHE").ok().and_then(|v| v.parse().ok()).unwrap_or(5);
     let mut input = Input::default();
     let (mut frame, mut fps, mut next) = (0i64, 30.0f64, Instant::now());
     loop {
@@ -316,6 +325,27 @@ fn render_thread(rx: mpsc::Receiver<Msg>, layer: usize, pw: u32, ph: u32) {
                 // the pane changing size only moves and scales the layer: the surface keeps the size it was made at
                 Ok(Msg::Size(..)) => {}
                 Ok(Msg::Fps(f)) => fps = f,
+                Ok(Msg::Judge { js, dir, w, h, keys, out }) => {
+                    if js == cur_key { JUDGED.fetch_add(1, std::sync::atomic::Ordering::SeqCst); continue; } // on screen: the ordinary snapshot looks at it
+                    let _ = std::fs::remove_file(&out);
+                    let kept = parked.iter().position(|(k, _)| *k == js).map(|pos| parked.remove(pos).1);
+                    let opened = match kept {
+                        Some(l) => Ok(l),
+                        None => Live::open_bundle(&js, &dir, (w, h), false).and_then(|mut l| { l.scene_3d(); l.wait_3d(120.0)?; Ok(l) }),
+                    };
+                    match opened {
+                        Ok(mut l) => {
+                            let mut ok_frames = 0;
+                            for n in 0..10i64 { if l.step(n, &keys, None).is_ok() { ok_frames += 1; } }
+                            if ok_frames > 0 { if let Err(e) = l.save_snapshot(&out) { eprintln!("lanthorn-world: judge snapshot failed: {e}"); } }
+                            // kept, so that when the reader gets there it comes straight back
+                            parked.push((js.clone(), l));
+                            while parked.len() > keep { parked.remove(0); }
+                        }
+                        Err(e) => eprintln!("lanthorn-world: judge load failed ({}): {e}", js.display()),
+                    }
+                    JUDGED.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
                 Ok(Msg::Snap(p)) => {
                     if let Some(l) = live.as_mut() {
                         if let Err(e) = l.save_snapshot(&p) {
