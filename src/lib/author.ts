@@ -9,10 +9,10 @@ export function jsonOf(text: string): any | null {
 }
 
 /** One call for all of `items`; the entries that came back, by lower-cased name. */
-export async function askMany(system: string, items: { name: string; ask: string }[]): Promise<Record<string, any>> {
+export async function askMany(system: string, items: { name: string; ask: string }[], job: "author" | "design" = "author"): Promise<Record<string, any>> {
   const user = items.map((it, i) => `${i + 1}. ${it.name}: ${it.ask}`).join("\n") +
     '\n\nReply with ONE JSON object only: {"items":[{"name":"<the name before the colon, exactly>", ...the fields described above...}, ...]} with one entry per numbered item, in order. Each entry is a complete design on its own.';
-  const c = await api.llmComplete("author", system, user);
+  const c = await api.llmComplete(job, system, user);
   const j = jsonOf(c.text);
   const out: Record<string, any> = {};
   for (const it of Array.isArray(j?.items) ? j.items : j && typeof j.name === "string" ? [j] : []) if (typeof it?.name === "string") out[it.name.toLowerCase()] = it;

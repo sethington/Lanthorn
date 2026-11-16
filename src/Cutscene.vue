@@ -195,7 +195,7 @@ function prepare(gi: number, full = true): Promise<Prep> {
       // what each person wears and carries, and how each living thing that is not a person is built: the model writes them for this book (kept for later),
       // all the scene's people in ONE call and all its creatures in ONE call
       const people = r.figures.filter((g) => g.kind !== "creature" && !g.onMachine);
-      const creatures = r.figures.filter((g) => g.kind === "creature" && (g.creature?.species === "creature" || takeRedoPeek("rig", g.ref))); // (an ordinary animal is built by the built-in builder, free; the model is asked only for what it does not know, or when the judge asked for it again)
+      const creatures = r.figures.filter((g) => g.kind === "creature" && (g.creature?.species === "creature" || !g.creature?.model || takeRedoPeek("rig", g.ref))); // (an animal with a real model is that model, free; one without (rabbit, bear, deer, frog...) is designed by the language model, once, and kept; the built-in builder stands until it is ready or if it fails)
       const descOf = (ref: string) => `${ref.replace(/_/g, " ")}, ${props.bible.characters.find((c) => c.id === ref)?.desc ?? ""}`;
       const uniq = (gs: typeof people) => { const seen = new Set<string>(); return gs.filter((g) => !seen.has(g.ref) && seen.add(g.ref)).slice(0, 5); };
       const tl3 = performance.now();

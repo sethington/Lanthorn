@@ -148,7 +148,7 @@ export async function makeRig(key: string, desc: string, cacheOnly = false, feed
     const hit = feedback ? null : await api.cacheGet("rig", k);
     if (hit) { const r = parseRig(hit); if (r) return r; }
     if (cacheOnly) return null;
-    const c = await api.llmComplete("author", rigSystem(), `Description: ${desc}${feedback ? `\nA previous attempt was criticised: ${feedback}. Design it again, fixing that: a clear, well-formed body with every part joined where it belongs.` : ""}`);
+    const c = await api.llmComplete("design", rigSystem(), `Description: ${desc}${feedback ? `\nA previous attempt was criticised: ${feedback}. Design it again, fixing that: a clear, well-formed body with every part joined where it belongs.` : ""}`);
     const r = parseRig(c.text);
     if (r) await api.cachePut("rig", k, c.text);
     return r;
@@ -169,7 +169,7 @@ export async function makeRigs(list: { key: string; desc: string; feedback?: str
   }
   if (!todo.length || cacheOnly) return out;
   try {
-    const got = await askMany(rigSystem(), todo.slice(0, 6).map((t) => ({ name: t.key, ask: t.desc + (t.feedback ? `. A previous attempt was criticised: ${t.feedback}. Design it again, fixing that.` : "") })));
+    const got = await askMany(rigSystem(), todo.slice(0, 6).map((t) => ({ name: t.key, ask: t.desc + (t.feedback ? `. A previous attempt was criticised: ${t.feedback}. Design it again, fixing that.` : "") })), "design");
     for (const t of todo) {
       const item = got[t.key.toLowerCase()];
       const r = item ? parseRig(JSON.stringify(item)) : null;
