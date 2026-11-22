@@ -70,6 +70,21 @@ async fn endpoint_models(app: AppHandle, provider_id: Option<String>, base_url: 
 }
 
 #[tauri::command]
+fn file_read(path: String) -> Result<writing::FileText, String> {
+    writing::read(&path)
+}
+
+#[tauri::command]
+fn file_write(path: String, text: String, expect: Option<u64>) -> Result<u64, String> {
+    writing::write(&path, &text, expect)
+}
+
+#[tauri::command]
+fn file_write_pdf(path: String, bytes: Vec<u8>) -> Result<u64, String> {
+    writing::write_pdf(&path, &bytes)
+}
+
+#[tauri::command]
 async fn writing_grep(dir: String, terms: Vec<String>, max: usize) -> Result<Vec<writing::FileHit>, String> {
     tokio::task::spawn_blocking(move || writing::grep(&dir, &terms, max)).await.map_err(|e| e.to_string())?
 }
@@ -199,6 +214,7 @@ async fn render_available() -> bool {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             // the standard app menu, plus "Settings…" (⌘,) under the app name, where macOS users look for it
             let handle = app.handle();
@@ -250,6 +266,9 @@ pub fn run() {
             endpoint_models,
             library_list,
             writing_grep,
+            file_read,
+            file_write,
+            file_write_pdf,
             library_get,
             library_save,
             library_delete,

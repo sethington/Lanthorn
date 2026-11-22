@@ -3,6 +3,7 @@
 
 import MarkdownIt from "markdown-it";
 import { type Book, type Chapter, makeChapter } from "./book";
+import { hashStr } from "./text";
 
 export const md = new MarkdownIt({ html: false, linkify: true, typographer: true, breaks: false });
 
@@ -59,7 +60,7 @@ export function parseDoc(src: string): { title: string; sections: DocChapter[] }
 export const plainOf = (src: string): string => parseDoc(src).sections.map((s) => s.paragraphs.join("\n\n")).join("\n\n");
 
 /** A document as a book the reader can open: its title from the first # heading, chapters from the sections. */
-export function docToBook(src: string, id: string, prev?: Pick<Book, "imported" | "author">): Book {
+export function docToBook(src: string, id: string, prev?: Pick<Book, "imported" | "author">, file?: string): Book {
   const { title, sections } = parseDoc(src);
   const name = title || "Untitled";
   const chapters: Chapter[] = [];
@@ -68,7 +69,7 @@ export function docToBook(src: string, id: string, prev?: Pick<Book, "imported" 
     if (text.trim()) chapters.push(makeChapter(chapters.length, s.title || name, text));
   });
   if (!chapters.length) chapters.push(makeChapter(0, name, ""));
-  return { id, title: name, author: prev?.author ?? "", source: { kind: "markdown", ref: `${name}.md` }, chapters, imported: prev?.imported ?? Date.now(), markdown: src };
+  return { id, title: name, author: prev?.author ?? "", source: { kind: "markdown", ref: `${name}.md` }, chapters, imported: prev?.imported ?? Date.now(), markdown: src, ...(file ? { file } : {}) };
 }
 
 /** The markdown behind a book that has none stored (a plain text or an older import): its chapters as sections. */
@@ -78,4 +79,7 @@ export function markdownOfBook(b: Book): string {
   return `# ${b.title}\n\n${body}\n`;
 }
 
+/** The library id of a document kept in a file on disk (the same file is always the same book). */
+export const fileDocId = (path: string) => `file-${hashStr(path)}`;
+export const baseName = (path: string) => path.split("/").pop() ?? path;
 export const newDocId = () => `doc-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;

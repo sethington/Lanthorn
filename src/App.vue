@@ -286,9 +286,11 @@ const maskStyle = computed(() => {
 
 // --- LLM scene pass (slice 1: results are shown, not yet compiled to frames) ---
 const view = ref<"reader" | "settings" | "library" | "editor">("library");
+const editorFile = ref<string | null>(null); // the file being edited, when it is one on disk
 const editorDoc = ref<string | null>(null); // the document being edited (null: a new one)
 const editorKey = ref(0);
-function editDoc(id: string | null) { flushPos(); editorDoc.value = id; editorKey.value++; view.value = "editor"; }
+function editDoc(id: string | null) { flushPos(); editorDoc.value = id; editorFile.value = null; editorKey.value++; view.value = "editor"; }
+function editFile(path: string) { flushPos(); editorDoc.value = null; editorFile.value = path; editorKey.value++; view.value = "editor"; }
 const editable = computed(() => !!book.value && (book.value.source.kind === "markdown" || book.value.source.kind === "text"));
 const curSid = ref(0); // the sentence under the reading line
 const filmReady = ref(false); // the chapter is open and the reader's place is restored: only then does the world start
@@ -692,6 +694,7 @@ function pollCommands() {
       else if (cmd === "settings") view.value = "settings";
       else if (cmd === "library") view.value = "library";
       else if (cmd === "editor") editDoc(null);
+      else if (cmd.startsWith("editfile:")) editFile(cmd.slice(9));
       else if (cmd.startsWith("editor:")) editDoc(cmd.slice(7));
       else if (cmd.startsWith("import:")) devImport(cmd.slice(7));
       else if (cmd === "keycheck") { const ch = book.value?.chapters[chapterIdx.value]; debugLog("keycheck", { chapterKey: chapterKey.value, num: ch?.num, title: ch?.title, scenes: llmScenes.value.length }); }
@@ -783,8 +786,8 @@ function setEl(el: unknown, i: number) {
     <button class="pill" :title="view === 'settings' ? 'Back to reading' : 'Model settings'" @click="view = view === 'settings' ? 'reader' : 'settings'; if (view === 'reader') reloadSettings()">{{ modelBadge }}</button>
   </div>
   <Settings v-if="view === 'settings'" @close="view = book ? 'reader' : 'library'; reloadSettings()" />
-  <Library v-if="view === 'library'" :current-id="book?.id" @open="openBook($event)" @edit="editDoc($event)" @new="editDoc(null)" @close="view = 'reader'" />
-  <Editor v-if="view === 'editor'" :key="editorKey" :doc-id="editorDoc" @close="view = 'library'" @read="openBook($event)" @open-doc="editDoc($event)" />
+  <Library v-if="view === 'library'" :current-id="book?.id" @open="openBook($event)" @edit="editDoc($event)" @edit-file="editFile($event)" @new="editDoc(null)" @close="view = 'reader'" />
+  <Editor v-if="view === 'editor'" :key="editorKey" :doc-id="editorDoc" :file="editorFile" @open-file="editFile($event)" @close="view = 'library'" @read="openBook($event)" @open-doc="editDoc($event)" />
   <div v-show="view === 'reader'" class="app">
     <section class="reader" :style="maskStyle">
       <div ref="scroller" class="scroll" tabindex="0" @scroll.passive="update">

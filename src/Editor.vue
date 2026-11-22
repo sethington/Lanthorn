@@ -13,16 +13,22 @@ import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
 import { tags as t } from "@lezer/highlight";
 import { diffWords } from "diff";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { api } from "./lib/api";
 import type { Book } from "./lib/book";
-import { docToBook, markdownOfBook, md, newDocId, parseDoc, plainOf } from "./lib/markdown";
+import { baseName, docToBook, fileDocId, markdownOfBook, md, newDocId, parseDoc, plainOf } from "./lib/markdown";
 import { type Doc, type Suggestion, helpWith, loadCorpus } from "./lib/helper";
+import ExportPdf from "./ExportPdf.vue";
 
-const props = defineProps<{ docId?: string | null }>();
-const emit = defineEmits<{ (e: "close"): void; (e: "read", id: string): void; (e: "open-doc", id: string): void }>();
+const props = defineProps<{ docId?: string | null; file?: string | null }>();
+const emit = defineEmits<{ (e: "close"): void; (e: "read", id: string): void; (e: "open-doc", id: string): void; (e: "open-file", path: string): void }>();
 
 // ---- the document
-const id = ref(props.docId || newDocId());
+const id = ref(props.file ? fileDocId(props.file) : props.docId || newDocId());
+const filePath = ref<string>(props.file ?? ""); // the file on disk this document lives in ("" for one that lives only in the library)
+let fileTime = 0; // its modified time when we last read or wrote it
+const conflict = ref(""); // set when the file was changed outside while we hold edits
+const notice = ref("");
 const prev = shallowRef<Pick<Book, "imported" | "author"> | undefined>();
 const text = ref("");
 const loaded = ref(false);
@@ -36,12 +42,21 @@ const readMins = computed(() => Math.max(1, Math.round(words.value / 230)));
 const cursor = reactive({ line: 1, col: 1, sel: 0 });
 
 let saveTimer = 0;
-async function saveNow() {
+async function saveNow(overwrite = false) {
   window.clearTimeout(saveTimer);
   if (!loaded.value) return;
   saveState.value = "saving";
   try {
-    const book = docToBook(text.value, id.value, prev.value);
+    // the file is the source of truth: written first, and only if nobody else has changed it since we read it
+    if (filePath.value) {
+      try { fileTime = await api.fileWrite(filePath.value, text.value, overwrite ? undefined : fileTime || undefined); conflict.value = ""; }
+      catch (e) {
+        const m = e instanceof Error ? e.message : String(e);
+        if (m === "changed") { conflict.value = "This file was changed outside Lanthorn since you opened it."; saveState.value = "error"; saveError.value = "not saved to the file"; return; }
+        throw e;
+      }
+    }
+    const book = docToBook(text.value, id.value, prev.value, filePath.value || undefined);
     prev.value = { imported: book.imported, author: book.author };
     await api.librarySave(book.id, JSON.stringify(book));
     saveState.value = "saved";
@@ -50,6 +65,42 @@ async function saveNow() {
     saveState.value = "error";
     saveError.value = e instanceof Error ? e.message : String(e);
   }
+}
+/** Put what is on disk into the editor (after an outside change), as one undoable edit. */
+async function reloadFromDisk() {
+  if (!filePath.value || !view) return;
+  try {
+    const f = await api.fileRead(filePath.value);
+    fileTime = f.mtime;
+    conflict.value = "";
+    view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: f.text }, userEvent: "input.reload" });
+    saveState.value = "saved";
+  } catch (e) { saveError.value = e instanceof Error ? e.message : String(e); }
+}
+/** When the window comes back: a file changed outside is taken in at once if there is nothing unsaved, else it is a conflict. */
+async function checkDisk() {
+  if (!filePath.value || !loaded.value || saveState.value === "saving") return;
+  try {
+    const f = await api.fileRead(filePath.value);
+    if (f.mtime === fileTime || f.text === text.value) { fileTime = f.mtime; return; }
+    if (saveState.value === "dirty" || conflict.value) conflict.value = "This file was changed outside Lanthorn while you have unsaved edits.";
+    else { await reloadFromDisk(); notice.value = "Reloaded: the file changed outside Lanthorn."; setTimeout(() => (notice.value = ""), 3500); }
+  } catch { /* the file may be gone: the next save will say so */ }
+}
+async function saveAs() {
+  const suggested = `${title.value.replace(/[^\w\- ]+/g, "").trim() || "document"}.md`;
+  let path: string | null = null;
+  try { path = await saveDialog({ defaultPath: filePath.value || suggested, filters: [{ name: "Markdown", extensions: ["md", "markdown", "txt"] }] }); } catch { path = null; }
+  if (!path) return;
+  if (!/\.(md|markdown|mdx|txt)$/i.test(path)) path += ".md";
+  try {
+    fileTime = await api.fileWrite(path, text.value);
+    filePath.value = path;
+    conflict.value = "";
+    await saveNow();
+    notice.value = `Saved to ${baseName(path)}`;
+    setTimeout(() => (notice.value = ""), 3000);
+  } catch (e) { saveState.value = "error"; saveError.value = e instanceof Error ? e.message : String(e); }
 }
 function touched() {
   saveState.value = "dirty";
@@ -418,6 +469,7 @@ async function applyLink(q: Suggestion) {
     q.url = undefined;
   } finally { delete hp.busy[q.id]; }
 }
+async function openFileDoc(q: Suggestion) { if (!q.doc?.file) return; await saveNow(); emit("open-file", q.doc.file); }
 function webSearch(q: Suggestion) { if (q.query) openUrl(`https://duckduckgo.com/?q=${encodeURIComponent(q.query)}`).catch(() => {}); }
 function applyFix(q: Suggestion) {
   if (!view || !q.fix) return;
@@ -472,12 +524,26 @@ function updateSel(v: EditorView) {
 
 onMounted(async () => {
   let initial = "";
-  if (props.docId) {
+  let missing = false;
+  if (props.file) {
+    try { const f = await api.fileRead(props.file); initial = f.text; fileTime = f.mtime; }
+    catch (e) { saveError.value = e instanceof Error ? e.message : String(e); emit("close"); return; }
+    try { const raw = await api.libraryGet(id.value); if (raw) { const b = JSON.parse(raw) as Book; prev.value = { imported: b.imported, author: b.author }; } } catch { /* first time */ }
+  } else if (props.docId) {
     try {
       const raw = await api.libraryGet(props.docId);
-      if (raw) { const b = JSON.parse(raw) as Book; initial = markdownOfBook(b); prev.value = { imported: b.imported, author: b.author }; }
+      if (raw) {
+        const b = JSON.parse(raw) as Book;
+        initial = markdownOfBook(b);
+        prev.value = { imported: b.imported, author: b.author };
+        if (b.file) { // a document kept in a file: the file is the truth, the library holds a copy
+          filePath.value = b.file;
+          try { const f = await api.fileRead(b.file); initial = f.text; fileTime = f.mtime; } catch { missing = true; }
+        }
+      }
     } catch { /* a new document */ }
   } else initial = "# Untitled\n\n";
+  if (missing) { notice.value = "The file is missing, so this is the last saved copy. Save as… to put it back."; filePath.value = ""; }
   text.value = initial;
   loaded.value = true;
   view = new EditorView({
@@ -529,10 +595,11 @@ onMounted(async () => {
     }),
   });
   html.value = md.render(initial);
-  if (!props.docId) { view.focus(); view.dispatch({ selection: { anchor: initial.length } }); await saveNow(); }
+  window.addEventListener("focus", checkDisk);
+  if (!props.docId && !props.file) { view.focus(); view.dispatch({ selection: { anchor: initial.length } }); await saveNow(); }
   else view.focus();
 });
-onBeforeUnmount(() => { window.clearTimeout(htmlTimer); window.clearTimeout(hpTimer); hpGen++; if (saveState.value === "dirty") saveNow(); view?.destroy(); view = null; });
+onBeforeUnmount(() => { window.removeEventListener("focus", checkDisk); window.clearTimeout(htmlTimer); window.clearTimeout(hpTimer); hpGen++; if (saveState.value === "dirty") saveNow(); view?.destroy(); view = null; });
 
 function setMode(m: "edit" | "split" | "preview") { mode.value = m; try { localStorage.setItem("lanthorn:ed-mode", m); } catch { /* optional */ } if (m !== "preview") nextTick(() => view?.requestMeasure()); }
 function toggleLines() {
@@ -546,21 +613,12 @@ async function read() {
   emit("read", id.value);
 }
 async function back() { await saveNow(); emit("close"); }
+const showPdf = ref(false);
 const copied = ref("");
 async function copyMd() { try { await navigator.clipboard.writeText(text.value); copied.value = "Copied"; } catch { copied.value = "Couldn't copy"; } setTimeout(() => (copied.value = ""), 1800); }
-function exportMd() {
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([text.value], { type: "text/markdown" }));
-  a.download = `${title.value.replace(/[^\w\- ]+/g, "").trim() || "document"}.md`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  copied.value = "Exported";
-  setTimeout(() => (copied.value = ""), 1800);
-}
 const hasText = computed(() => words.value > 0);
 const cols = computed(() => (mode.value === "split" ? "1fr 1fr" : "1fr") + (hp.open ? " 330px" : ""));
-if (import.meta.env.DEV) (window as any).__ed = { view: () => view, rw, hp, startRewrite, runRewrite, accept, saveNow, text, cmds, checkNow, toggleHelper, id, applyLink, read, dismiss };
+if (import.meta.env.DEV) (window as any).__ed = { view: () => view, rw, hp, startRewrite, runRewrite, accept, saveNow, text, cmds, checkNow, toggleHelper, id, applyLink, read, dismiss, filePath, saveAs, checkDisk, conflict, showPdf };
 </script>
 
 <template>
@@ -569,6 +627,7 @@ if (import.meta.env.DEV) (window as any).__ed = { view: () => view, rw, hp, star
       <button class="ghost" @click="back">← Library</button>
       <div class="name">
         <strong>{{ title }}</strong>
+        <span v-if="filePath" class="path" :title="filePath">{{ filePath.replace(/^\/Users\/[^/]+/, "~") }}</span>
         <span :class="['state', saveState]">{{ saveState === "saved" ? "Saved" : saveState === "saving" ? "Saving…" : saveState === "error" ? "Couldn't save: " + saveError : "Editing…" }}</span>
       </div>
       <div class="seg">
@@ -578,11 +637,18 @@ if (import.meta.env.DEV) (window as any).__ed = { view: () => view, rw, hp, star
       </div>
       <div class="acts">
         <button class="ghost" title="Copy the Markdown" @click="copyMd">{{ copied || "Copy" }}</button>
-        <button class="ghost" title="Save a .md file" @click="exportMd">Export</button>
+        <button class="ghost" title="Export as a PDF, plain or designed" :disabled="!hasText" @click="showPdf = true">PDF</button>
+        <button class="ghost" title="Save a copy to a .md file" @click="saveAs">{{ filePath ? "Save as…" : "Save to file…" }}</button>
         <button class="primary" :disabled="!hasText" title="Open this document in the reader, with its pictures" @click="read">Read it</button>
       </div>
     </header>
 
+    <div v-if="conflict" class="banner warn">
+      <span>{{ conflict }}</span>
+      <button class="ghost sm" @click="reloadFromDisk">Load the file's version</button>
+      <button class="ghost sm" @click="saveNow(true)">Overwrite it with mine</button>
+    </div>
+    <div v-else-if="notice" class="banner">{{ notice }}</div>
     <div class="tools" role="toolbar" aria-label="Formatting">
       <button title="Undo (⌘Z)" @click="cmds.undo()">↶</button>
       <button title="Redo (⇧⌘Z)" @click="cmds.redo()">↷</button>
@@ -688,6 +754,7 @@ if (import.meta.env.DEV) (window as any).__ed = { view: () => view, rw, hp, star
           <div class="cact">
             <button v-if="(q.type === 'link' || q.type === 'reference' || q.type === 'resource') && ((q.doc && !q.doc.file) || q.url) && q.anchor" class="ghost sm" :disabled="!!hp.busy[q.id]" @click="applyLink(q)">{{ hp.busy[q.id] || "Insert link" }}</button>
             <button v-if="q.doc && !q.doc.file" class="ghost sm" @click="emit('open-doc', q.doc.id)">Open</button>
+            <button v-if="q.doc && q.doc.file" class="ghost sm" @click="openFileDoc(q)">Open file</button>
             <button v-if="q.query" class="ghost sm" @click="webSearch(q)">Search</button>
             <button v-if="q.fix" class="ghost sm gold" @click="applyFix(q)">Rewrite to fit</button>
           </div>
@@ -696,6 +763,7 @@ if (import.meta.env.DEV) (window as any).__ed = { view: () => view, rw, hp, star
       </aside>
     </div>
 
+    <ExportPdf v-if="showPdf" :text="text" :title="title" @close="showPdf = false" />
     <footer class="status">
       <span>{{ words.toLocaleString() }} {{ words === 1 ? "word" : "words" }}</span>
       <span>{{ text.length.toLocaleString() }} characters</span>
@@ -708,11 +776,15 @@ if (import.meta.env.DEV) (window as any).__ed = { view: () => view, rw, hp, star
 </template>
 
 <style scoped>
-.ed { position: fixed; inset: 0; z-index: 1; background: var(--bg); color: var(--ink); display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; font: 13px system-ui, sans-serif; }
+.ed { position: fixed; inset: 0; z-index: 1; background: var(--bg); color: var(--ink); display: grid; grid-template-rows: auto auto auto minmax(0, 1fr) auto; font: 13px system-ui, sans-serif; }
 .top { display: grid; grid-template-columns: auto 1fr auto auto; gap: 14px; align-items: center; padding: 38px 16px 8px; border-bottom: 1px solid #1f232a; }
 .name { display: grid; gap: 1px; min-width: 0; }
 .name strong { font: 600 15px system-ui, sans-serif; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .state { font-size: 11px; color: #6d7280; }
+.path { font: 11px ui-monospace, Menlo, monospace; color: #6d7280; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.banner { display: flex; gap: 10px; align-items: center; padding: 7px 16px; background: #1a2230; color: #9ec4ff; font-size: 12.5px; border-bottom: 1px solid #2c3f5f; }
+.banner.warn { background: #2a2315; color: #e8c870; border-color: #5a4a22; }
+.banner span { flex: 1; }
 .state.dirty, .state.saving { color: #c9a54a; }
 .state.error { color: #e59a9a; }
 .seg { display: inline-flex; border: 1px solid #2b2f38; border-radius: 8px; overflow: hidden; }

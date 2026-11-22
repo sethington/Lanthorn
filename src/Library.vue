@@ -3,9 +3,10 @@ import { onMounted, ref } from "vue";
 import { api } from "./lib/api";
 import type { Book, BookMeta } from "./lib/book";
 import { importFile, importHtml, importText } from "./lib/import";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 
 const props = defineProps<{ currentId?: string | null }>();
-const emit = defineEmits<{ (e: "open", id: string): void; (e: "close"): void; (e: "edit", id: string): void; (e: "new"): void }>();
+const emit = defineEmits<{ (e: "open", id: string): void; (e: "close"): void; (e: "edit", id: string): void; (e: "new"): void; (e: "edit-file", path: string): void }>();
 
 const books = ref<BookMeta[]>([]);
 const busy = ref("");
@@ -63,6 +64,13 @@ function fromUrl() {
   });
 }
 
+async function openFileToEdit() {
+  try {
+    const p = await openDialog({ multiple: false, directory: false, filters: [{ name: "Markdown and text", extensions: ["md", "markdown", "mdx", "txt"] }] });
+    if (typeof p === "string" && p) emit("edit-file", p);
+  } catch (e) { error.value = e instanceof Error ? e.message : String(e); }
+}
+
 function sample() {
   run("Importing the sample…", async () => importText(await (await fetch("/books/time-machine.txt")).text(), "time-machine.txt"));
 }
@@ -80,6 +88,7 @@ async function remove(b: BookMeta) {
       <h1>Library</h1>
       <div class="hacts">
         <button @click="emit('new')">New document</button>
+        <button class="ghost" title="Open a Markdown or text file from your disk to edit it in place" @click="openFileToEdit">Open file…</button>
         <button v-if="props.currentId" class="ghost" @click="emit('close')">Back to reading</button>
       </div>
     </header>

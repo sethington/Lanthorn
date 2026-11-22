@@ -28,6 +28,8 @@ export type Book = {
   imported: number;
   /** a document written or edited in Lanthorn: its Markdown source (the chapters are made from it) */
   markdown?: string;
+  /** the file on disk this document is kept in (the file is the source of truth; the library holds a copy for the reader) */
+  file?: string;
 };
 
 export type BookMeta = { id: string; title: string; author: string; chapters: number; updated: number; kind?: string };

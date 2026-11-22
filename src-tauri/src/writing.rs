@@ -104,3 +104,68 @@ pub fn grep(dir: &str, terms: &[String], max: usize) -> Result<Vec<FileHit>, Str
     hits.truncate(max.clamp(1, 12));
     Ok(hits)
 }
+
+#[derive(Serialize)]
+pub struct FileText {
+    pub text: String,
+    pub path: String,
+    /// modified time, milliseconds since the epoch: a later save checks it so an outside edit is never overwritten unseen
+    pub mtime: u64,
+}
+
+fn text_ext(p: &std::path::Path) -> bool {
+    matches!(p.extension().and_then(|x| x.to_str()).unwrap_or("").to_lowercase().as_str(), "md" | "markdown" | "mdx" | "txt")
+}
+
+fn mtime_of(p: &std::path::Path) -> u64 {
+    std::fs::metadata(p).and_then(|m| m.modified()).ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_millis() as u64).unwrap_or(0)
+}
+
+/// Read a Markdown or text file the writer opened (up to 5 MB).
+pub fn read(path: &str) -> Result<FileText, String> {
+    let p = expand(path.trim());
+    if !text_ext(&p) {
+        return Err("Only .md, .markdown, .mdx and .txt files can be opened here.".into());
+    }
+    let m = std::fs::metadata(&p).map_err(|_| format!("Can't open {}", p.display()))?;
+    if !m.is_file() || m.len() > 5_000_000 {
+        return Err("That isn't a text file under 5 MB.".into());
+    }
+    let text = std::fs::read_to_string(&p).map_err(|_| "That file isn't UTF-8 text.".to_string())?;
+    Ok(FileText { text, path: p.to_string_lossy().to_string(), mtime: mtime_of(&p) })
+}
+
+/// Save to a Markdown or text file. `expect` is the modified time from when the file was read: if the file has changed since, nothing is written
+/// ("changed"), so an edit made elsewhere is never overwritten without the writer seeing it. Written to a temporary file and renamed, so a crash never leaves half a file.
+pub fn write(path: &str, text: &str, expect: Option<u64>) -> Result<u64, String> {
+    let p = expand(path.trim());
+    if !text_ext(&p) {
+        return Err("Only .md, .markdown, .mdx and .txt files can be saved here.".into());
+    }
+    if let (Some(e), true) = (expect, p.exists()) {
+        if mtime_of(&p) != e {
+            return Err("changed".into());
+        }
+    }
+    let dir = p.parent().ok_or("No folder for that file")?;
+    let tmp = dir.join(format!(".{}.lanthorn-tmp", p.file_name().and_then(|n| n.to_str()).unwrap_or("file")));
+    std::fs::write(&tmp, text).map_err(|e| format!("Couldn't write: {e}"))?;
+    std::fs::rename(&tmp, &p).map_err(|e| { let _ = std::fs::remove_file(&tmp); format!("Couldn't save: {e}") })?;
+    Ok(mtime_of(&p))
+}
+
+/// Save the bytes of a PDF the editor made, to the path the writer chose (a .pdf only; written to a temporary file and renamed).
+pub fn write_pdf(path: &str, bytes: &[u8]) -> Result<u64, String> {
+    let p = expand(path.trim());
+    if p.extension().and_then(|x| x.to_str()).unwrap_or("").to_lowercase() != "pdf" {
+        return Err("A PDF must be saved with the .pdf extension.".into());
+    }
+    if bytes.len() < 8 || &bytes[..5] != b"%PDF-" {
+        return Err("That isn't a PDF.".into());
+    }
+    let dir = p.parent().ok_or("No folder for that file")?;
+    let tmp = dir.join(format!(".{}.lanthorn-tmp", p.file_name().and_then(|n| n.to_str()).unwrap_or("file")));
+    std::fs::write(&tmp, bytes).map_err(|e| format!("Couldn't write: {e}"))?;
+    std::fs::rename(&tmp, &p).map_err(|e| { let _ = std::fs::remove_file(&tmp); format!("Couldn't save: {e}") })?;
+    Ok(bytes.len() as u64)
+}

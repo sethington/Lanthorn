@@ -268,6 +268,11 @@ book, with its chapters made from the headings, so **Read it** opens it in the r
 
 - **Rewrite (⌘K):** select a passage (or leave the cursor in a block), say why it should change, and the model rewrites it. The change
   is shown as a word diff to accept, try again or discard.
+- **Open file…** (Library) edits a real `.md` or `.txt` file on your disk in place. It saves to the file, notices changes made elsewhere, and never overwrites
+  them without asking. **Save to file…** puts a library document on disk.
+- **PDF:** exports the document as a paginated PDF with real text and clickable links. *Plain* is a clean fixed design. *Designed* has the
+  model choose the look from the content (and anything you ask for): fonts, colours, title page, headings, ornaments, borders. The design is
+  checked so it stays readable, and a preview shows before anything is saved. Only the standard PDF fonts are used, so text outside Latin-1 is not supported yet.
 - **Helper:** watches the paragraph you are writing and suggests links to your other documents, sources, references, and where the
   tone drifts from the rest. It keeps the model's context small: a short call picks terms, those are grepped locally through the
   document and your other writing, how the passage sounds (sentence length, voice, contractions) is measured locally against the rest,
