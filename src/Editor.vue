@@ -318,7 +318,10 @@ const hp = reactive({
   label: "",
   info: "",
   busy: {} as Record<string, string>,
+  folder: localStorage.getItem("lanthorn:writing-dir") ?? "",
+  folderOpen: false,
 });
+function saveFolder() { try { localStorage.setItem("lanthorn:writing-dir", hp.folder.trim()); } catch { /* optional */ } hpKey = ""; hp.folderOpen = false; if (hp.folder.trim()) checkNow(true); }
 const dismissed = new Set<string>();
 let corpus: Doc[] | null = null;
 let hpTimer = 0;
@@ -362,7 +365,7 @@ async function checkNow(force: boolean) {
   hp.label = passage.replace(/\s+/g, " ").slice(0, 70) + (passage.length > 70 ? "…" : "");
   try {
     if (!corpus) corpus = await loadCorpus(id.value);
-    const res = await helpWith({ passage, docLines: doc.toString().split("\n"), passageFrom: doc.lineAt(range.from).number - 1, passageTo: doc.lineAt(range.to).number - 1, docId: id.value, docTitle: title.value }, corpus);
+    const res = await helpWith({ passage, docLines: doc.toString().split("\n"), passageFrom: doc.lineAt(range.from).number - 1, passageTo: doc.lineAt(range.to).number - 1, docId: id.value, docTitle: title.value }, corpus, hp.folder.trim());
     if (gen !== hpGen) return;
     hpKey = key;
     hpAt = Date.now();
@@ -557,7 +560,7 @@ function exportMd() {
 }
 const hasText = computed(() => words.value > 0);
 const cols = computed(() => (mode.value === "split" ? "1fr 1fr" : "1fr") + (hp.open ? " 330px" : ""));
-if (import.meta.env.DEV) (window as any).__ed = { view: () => view, rw, hp, startRewrite, runRewrite, accept, saveNow, text, cmds, checkNow, toggleHelper, id };
+if (import.meta.env.DEV) (window as any).__ed = { view: () => view, rw, hp, startRewrite, runRewrite, accept, saveNow, text, cmds, checkNow, toggleHelper, id, applyLink, read, dismiss };
 </script>
 
 <template>
@@ -664,6 +667,13 @@ if (import.meta.env.DEV) (window as any).__ed = { view: () => view, rw, hp, star
           <label class="auto" title="Look at the paragraph you're writing when you pause"><input type="checkbox" :checked="hp.auto" @change="toggleAuto" /> Auto</label>
           <button class="ghost sm" :disabled="hp.status === 'thinking'" @click="checkNow(true)">{{ hp.status === "thinking" ? "Looking…" : "Check now" }}</button>
         </div>
+        <div class="folder">
+          <button class="linkbtn" @click="hp.folderOpen = !hp.folderOpen">{{ hp.folder.trim() ? "Also searching: " + hp.folder.trim().split("/").filter(Boolean).slice(-2).join("/") : "Search a folder of your writing too…" }}</button>
+          <div v-if="hp.folderOpen" class="frow">
+            <input v-model="hp.folder" placeholder="~/Documents/writing" @keydown.enter="saveFolder" />
+            <button class="ghost sm" @click="saveFolder">Use</button>
+          </div>
+        </div>
         <p v-if="hp.label" class="hwatch">Looking at: <em>{{ hp.label }}</em></p>
         <p v-if="hp.status === 'thinking'" class="hnote">Searching this document and your other writing…</p>
         <p v-if="hp.err" class="rwerr">{{ hp.err }}</p>
@@ -674,10 +684,10 @@ if (import.meta.env.DEV) (window as any).__ed = { view: () => view, rw, hp, star
           <strong>{{ q.title }}</strong>
           <p v-if="q.anchor" class="anc">“{{ q.anchor }}”</p>
           <p>{{ q.detail }}</p>
-          <p v-if="q.doc" class="from">{{ q.doc.title }} · line {{ q.doc.line }}</p>
+          <p v-if="q.doc" class="from" :title="q.doc.file">{{ q.doc.title }} · line {{ q.doc.line }}</p>
           <div class="cact">
-            <button v-if="(q.type === 'link' || q.type === 'reference' || q.type === 'resource') && (q.doc || q.url) && q.anchor" class="ghost sm" :disabled="!!hp.busy[q.id]" @click="applyLink(q)">{{ hp.busy[q.id] || "Insert link" }}</button>
-            <button v-if="q.doc" class="ghost sm" @click="emit('open-doc', q.doc.id)">Open</button>
+            <button v-if="(q.type === 'link' || q.type === 'reference' || q.type === 'resource') && ((q.doc && !q.doc.file) || q.url) && q.anchor" class="ghost sm" :disabled="!!hp.busy[q.id]" @click="applyLink(q)">{{ hp.busy[q.id] || "Insert link" }}</button>
+            <button v-if="q.doc && !q.doc.file" class="ghost sm" @click="emit('open-doc', q.doc.id)">Open</button>
             <button v-if="q.query" class="ghost sm" @click="webSearch(q)">Search</button>
             <button v-if="q.fix" class="ghost sm gold" @click="applyFix(q)">Rewrite to fit</button>
           </div>
@@ -780,6 +790,10 @@ textarea:focus, .note:focus { outline: 1px solid #c9a54a; border-color: #c9a54a;
 .hhead strong { font-size: 13px; color: #9ec4ff; flex: 1; }
 .auto { display: inline-flex; gap: 4px; align-items: center; color: #8b8f99; font-size: 11.5px; }
 .sm { padding: 3px 9px; font-size: 11.5px; }
+.folder { display: grid; gap: 6px; }
+.linkbtn { background: none; border: 0; color: #7a7e89; font: 11.5px system-ui, sans-serif; text-align: left; padding: 0; text-decoration: underline; cursor: pointer; }
+.frow { display: flex; gap: 6px; }
+.frow input { flex: 1; min-width: 0; background: #0f1115; color: #e9e6dd; border: 1px solid #2b2f38; border-radius: 7px; padding: 5px 8px; font: 12px ui-monospace, Menlo, monospace; }
 .hwatch, .hnote { margin: 0; color: #7a7e89; font-size: 12px; line-height: 1.5; }
 .hwatch em { color: #9a9ea8; }
 .hnote.small { font-size: 11px; color: #5d616c; }

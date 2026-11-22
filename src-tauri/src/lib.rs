@@ -1,5 +1,6 @@
 mod cache;
 mod library;
+mod writing;
 mod package;
 mod llm;
 mod render;
@@ -66,6 +67,11 @@ async fn endpoint_models(app: AppHandle, provider_id: Option<String>, base_url: 
     let s = settings::load(&app).await?;
     let p = provider_id.as_ref().and_then(|id| s.providers.iter().find(|p| &p.id == id));
     llm::endpoint_models(p, base_url, key).await
+}
+
+#[tauri::command]
+async fn writing_grep(dir: String, terms: Vec<String>, max: usize) -> Result<Vec<writing::FileHit>, String> {
+    tokio::task::spawn_blocking(move || writing::grep(&dir, &terms, max)).await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -243,6 +249,7 @@ pub fn run() {
             cache_dir,
             endpoint_models,
             library_list,
+            writing_grep,
             library_get,
             library_save,
             library_delete,

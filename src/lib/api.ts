@@ -63,6 +63,7 @@ export const api = {
   worldAvailable: () => need(() => invoke<boolean>("world_available")),
   worldOpen: (x: number, y: number, w: number, h: number, pw?: number, ph?: number) => need(() => invoke<{ scale: number }>("world_open", { x, y, w, h, pw, ph })),
   worldCmd: (body: Record<string, unknown>) => need(() => invoke<unknown>("world_cmd", { body })),
+  writingGrep: (dir: string, terms: string[], max: number) => need(() => invoke<{ path: string; name: string; line: number; text: string; score: number }[]>("writing_grep", { dir, terms, max })),
   libraryList: () => need(() => invoke<BookMeta[]>("library_list")),
   libraryGet: (id: string) => need(() => invoke<string | null>("library_get", { id })),
   librarySave: (id: string, json: string) => need(() => invoke<BookMeta>("library_save", { id, json })),

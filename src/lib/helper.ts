@@ -19,7 +19,7 @@ export type Suggestion = {
   title: string;
   detail: string;
   /** another document of yours this points to (link, reference), and the line in it */
-  doc?: { id: string; title: string; line: number };
+  doc?: { id: string; title: string; line: number; /** a file on disk (can be cited, not linked) */ file?: string };
   /** a web address (only when the model was sure of it: it is checked before it is inserted) and a search for the topic */
   url?: string;
   query?: string;
@@ -136,6 +136,7 @@ export function outline(lines: string[]): string {
 const PLAN_SYSTEM = `You help a writer who is in the middle of a piece. From the passage they are working on and the outline of the whole document, say what to look up in the rest of this document and in their other writing, so you can link to it, cite it, or match its tone. Reply with ONE JSON object only: {"terms":["..."]}. 3 to 8 terms: distinctive names, topics, claims or phrases that the passage mentions or builds on (a word or two each, as they would be written). No common words.`;
 
 const HELP_SYSTEM = `You are a writing helper beside a writer's Markdown editor. You are given the passage they are working on, the outline of the document, matching lines found by searching the document and their other writing, and measurements of how the passage sounds compared with the rest. Suggest only what would clearly help; fewer is better; at most 5. Reply with ONE JSON object only: {"suggestions":[{"type":"link|resource|reference|tone|style|consistency","anchor":"exact words from the passage this is about, up to 60 characters, or empty","title":"up to 8 words","detail":"up to 30 words","doc":"id of one of the documents in the matches (link, reference)","line":<its line number>,"url":"only an address you are certain exists","query":"a web search that finds a good source","fix":"only when changing the passage's own words is the right action (tone, style, a wrong fact): one sentence telling a rewriter what to change; omit it otherwise, e.g. for a duplicate or a missing source"}]}
+- Matches whose id starts with file: are files in the writer's own folder: cite them (reference) but never link to them.
 - link: the anchor words could link to another of their documents (use the id and line from the matches), or to a stable, well-known page (give url only if you are certain of it; never invent addresses).
 - resource: a source, reference or further reading that fits what is being claimed; give a query that would find it, and a url only if certain.
 - reference: they said something related, or the opposite, elsewhere (cite which document and line, and how it relates).
@@ -154,7 +155,7 @@ export type HelpInput = {
 };
 export type HelpResult = { suggestions: Suggestion[]; hits: number; terms: string[]; notes: string[] };
 
-export async function helpWith(inp: HelpInput, corpus: Doc[]): Promise<HelpResult> {
+export async function helpWith(inp: HelpInput, corpus: Doc[], folder = ""): Promise<HelpResult> {
   const out = outline(inp.docLines);
   // 1. what to look up
   let terms: string[] = [];
@@ -166,7 +167,11 @@ export async function helpWith(inp: HelpInput, corpus: Doc[]): Promise<HelpResul
   // 2. grep, here: the rest of this document and the other writing
   const rest = inp.docLines.filter((_, i) => i < inp.passageFrom || i > inp.passageTo);
   const here: Doc = { id: inp.docId, title: `${inp.docTitle} (this document)`, lines: inp.docLines.map((l, i) => (i >= inp.passageFrom && i <= inp.passageTo ? "" : l)), here: true };
-  const hits = grep([here, ...corpus], terms, 8);
+  const hits = grep([here, ...corpus], terms, folder ? 6 : 8);
+  const files = new Map<string, string>(); // writing found in the folder: its path and name, by the id the model is given
+  if (folder) {
+    try { for (const f of await api.writingGrep(folder, terms, 5)) { const fid = `file:${f.path}`; files.set(fid, f.path); hits.push({ doc: fid, docTitle: f.name, line: f.line, text: f.text }); } } catch (e) { /* an unreadable folder: only the documents */ }
+  }
   // 3. how it sounds, here
   const pv = voice(inp.passage);
   const hv = voice(rest.join("\n"));
@@ -184,7 +189,8 @@ export async function helpWith(inp: HelpInput, corpus: Doc[]): Promise<HelpResul
   for (const s of Array.isArray(j?.suggestions) ? j.suggestions : []) {
     const type = ["link", "resource", "reference", "tone", "style", "consistency"].includes(s?.type) ? s.type : null;
     if (!type || typeof s.title !== "string") continue;
-    const doc = typeof s.doc === "string" && titleOf.has(s.doc) ? { id: s.doc, title: titleOf.get(s.doc)!, line: Math.max(1, Number(s.line) || 1) } : undefined;
+    const fileDoc = typeof s.doc === "string" && files.has(s.doc);
+    const doc = typeof s.doc === "string" && (titleOf.has(s.doc) || fileDoc) ? { id: s.doc, title: fileDoc ? (hits.find((h) => h.doc === s.doc)?.docTitle ?? s.doc) : titleOf.get(s.doc)!, line: Math.max(1, Number(s.line) || 1), ...(fileDoc ? { file: files.get(s.doc) } : {}) } : undefined;
     if ((type === "link" || type === "reference") && !doc && !s.url && !s.query) continue;
     suggestions.push({
       id: `${type}:${String(s.anchor ?? "").slice(0, 30)}:${String(s.title).slice(0, 30)}`,
