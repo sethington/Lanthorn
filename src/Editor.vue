@@ -13,7 +13,8 @@ import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
 import { tags as t } from "@lezer/highlight";
 import { diffWords } from "diff";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { save as saveDialog } from "@tauri-apps/plugin-dialog";
+import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
+import { IMAGE_EXTS, STORE_PREFIX, blobUrl, loadImage } from "./lib/images";
 import { api } from "./lib/api";
 import type { Book } from "./lib/book";
 import { baseName, docToBook, fileDocId, markdownOfBook, md, newDocId, parseDoc, plainOf } from "./lib/markdown";
@@ -94,6 +95,20 @@ async function saveAs() {
   if (!path) return;
   if (!/\.(md|markdown|mdx|txt)$/i.test(path)) path += ".md";
   try {
+    // the document's images come with it: the ones kept in the app's folder are copied to images/ beside the new file
+    const dir = path.replace(/\/[^/]*$/, "");
+    const refs = Array.from(new Set(Array.from(text.value.matchAll(/\]\(<?lanthorn-img\/([\w.\-]+)>?\)/g)).map((m) => m[1])));
+    if (refs.length && view) {
+      let t = text.value;
+      for (const n of refs) {
+        try {
+          const img = await api.imageStored(n);
+          const nn = await api.imageSave(Uint8Array.from(img.bytes), `${dir}/images`, n.replace(/\.[a-z0-9]+$/i, ""));
+          t = t.split(`${STORE_PREFIX}${n}`).join(`images/${nn}`);
+        } catch { /* a missing image stays as it was */ }
+      }
+      if (t !== text.value) view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: t }, userEvent: "input.images" });
+    }
     fileTime = await api.fileWrite(path, text.value);
     filePath.value = path;
     conflict.value = "";
@@ -356,6 +371,55 @@ function onPanelKey(e: KeyboardEvent) {
   else if (e.key === "Escape") closeRewrite();
 }
 
+// ---- images: shown in the preview, inserted from a file, pasted or dropped. A file-backed document keeps them in an images/ folder beside it;
+// one that lives only in the library keeps them in the app's own folder (and they move to images/ when it is saved to a file)
+const docDir = computed(() => (filePath.value ? filePath.value.replace(/\/[^/]*$/, "") : undefined));
+const imgDest = () => (docDir.value ? `${docDir.value}/images` : undefined);
+const imgRef = (name: string) => (docDir.value ? `images/${name}` : `${STORE_PREFIX}${name}`);
+function putImage(name: string, alt: string) {
+  if (!view) return;
+  const r = view.state.selection.main;
+  const text = `![${alt}](${imgRef(name)})`;
+  const ln = view.state.doc.lineAt(r.to);
+  const lead = ln.text.trim() ? "\n\n" : "";
+  view.dispatch({ changes: { from: r.to, insert: lead + text + "\n" }, selection: { anchor: r.to + lead.length + 2, head: r.to + lead.length + 2 + alt.length } });
+  view.focus();
+}
+const altOf = (name: string) => name.replace(/\.[a-z0-9]+$/i, "").replace(/[-_]+/g, " ").trim();
+const imgMsg = ref("");
+function imgFail(e: unknown) { imgMsg.value = e instanceof Error ? e.message : String(e); setTimeout(() => (imgMsg.value = ""), 5000); }
+async function pickImage() {
+  try {
+    const p = await openDialog({ multiple: false, directory: false, filters: [{ name: "Images", extensions: IMAGE_EXTS }] });
+    if (typeof p !== "string" || !p) return;
+    const name = await api.imageImport(p, imgDest());
+    putImage(name, altOf(name));
+  } catch (e) { imgFail(e); }
+}
+async function addImageFiles(files: File[]) {
+  for (const f of files) {
+    try {
+      const name = await api.imageSave(new Uint8Array(await f.arrayBuffer()), imgDest(), f.name && !/^image\.\w+$/i.test(f.name) ? f.name.replace(/\.[a-z0-9]+$/i, "") : undefined);
+      putImage(name, altOf(f.name && !/^image\.\w+$/i.test(f.name) ? f.name : name));
+    } catch (e) { imgFail(e); }
+  }
+}
+const imageFiles = (dt: DataTransfer | null) => Array.from(dt?.files ?? []).filter((f) => f.type.startsWith("image/"));
+/** The preview's images get their bytes (a local file, a web address) and show them; one that can't be read shows its description instead. */
+const blobs: string[] = [];
+function resolveImages() {
+  const root = previewEl.value;
+  if (!root) return;
+  root.querySelectorAll<HTMLImageElement>("img.mdimg:not([data-done])").forEach((el) => {
+    el.setAttribute("data-done", "1");
+    const src = el.getAttribute("data-src") ?? "";
+    loadImage(src, { dir: docDir.value }).then((img) => {
+      if (!el.isConnected) return;
+      if (img) { const u = blobUrl(img); blobs.push(u); el.src = u; el.classList.add("loaded"); }
+      else { const sp = document.createElement("span"); sp.className = "imgmiss"; sp.textContent = `🖼 ${el.alt || "image"} — can't load ${src.length > 50 ? src.slice(0, 50) + "…" : src}`; el.replaceWith(sp); }
+    });
+  });
+}
 // ---- the writing helper: watches the passage you are writing and suggests links, references and tone changes (see lib/helper.ts)
 const hp = reactive({
   open: localStorage.getItem("lanthorn:helper") === "1",
@@ -487,7 +551,7 @@ const SUG_LABEL: Record<string, string> = { link: "Link", resource: "Resource", 
 const previewEl = ref<HTMLElement | null>(null);
 const html = ref("");
 let htmlTimer = 0;
-function renderSoon() { window.clearTimeout(htmlTimer); htmlTimer = window.setTimeout(() => { html.value = md.render(text.value); }, 120); }
+function renderSoon() { window.clearTimeout(htmlTimer); htmlTimer = window.setTimeout(() => { html.value = md.render(text.value); nextTick(resolveImages); }, 120); }
 function onPreviewClick(e: MouseEvent) {
   const a = (e.target as HTMLElement).closest("a");
   if (!a) return;
@@ -590,18 +654,23 @@ onMounted(async () => {
           if (u.docChanged || u.selectionSet || u.focusChanged) updateSel(u.view);
           if (u.docChanged || u.selectionSet) scheduleHelper();
         }),
-        EditorView.domEventHandlers({ scroll: () => syncPreview() }),
+        EditorView.domEventHandlers({
+          scroll: () => syncPreview(),
+          paste: (e) => { const f = imageFiles(e.clipboardData); if (!f.length) return false; e.preventDefault(); addImageFiles(f); return true; },
+          drop: (e) => { const f = imageFiles(e.dataTransfer); if (!f.length) return false; e.preventDefault(); addImageFiles(f); return true; },
+        }),
       ],
     }),
   });
   html.value = md.render(initial);
+  nextTick(resolveImages);
   window.addEventListener("focus", checkDisk);
   if (!props.docId && !props.file) { view.focus(); view.dispatch({ selection: { anchor: initial.length } }); await saveNow(); }
   else view.focus();
 });
-onBeforeUnmount(() => { window.removeEventListener("focus", checkDisk); window.clearTimeout(htmlTimer); window.clearTimeout(hpTimer); hpGen++; if (saveState.value === "dirty") saveNow(); view?.destroy(); view = null; });
+onBeforeUnmount(() => { blobs.forEach((u) => URL.revokeObjectURL(u)); window.removeEventListener("focus", checkDisk); window.clearTimeout(htmlTimer); window.clearTimeout(hpTimer); hpGen++; if (saveState.value === "dirty") saveNow(); view?.destroy(); view = null; });
 
-function setMode(m: "edit" | "split" | "preview") { mode.value = m; try { localStorage.setItem("lanthorn:ed-mode", m); } catch { /* optional */ } if (m !== "preview") nextTick(() => view?.requestMeasure()); }
+function setMode(m: "edit" | "split" | "preview") { mode.value = m; nextTick(resolveImages); try { localStorage.setItem("lanthorn:ed-mode", m); } catch { /* optional */ } if (m !== "preview") nextTick(() => view?.requestMeasure()); }
 function toggleLines() {
   showLines.value = !showLines.value;
   try { localStorage.setItem("lanthorn:ed-lines", showLines.value ? "1" : "0"); } catch { /* optional */ }
@@ -618,7 +687,7 @@ const copied = ref("");
 async function copyMd() { try { await navigator.clipboard.writeText(text.value); copied.value = "Copied"; } catch { copied.value = "Couldn't copy"; } setTimeout(() => (copied.value = ""), 1800); }
 const hasText = computed(() => words.value > 0);
 const cols = computed(() => (mode.value === "split" ? "1fr 1fr" : "1fr") + (hp.open ? " 330px" : ""));
-if (import.meta.env.DEV) (window as any).__ed = { view: () => view, rw, hp, startRewrite, runRewrite, accept, saveNow, text, cmds, checkNow, toggleHelper, id, applyLink, read, dismiss, filePath, saveAs, checkDisk, conflict, showPdf };
+if (import.meta.env.DEV) (window as any).__ed = { view: () => view, rw, hp, startRewrite, runRewrite, accept, saveNow, text, cmds, checkNow, toggleHelper, id, applyLink, read, dismiss, filePath, saveAs, checkDisk, conflict, showPdf, addImageFiles };
 </script>
 
 <template>
@@ -649,6 +718,7 @@ if (import.meta.env.DEV) (window as any).__ed = { view: () => view, rw, hp, star
       <button class="ghost sm" @click="saveNow(true)">Overwrite it with mine</button>
     </div>
     <div v-else-if="notice" class="banner">{{ notice }}</div>
+    <div v-if="imgMsg" class="banner warn"><span>{{ imgMsg }}</span></div>
     <div class="tools" role="toolbar" aria-label="Formatting">
       <button title="Undo (⌘Z)" @click="cmds.undo()">↶</button>
       <button title="Redo (⇧⌘Z)" @click="cmds.redo()">↷</button>
@@ -668,6 +738,7 @@ if (import.meta.env.DEV) (window as any).__ed = { view: () => view, rw, hp, star
       <button title="Quote (⇧⌘9)" @click="cmds.quote()">❝</button>
       <i />
       <button title="Link (⇧⌘K)" @click="cmds.link()">Link</button>
+      <button title="Insert an image (or paste or drop one)" @click="pickImage">Image</button>
       <button title="Code block" class="mono" @click="cmds.codeblock()">{ }</button>
       <button title="Table" @click="cmds.table()">Table</button>
       <button title="Horizontal rule" @click="cmds.rule()">―</button>
@@ -763,7 +834,7 @@ if (import.meta.env.DEV) (window as any).__ed = { view: () => view, rw, hp, star
       </aside>
     </div>
 
-    <ExportPdf v-if="showPdf" :text="text" :title="title" @close="showPdf = false" />
+    <ExportPdf v-if="showPdf" :text="text" :title="title" :dir="docDir" @close="showPdf = false" />
     <footer class="status">
       <span>{{ words.toLocaleString() }} {{ words === 1 ? "word" : "words" }}</span>
       <span>{{ text.length.toLocaleString() }} characters</span>
@@ -834,7 +905,9 @@ button:disabled { opacity: 0.5; cursor: default; }
 .prose :deep(table) { border-collapse: collapse; margin: 1.2em 0; font: 15px system-ui, sans-serif; }
 .prose :deep(th), .prose :deep(td) { border: 1px solid #2b2f38; padding: 6px 12px; text-align: left; }
 .prose :deep(th) { background: #171a21; }
-.prose :deep(img) { max-width: 100%; }
+.prose :deep(img) { max-width: 100%; height: auto; border-radius: 6px; display: block; margin: 1.1em auto; }
+.prose :deep(img.mdimg:not(.loaded)) { min-height: 28px; min-width: 120px; background: #1b1f26; }
+.prose :deep(.imgmiss) { display: block; margin: 1em 0; padding: 10px 12px; border: 1px dashed #3a3f4a; border-radius: 8px; color: #8b8f99; font: 13px system-ui, sans-serif; }
 .status { display: flex; gap: 16px; align-items: center; padding: 5px 16px; border-top: 1px solid #1f232a; color: #6d7280; font-size: 11.5px; background: #12151a; }
 .rwpanel { position: absolute; z-index: 6; left: 50%; bottom: 18px; transform: translateX(-50%); width: min(640px, calc(100% - 32px)); background: #171a21; border: 1px solid #3a3f4a; border-radius: 14px; padding: 12px 14px 14px; box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6); display: grid; gap: 10px; max-height: 70%; overflow: auto; }
 .rwhead { display: flex; gap: 10px; align-items: baseline; min-width: 0; }

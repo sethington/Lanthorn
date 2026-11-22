@@ -11,9 +11,10 @@ import { PLAIN, type Theme, designTheme } from "./lib/pdf/theme";
 import { renderPdf } from "./lib/pdf/render";
 import { parseDoc } from "./lib/markdown";
 import { outline } from "./lib/helper";
+import { forPdf, loadImage } from "./lib/images";
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
-const props = defineProps<{ text: string; title: string }>();
+const props = defineProps<{ text: string; title: string; dir?: string }>();
 const emit = defineEmits<{ (e: "close"): void }>();
 
 const KEY = "lanthorn:pdf-opts";
@@ -60,7 +61,7 @@ async function rebuild() {
   error.value = "";
   try {
     const t = active.value;
-    const out = await renderPdf(props.text, t, { size: size.value, author: author.value.trim(), title: props.title, cover: cover.value && (style.value === "designed" || false), date: dated.value ? dateText() : "" });
+    const out = await renderPdf(props.text, t, { size: size.value, author: author.value.trim(), title: props.title, cover: cover.value && (style.value === "designed" || false), date: dated.value ? dateText() : "", loadImage: async (src) => { const img = await loadImage(src, { dir: props.dir }); return img ? forPdf(img) : null; } });
     if (g !== gen) return;
     bytes = out;
     // thumbnails of the first pages

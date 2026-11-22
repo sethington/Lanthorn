@@ -7,6 +7,18 @@ import { hashStr } from "./text";
 
 export const md = new MarkdownIt({ html: false, linkify: true, typographer: true, breaks: false });
 
+// an image is drawn by the editor once it has the bytes (a local file, a web address): the markup only says which, and what it is of
+const esc = (s: string | number | null) => String(s ?? "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+md.renderer.rules.image = (tokens, i) => {
+  const t = tokens[i];
+  const alt = esc(t.children?.map((c) => c.content).join("") || t.content || "");
+  const title = t.attrGet("title");
+  return `<img class="mdimg" data-src="${esc(t.attrGet("src") ?? "")}" alt="${alt}"${title ? ` title="${esc(title)}"` : ""}>`;
+};
+// markdown-it refuses some address forms for links; local and data image paths are plain text to it, which is what the image rule needs
+const baseValidate = md.validateLink.bind(md);
+md.validateLink = (url: string) => (/^data:image\/(png|jpe?g|gif|webp|bmp);base64,/i.test(url) ? true : baseValidate(url));
+
 /** The visible words of an inline token run: text, code and image alt text; no markup characters. */
 function inlineText(tok: { children?: any[] | null; content: string }): string {
   if (!tok.children) return tok.content;

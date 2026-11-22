@@ -14,6 +14,7 @@ type Block =
   | { k: "quote"; blocks: Block[] }
   | { k: "code"; text: string }
   | { k: "hr" }
+  | { k: "img"; src: string; alt: string; title: string }
   | { k: "table"; head: Run[][]; rows: Run[][][] };
 
 function inlineRuns(children: any[] | null | undefined, content = ""): Run[] {
@@ -49,7 +50,20 @@ export function blocksOf(src: string): Block[] {
       if (t.type === close) { n++; return out; }
       n++;
       if (t.type === "heading_open") { const inl = toks[n]; n += 2; out.push({ k: "h", level: Number(t.tag.slice(1)), runs: inlineRuns(inl.children, inl.content) }); }
-      else if (t.type === "paragraph_open") { const inl = toks[n]; n += 2; out.push({ k: "p", runs: inlineRuns(inl.children, inl.content) }); }
+      else if (t.type === "paragraph_open") {
+        const inl = toks[n]; n += 2;
+        // an image in a paragraph is a figure of its own: the text before it, the picture, the text after
+        const kids: any[] = inl.children ?? [];
+        if (kids.some((c) => c.type === "image")) {
+          let run: any[] = [];
+          const flush = () => { const r = inlineRuns(run); if (r.some((q) => q.t.trim())) out.push({ k: "p", runs: r }); run = []; };
+          for (const c of kids) {
+            if (c.type === "image") { flush(); out.push({ k: "img", src: c.attrGet?.("src") ?? "", alt: (c.children ?? []).map((x: any) => x.content).join("") || c.content || "", title: c.attrGet?.("title") ?? "" }); }
+            else run.push(c);
+          }
+          flush();
+        } else out.push({ k: "p", runs: inlineRuns(inl.children, inl.content) });
+      }
       else if (t.type === "bullet_list_open" || t.type === "ordered_list_open") {
         const ordered = t.type === "ordered_list_open";
         const start = Number(t.attrGet?.("start") ?? 1) || 1;
@@ -81,7 +95,8 @@ export function blocksOf(src: string): Block[] {
 }
 
 // ---- the page
-export type PdfOptions = { size: "letter" | "a4"; author: string; title?: string; cover: boolean; date?: string };
+export type PdfImage = { bytes: Uint8Array; kind: "png" | "jpg"; w: number; h: number };
+export type PdfOptions = { size: "letter" | "a4"; author: string; title?: string; cover: boolean; date?: string; /** gives the bytes of an image the document refers to (null: it can't be found) */ loadImage?: (src: string) => Promise<PdfImage | null> };
 type Word = { text: string; font: PDFFont; size: number; color: [number, number, number]; width: number; href?: string; under?: boolean; strike?: boolean; gap: number; joined?: boolean; br?: boolean };
 const SIZES = { letter: [612, 792], a4: [595.28, 841.89] } as const;
 const col = (h: string) => { const [r, g, b] = rgbOf(h); return [r / 255, g / 255, b / 255] as [number, number, number]; };
@@ -333,6 +348,7 @@ export async function renderPdf(src: string, theme: Theme, opts: PdfOptions): Pr
       else if (b.k === "code") codeBlock(b.text, x, width);
       else if (b.k === "hr") { ensure(24); y -= 8; if (theme.title.ornament !== "none") ornament(theme.title.ornament, W / 2, y - 4, 0.7); else page.drawLine({ start: { x: M + textW * 0.3, y }, end: { x: M + textW * 0.7, y }, thickness: 0.6, color: RGB(muted) }); y -= 16; }
       else if (b.k === "table") table(b, x, width);
+      else if (b.k === "img") figure(b, x, width);
     }
   }
   const quoteOpts = (): ParaOpts => (theme.quote === "bar" ? { bar: true, italic: false, color: tint(ink, 0.82) } : theme.quote === "italic" ? { italic: true, color: tint(ink, 0.8) } : theme.quote === "box" ? { box: true, italic: true } : { italic: true, color: tint(ink, 0.8), x: undefined });
@@ -379,12 +395,45 @@ export async function renderPdf(src: string, theme: Theme, opts: PdfOptions): Pr
     y -= bodySize * 0.8;
   }
 
+  // ---- figures
+  const pics = new Map<string, { img: Awaited<ReturnType<typeof doc.embedPng>>; w: number; h: number } | null>();
+  function figure(b: Extract<Block, { k: "img" }>, x: number, width: number) {
+    const pic = pics.get(b.src);
+    const caption = (b.title || b.alt || "").trim();
+    if (!pic) { // not found: its description stands in
+      paragraph([{ t: `[${b.alt || "image"}${b.src.startsWith("data:") ? "" : ": " + (b.src.length > 60 ? b.src.slice(0, 60) + "…" : b.src)}]`, i: true }], { color: muted, size: bodySize * 0.9 });
+      return;
+    }
+    const maxW = width, maxH = (H - 2 * M) * 0.62;
+    let w = pic.w * 0.75, h = pic.h * 0.75; // (pixels at 96 dpi, as points)
+    const k = Math.min(1, maxW / w, maxH / h);
+    w *= k; h *= k;
+    if (w < maxW * 0.25 && pic.w * 0.75 > maxW * 0.25) { const up = (maxW * 0.5) / w; if (h * up <= maxH) { w *= up; h *= up; } } // (a tiny picture is not left a speck)
+    const capLines = caption ? wrap(wordsOf([{ t: caption, i: true }], { fam: "serif", size: bodySize * 0.88, color: muted }), () => Math.min(width, Math.max(w, width * 0.6))) : [];
+    const capH = capLines.length * bodySize * 0.88 * 1.35 + (capLines.length ? 6 : 0);
+    y -= bodySize * 0.4;
+    if (room() < h + capH) {
+      // not enough room left: a picture that would fit at 60% or more of its size is shrunk to the space, else it starts the next page
+      const f = (room() - capH - 4) / h;
+      if (f >= 0.6) { w *= f; h *= f; } else newPage();
+    }
+    const px = x + (width - w) / 2;
+    page.drawImage(pic.img, { x: px, y: y - h, width: w, height: h });
+    if (theme.page.border !== "none" || theme.colors.paper !== "#ffffff") page.drawRectangle({ x: px, y: y - h, width: w, height: h, borderColor: RGB(tint(ink, 0.18)), borderWidth: 0.5 });
+    y -= h + 6;
+    capLines.forEach((l) => { const cw = Math.min(width, Math.max(w, width * 0.6)); drawLine(l, x + (width - cw) / 2 + (cw - l.width) / 2, y - bodySize * 0.88 * 0.85, cw, false, true); y -= bodySize * 0.88 * 1.35; });
+    y -= bodySize * 0.9;
+  }
+  const collectImages = (bs: Block[], out: string[]) => { for (const b of bs) { if (b.k === "img") out.push(b.src); else if (b.k === "quote") collectImages(b.blocks, out); else if (b.k === "list") b.items.forEach((it) => collectImages(it, out)); } };
+
   // ---- the title page
   const blocks = blocksOf(src);
   let title = opts.title?.trim() || "";
   let body = blocks;
   const h1 = blocks.findIndex((b) => b.k === "h" && b.level === 1);
+  let titled = false;
   if (h1 >= 0 && !blocks.slice(0, h1).some((b) => b.k !== "hr")) {
+    titled = true;
     const hb = blocks[h1] as Extract<Block, { k: "h" }>;
     title = title || hb.runs.map((r) => r.t).join("").trim();
     body = blocks.filter((_, k) => k !== h1);
@@ -429,11 +478,24 @@ export async function renderPdf(src: string, theme: Theme, opts: PdfOptions): Pr
   } else {
     newPage();
     // no cover: the title heads the first page
-    if (h1 >= 0) heading({ k: "h", level: 1, runs: [{ t: title }] });
+    if (titled) heading({ k: "h", level: 1, runs: [{ t: title }] });
     const sub = [opts.author, opts.date].filter(Boolean).join("  ·  ");
     if (sub) { paragraph([{ t: sub, i: true }], { color: muted, space: bodySize * 1.2 }); }
   }
 
+  // the pictures the document refers to are fetched and embedded first (those that can't be found are shown as their description)
+  {
+    const srcs: string[] = [];
+    collectImages(body, srcs);
+    for (const src of Array.from(new Set(srcs))) {
+      let pic: { img: any; w: number; h: number } | null = null;
+      try {
+        const got = opts.loadImage ? await opts.loadImage(src) : null;
+        if (got) pic = { img: got.kind === "png" ? await doc.embedPng(got.bytes) : await doc.embedJpg(got.bytes), w: got.w, h: got.h };
+      } catch { pic = null; }
+      pics.set(src, pic);
+    }
+  }
   renderBlocks(body, M, textW);
 
   // ---- footers, links, metadata

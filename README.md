@@ -273,6 +273,9 @@ book, with its chapters made from the headings, so **Read it** opens it in the r
 - **PDF:** exports the document as a paginated PDF with real text and clickable links. *Plain* is a clean fixed design. *Designed* has the
   model choose the look from the content (and anything you ask for): fonts, colours, title page, headings, ornaments, borders. The design is
   checked so it stays readable, and a preview shows before anything is saved. Only the standard PDF fonts are used, so text outside Latin-1 is not supported yet.
+- **Images:** `![alt](path)` shows in the preview and in the PDF (as a figure, captioned from its title or description). Local paths are relative to the
+  file; web images and inline data images work too. **Image** in the toolbar, or pasting or dropping a picture, saves it into an `images/` folder beside a
+  file-backed document (or into the app's own folder for a library document, which moves when you save it to a file). PNG, JPEG, GIF, WebP and BMP. Images don't appear in reader mode yet.
 - **Helper:** watches the paragraph you are writing and suggests links to your other documents, sources, references, and where the
   tone drifts from the rest. It keeps the model's context small: a short call picks terms, those are grepped locally through the
   document and your other writing, how the passage sounds (sentence length, voice, contractions) is measured locally against the rest,

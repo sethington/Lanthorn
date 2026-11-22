@@ -1,4 +1,5 @@
 mod cache;
+mod images;
 mod library;
 mod writing;
 mod package;
@@ -82,6 +83,31 @@ fn file_write(path: String, text: String, expect: Option<u64>) -> Result<u64, St
 #[tauri::command]
 fn file_write_pdf(path: String, bytes: Vec<u8>) -> Result<u64, String> {
     writing::write_pdf(&path, &bytes)
+}
+
+#[tauri::command]
+fn image_read(path: String) -> Result<images::ImageData, String> {
+    images::read(&path)
+}
+
+#[tauri::command]
+async fn image_fetch(url: String) -> Result<images::ImageData, String> {
+    images::fetch(&url).await
+}
+
+#[tauri::command]
+fn image_stored(app: AppHandle, name: String) -> Result<images::ImageData, String> {
+    images::stored(&app, &name)
+}
+
+#[tauri::command]
+fn image_import(app: AppHandle, src: String, dest_dir: Option<String>) -> Result<String, String> {
+    images::import(&app, &src, dest_dir)
+}
+
+#[tauri::command]
+fn image_save(app: AppHandle, bytes: Vec<u8>, dest_dir: Option<String>, stem: Option<String>) -> Result<String, String> {
+    images::save(&app, bytes, dest_dir, stem)
 }
 
 #[tauri::command]
@@ -266,6 +292,11 @@ pub fn run() {
             endpoint_models,
             library_list,
             writing_grep,
+            image_read,
+            image_fetch,
+            image_stored,
+            image_import,
+            image_save,
             file_read,
             file_write,
             file_write_pdf,
