@@ -5,7 +5,7 @@ import type { Book, BookMeta } from "./lib/book";
 import { importFile, importHtml, importText } from "./lib/import";
 
 const props = defineProps<{ currentId?: string | null }>();
-const emit = defineEmits<{ (e: "open", id: string): void; (e: "close"): void }>();
+const emit = defineEmits<{ (e: "open", id: string): void; (e: "close"): void; (e: "edit", id: string): void; (e: "new"): void }>();
 
 const books = ref<BookMeta[]>([]);
 const busy = ref("");
@@ -78,7 +78,10 @@ async function remove(b: BookMeta) {
   <div class="lib" :class="{ drag: dragging }" @dragover.prevent="dragging = true" @dragleave.prevent="dragging = false" @drop.prevent="onDrop">
     <header>
       <h1>Library</h1>
-      <button v-if="props.currentId" class="ghost" @click="emit('close')">Back to reading</button>
+      <div class="hacts">
+        <button @click="emit('new')">New document</button>
+        <button v-if="props.currentId" class="ghost" @click="emit('close')">Back to reading</button>
+      </div>
     </header>
 
     <section class="add">
@@ -113,7 +116,10 @@ async function remove(b: BookMeta) {
             <span>{{ b.author || "Unknown author" }}<em v-if="b.kind" class="kind">{{ ({ epub: "EPUB", text: "Text", markdown: "Markdown", html: "HTML file", url: "Web page", lanthorn: "Package" } as Record<string, string>)[b.kind] ?? b.kind }}</em></span>
           </div>
           <span class="n">{{ b.chapters }} {{ b.chapters === 1 ? "chapter" : "chapters" }}</span>
-          <button class="ghost del" title="Remove from the library" @click.stop="remove(b)">Remove</button>
+          <span class="rowacts">
+            <button v-if="b.kind === 'markdown' || b.kind === 'text'" class="ghost del" title="Edit as a Markdown document" @click.stop="emit('edit', b.id)">Edit</button>
+            <button class="ghost del" title="Remove from the library" @click.stop="remove(b)">Remove</button>
+          </span>
         </li>
       </ul>
       <p v-if="books.length && sampleAvailable" class="empty"><button class="linkbtn" @click="sample">Import the sample (The Time Machine)</button></p>
@@ -150,6 +156,7 @@ button.ghost { background: transparent; color: #aab; border: 1px solid #2b2f38; 
 .t strong { font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .t span, .n { color: #8b8f99; font-size: 12.5px; }
 .del { padding: 5px 10px; }
+.hacts, .rowacts { display: flex; gap: 8px; align-items: center; }
 .kind { font-style: normal; margin-left: 10px; padding: 1px 8px; border: 1px solid #2b2f38; border-radius: 99px; font-size: 11px; color: #8b8f99; }
 @media (max-width: 640px) { .add { grid-template-columns: 1fr; } }
 </style>

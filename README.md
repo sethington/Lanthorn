@@ -260,6 +260,19 @@ A package is untrusted input, so the app checks everything when it loads one, no
 | `examples/` | An example package. |
 | `docs/spec.md` | Design decisions: what's built, what's planned, and why. |
 
+## Writing
+
+Lanthorn is also a Markdown editor (Library → New document, or Edit on any Markdown or text book). It has the usual editing tools: a
+toolbar and shortcuts, live preview, find and replace, undo, line numbers, autosave. A document is saved in the library like any
+book, with its chapters made from the headings, so **Read it** opens it in the reader with its pictures.
+
+- **Rewrite (⌘K):** select a passage (or leave the cursor in a block), say why it should change, and the model rewrites it. The change
+  is shown as a word diff to accept, try again or discard.
+- **Helper:** watches the paragraph you are writing and suggests links to your other documents, sources, references, and where the
+  tone drifts from the rest. It keeps the model's context small: a short call picks terms, those are grepped locally through the
+  document and your other writing, how the passage sounds (sentence length, voice, contractions) is measured locally against the rest,
+  and only the best few lines and the numbers are sent. Suggested web addresses are checked before they are inserted.
+
 ## Credits and licences
 
 Lanthorn is licensed under the [GNU AGPL-3.0](LICENSE). Copyright (C) 2026 Seth Steele. For other terms, get in touch.

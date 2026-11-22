@@ -1,0 +1,800 @@
+<script setup lang="ts">
+// The Markdown editor: CodeMirror 6 with a toolbar, a live preview, search and replace, and "rewrite this": select a passage (or put the cursor in a
+// block), say why it should change, and the language model rewrites it; the change is shown as a word diff to accept or refuse.
+// A document is saved in the library as a book (its chapters made from the headings), so the reader opens it like any other.
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef } from "vue";
+import { Compartment, EditorState, StateEffect, StateField } from "@codemirror/state";
+import { Decoration, type DecorationSet, EditorView, drawSelection, highlightActiveLine, highlightActiveLineGutter, keymap, lineNumbers, placeholder } from "@codemirror/view";
+import { defaultKeymap, history, historyKeymap, indentWithTab, redo, undo } from "@codemirror/commands";
+import { markdown, markdownKeymap, markdownLanguage } from "@codemirror/lang-markdown";
+import { HighlightStyle, bracketMatching, syntaxHighlighting } from "@codemirror/language";
+import { openSearchPanel, search, searchKeymap } from "@codemirror/search";
+import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
+import { tags as t } from "@lezer/highlight";
+import { diffWords } from "diff";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { api } from "./lib/api";
+import type { Book } from "./lib/book";
+import { docToBook, markdownOfBook, md, newDocId, parseDoc, plainOf } from "./lib/markdown";
+import { type Doc, type Suggestion, helpWith, loadCorpus } from "./lib/helper";
+
+const props = defineProps<{ docId?: string | null }>();
+const emit = defineEmits<{ (e: "close"): void; (e: "read", id: string): void; (e: "open-doc", id: string): void }>();
+
+// ---- the document
+const id = ref(props.docId || newDocId());
+const prev = shallowRef<Pick<Book, "imported" | "author"> | undefined>();
+const text = ref("");
+const loaded = ref(false);
+const saveState = ref<"saved" | "dirty" | "saving" | "error">("saved");
+const saveError = ref("");
+const mode = ref<"edit" | "split" | "preview">((localStorage.getItem("lanthorn:ed-mode") as any) || "split");
+const showLines = ref(localStorage.getItem("lanthorn:ed-lines") !== "0");
+const title = computed(() => parseDoc(text.value).title || "Untitled");
+const words = computed(() => (plainOf(text.value).match(/\S+/g) ?? []).length);
+const readMins = computed(() => Math.max(1, Math.round(words.value / 230)));
+const cursor = reactive({ line: 1, col: 1, sel: 0 });
+
+let saveTimer = 0;
+async function saveNow() {
+  window.clearTimeout(saveTimer);
+  if (!loaded.value) return;
+  saveState.value = "saving";
+  try {
+    const book = docToBook(text.value, id.value, prev.value);
+    prev.value = { imported: book.imported, author: book.author };
+    await api.librarySave(book.id, JSON.stringify(book));
+    saveState.value = "saved";
+    saveError.value = "";
+  } catch (e) {
+    saveState.value = "error";
+    saveError.value = e instanceof Error ? e.message : String(e);
+  }
+}
+function touched() {
+  saveState.value = "dirty";
+  window.clearTimeout(saveTimer);
+  saveTimer = window.setTimeout(saveNow, 800);
+}
+
+// ---- CodeMirror
+const host = ref<HTMLElement | null>(null);
+const paneEl = ref<HTMLElement | null>(null);
+let view: EditorView | null = null;
+const lineComp = new Compartment();
+
+const setRewriteRange = StateEffect.define<{ from: number; to: number } | null>();
+const rewriteRange = StateField.define<{ from: number; to: number } | null>({
+  create: () => null,
+  update(v, tr) {
+    for (const e of tr.effects) if (e.is(setRewriteRange)) return e.value;
+    if (v && tr.docChanged) return { from: tr.changes.mapPos(v.from, 1), to: tr.changes.mapPos(v.to, -1) };
+    return v;
+  },
+  provide: (f) => EditorView.decorations.from(f, (r): DecorationSet => (r && r.to > r.from ? Decoration.set([Decoration.mark({ class: "cm-rewriting" }).range(r.from, r.to)]) : Decoration.none)),
+});
+
+const setFocusRange = StateEffect.define<{ from: number; to: number } | null>();
+const focusRange = StateField.define<DecorationSet>({
+  create: () => Decoration.none,
+  update(v, tr) {
+    for (const e of tr.effects) if (e.is(setFocusRange)) return e.value && e.value.to > e.value.from ? Decoration.set([Decoration.mark({ class: "cm-focus" }).range(e.value.from, e.value.to)]) : Decoration.none;
+    return tr.docChanged ? Decoration.none : v;
+  },
+  provide: (f) => EditorView.decorations.from(f),
+});
+
+const hl = HighlightStyle.define([
+  { tag: t.heading1, color: "#e8c870", fontWeight: "700", fontSize: "1.45em" },
+  { tag: t.heading2, color: "#e2c585", fontWeight: "700", fontSize: "1.25em" },
+  { tag: [t.heading3, t.heading4, t.heading5, t.heading6], color: "#d8c79a", fontWeight: "700" },
+  { tag: t.strong, fontWeight: "700", color: "#f2efe6" },
+  { tag: t.emphasis, fontStyle: "italic", color: "#ddd8c8" },
+  { tag: t.strikethrough, textDecoration: "line-through", color: "#8b8f99" },
+  { tag: t.link, color: "#7fb3ff", textDecoration: "underline" },
+  { tag: t.url, color: "#6c92c8" },
+  { tag: t.monospace, color: "#9fd0b8", fontFamily: "ui-monospace, Menlo, monospace" },
+  { tag: t.quote, color: "#9a9684", fontStyle: "italic" },
+  { tag: [t.processingInstruction, t.contentSeparator], color: "#6d7280" },
+  { tag: t.list, color: "#c9a54a" },
+  { tag: t.comment, color: "#6d7280" },
+]);
+
+const theme = EditorView.theme(
+  {
+    "&": { height: "100%", color: "#e9e6dd", backgroundColor: "transparent", fontSize: "16px" },
+    ".cm-scroller": { fontFamily: '"Iowan Old Style", Palatino, Georgia, serif', lineHeight: "1.75", padding: "20px 0 40vh" },
+    ".cm-content": { maxWidth: "46em", margin: "0 auto", padding: "0 28px", caretColor: "#e8c870" },
+    ".cm-gutters": { backgroundColor: "transparent", border: "none", color: "#4a4f5a", fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11px" },
+    ".cm-activeLine": { backgroundColor: "rgba(255,255,255,0.03)" },
+    ".cm-activeLineGutter": { backgroundColor: "transparent", color: "#8b8f99" },
+    "&.cm-focused": { outline: "none" },
+    ".cm-selectionBackground, &.cm-focused .cm-selectionBackground, ::selection": { backgroundColor: "rgba(201,165,74,0.32) !important" },
+    ".cm-cursor": { borderLeftColor: "#e8c870" },
+    ".cm-focus": { backgroundColor: "rgba(232,200,112,0.22)", borderBottom: "2px solid #e8c870" },
+    ".cm-rewriting": { backgroundColor: "rgba(127,179,255,0.18)", borderBottom: "2px solid #7fb3ff" },
+    ".cm-panels": { backgroundColor: "#171a21", color: "#e9e6dd", border: "none", fontFamily: "system-ui, sans-serif" },
+    ".cm-panels-top": { borderBottom: "1px solid #2b2f38" },
+    ".cm-search": { padding: "8px 12px", display: "flex", flexWrap: "wrap", gap: "6px", alignItems: "center", fontSize: "12.5px" },
+    ".cm-search input, .cm-search button": { font: "12.5px system-ui, sans-serif", borderRadius: "6px" },
+    ".cm-search input": { background: "#0f1115", color: "#e9e6dd", border: "1px solid #2b2f38", padding: "4px 8px" },
+    ".cm-search button": { background: "#262a33", color: "#d6d3c8", border: "1px solid #343945", padding: "4px 10px", cursor: "pointer" },
+    ".cm-search label": { color: "#9a9ea8", display: "inline-flex", gap: "4px", alignItems: "center" },
+    ".cm-searchMatch": { backgroundColor: "rgba(201,165,74,0.28)" },
+    ".cm-searchMatch-selected": { backgroundColor: "rgba(201,165,74,0.6)" },
+    ".cm-placeholder": { color: "#5d616c" },
+  },
+  { dark: true },
+);
+
+// ---- formatting commands
+type V = EditorView;
+function wrap(v: V, open: string, close = open): boolean {
+  v.dispatch(
+    v.state.changeByRange((r) => {
+      const s = v.state.sliceDoc(r.from, r.to);
+      const before = v.state.sliceDoc(Math.max(0, r.from - open.length), r.from);
+      const after = v.state.sliceDoc(r.to, r.to + close.length);
+      if (before === open && after === close) return { changes: [{ from: r.from - open.length, to: r.from }, { from: r.to, to: r.to + close.length }], range: r.map(v.state.changes([{ from: r.from - open.length, to: r.from }, { from: r.to, to: r.to + close.length }]), -1) };
+      if (s.startsWith(open) && s.endsWith(close) && s.length >= open.length + close.length) return { changes: { from: r.from, to: r.to, insert: s.slice(open.length, s.length - close.length) }, range: { anchor: r.from, head: r.to - open.length - close.length } as any };
+      return { changes: [{ from: r.from, insert: open }, { from: r.to, insert: close }], range: r.empty ? { anchor: r.from + open.length, head: r.from + open.length } as any : { anchor: r.from, head: r.to + open.length + close.length } as any };
+    }),
+  );
+  v.focus();
+  return true;
+}
+function eachLine(v: V, f: (text: string, index: number) => string): boolean {
+  const { from, to } = v.state.selection.main;
+  const a = v.state.doc.lineAt(from), b = v.state.doc.lineAt(to);
+  const changes = [];
+  for (let n = a.number, k = 0; n <= b.number; n++, k++) {
+    const ln = v.state.doc.line(n);
+    changes.push({ from: ln.from, to: ln.to, insert: f(ln.text, k) });
+  }
+  v.dispatch({ changes });
+  v.focus();
+  return true;
+}
+const HEAD = /^#{1,6}\s+/;
+const heading = (v: V, n: number) => eachLine(v, (s) => { const m = HEAD.exec(s); const cur = m ? m[0].trim().length : 0; const body = s.replace(HEAD, ""); return cur === n ? body : "#".repeat(n) + " " + body; });
+const prefixToggle = (v: V, re: RegExp, make: (k: number) => string) => {
+  const lines: string[] = [];
+  const { from, to } = v.state.selection.main;
+  for (let n = v.state.doc.lineAt(from).number; n <= v.state.doc.lineAt(to).number; n++) lines.push(v.state.doc.line(n).text);
+  const all = lines.every((l) => re.test(l) || !l.trim());
+  return eachLine(v, (s, k) => (all ? s.replace(re, "") : s.trim() ? make(k) + s.replace(/^(?:[-*+]\s+(?:\[[ xX]\]\s+)?|\d+\.\s+|>\s?)/, "") : s));
+};
+function link(v: V) {
+  const r = v.state.selection.main;
+  const sel = v.state.sliceDoc(r.from, r.to);
+  const label = sel || "link text";
+  v.dispatch({ changes: { from: r.from, to: r.to, insert: `[${label}](url)` }, selection: { anchor: r.from + label.length + 3, head: r.from + label.length + 6 } });
+  v.focus();
+  return true;
+}
+function codeBlock(v: V) {
+  const r = v.state.selection.main;
+  const sel = v.state.sliceDoc(r.from, r.to);
+  v.dispatch({ changes: { from: r.from, to: r.to, insert: "```\n" + sel + "\n```" }, selection: { anchor: r.from + 4, head: r.from + 4 + sel.length } });
+  v.focus();
+  return true;
+}
+function insertAtLine(v: V, s: string) {
+  const r = v.state.selection.main;
+  const ln = v.state.doc.lineAt(r.to);
+  v.dispatch({ changes: { from: ln.to, insert: s }, selection: { anchor: ln.to + s.length } });
+  v.focus();
+  return true;
+}
+const cmds = {
+  bold: () => view && wrap(view, "**"),
+  italic: () => view && wrap(view, "*"),
+  strike: () => view && wrap(view, "~~"),
+  code: () => view && wrap(view, "`"),
+  h1: () => view && heading(view, 1),
+  h2: () => view && heading(view, 2),
+  h3: () => view && heading(view, 3),
+  quote: () => view && prefixToggle(view, /^>\s?/, () => "> "),
+  bullet: () => view && prefixToggle(view, /^[-*+]\s+(?!\[[ xX]\])/, () => "- "),
+  numbered: () => view && prefixToggle(view, /^\d+\.\s+/, (k) => `${k + 1}. `),
+  task: () => view && prefixToggle(view, /^[-*+]\s+\[[ xX]\]\s+/, () => "- [ ] "),
+  link: () => view && link(view),
+  codeblock: () => view && codeBlock(view),
+  rule: () => view && insertAtLine(view, "\n\n---\n\n"),
+  table: () => view && insertAtLine(view, "\n\n| Column | Column |\n| --- | --- |\n| | |\n\n"),
+  undo: () => view && (undo(view), view.focus()),
+  redo: () => view && (redo(view), view.focus()),
+  find: () => view && (openSearchPanel(view), true),
+};
+
+// ---- rewrite: a selected passage (or the block the cursor is in) and the reason it should change
+const rw = reactive({
+  open: false,
+  status: "idle" as "idle" | "working" | "review",
+  from: 0,
+  to: 0,
+  original: "",
+  instruction: "",
+  retryNote: "",
+  result: "",
+  error: "",
+  gen: 0,
+  history: [] as string[],
+});
+const CHIPS = ["Tighter", "Clearer", "Simpler words", "Warmer", "More formal", "Expand", "Fix grammar", "More vivid"];
+const sel = reactive({ show: false, x: 0, y: 0 });
+const instrEl = ref<HTMLTextAreaElement | null>(null);
+
+function blockAt(v: V): { from: number; to: number } {
+  const doc = v.state.doc;
+  const ln = doc.lineAt(v.state.selection.main.head);
+  if (!ln.text.trim()) return { from: ln.from, to: ln.to };
+  let a = ln.number, b = ln.number;
+  while (a > 1 && doc.line(a - 1).text.trim()) a--;
+  while (b < doc.lines && doc.line(b + 1).text.trim()) b++;
+  return { from: doc.line(a).from, to: doc.line(b).to };
+}
+function startRewrite() {
+  if (!view) return;
+  const r = view.state.selection.main;
+  const range = r.empty ? blockAt(view) : { from: r.from, to: r.to };
+  const original = view.state.sliceDoc(range.from, range.to);
+  if (!original.trim()) return;
+  rw.gen++;
+  Object.assign(rw, { open: true, status: "idle", from: range.from, to: range.to, original, instruction: "", retryNote: "", result: "", error: "" });
+  view.dispatch({ effects: setRewriteRange.of(range), selection: { anchor: range.to } });
+  sel.show = false;
+  nextTick(() => instrEl.value?.focus());
+}
+function closeRewrite() {
+  rw.gen++;
+  rw.open = false;
+  rw.status = "idle";
+  view?.dispatch({ effects: setRewriteRange.of(null) });
+  view?.focus();
+}
+const REWRITE_SYSTEM = `You rewrite one passage of a Markdown document, as its author asks. Reply with ONLY the rewritten passage, in Markdown, and nothing else: no preamble, no explanation, no quotation marks around it, no code fence around it.
+- Do exactly what the author's reason asks, and change as little else as you can. Keep their voice, meaning and facts unless asked to change them.
+- Keep the Markdown structure of the passage (headings, list markers, emphasis, links, code) unless the reason asks you to change it.
+- The text before and after is only context so the passage fits in: never repeat it.`;
+async function runRewrite() {
+  if (!rw.open || rw.status === "working") return;
+  const why = rw.instruction.trim() || "Improve it";
+  const doc = view!.state.doc.toString();
+  const gen = ++rw.gen;
+  rw.status = "working";
+  rw.error = "";
+  const before = doc.slice(Math.max(0, rw.from - 1500), rw.from);
+  const after = doc.slice(rw.to, rw.to + 800);
+  const user = `Text before the passage (context only):\n${before || "(start of the document)"}\n\n<<<PASSAGE>>>\n${rw.original}\n<<<END PASSAGE>>>\n\nText after the passage (context only):\n${after || "(end of the document)"}\n\nWhy it should be rewritten, in the author's words: ${why}${rw.retryNote ? `\nThe last attempt was not right. The author adds: ${rw.retryNote}` : ""}`;
+  try {
+    const c = await api.llmComplete("rewrite", REWRITE_SYSTEM, user);
+    if (gen !== rw.gen) return; // cancelled, or asked again
+    let out = c.text.trim();
+    const fence = /^```(?:markdown|md)?\n([\s\S]*?)\n```$/.exec(out);
+    if (fence) out = fence[1];
+    if (!out) throw new Error("The model sent back nothing.");
+    rw.result = out;
+    rw.status = "review";
+    if (rw.history[0] !== why) rw.history.unshift(why);
+    rw.history = rw.history.slice(0, 8);
+  } catch (e) {
+    if (gen !== rw.gen) return;
+    rw.error = e instanceof Error ? e.message : String(e);
+    rw.status = "idle";
+  }
+}
+function retry() { rw.status = "idle"; rw.result = ""; nextTick(() => instrEl.value?.focus()); }
+function accept() {
+  if (!view || rw.status !== "review") return;
+  const r = view.state.field(rewriteRange);
+  if (!r || view.state.sliceDoc(r.from, r.to) !== rw.original) { rw.error = "The passage was edited while it was being rewritten. Select it again."; rw.status = "idle"; return; }
+  view.dispatch({ changes: { from: r.from, to: r.to, insert: rw.result }, selection: { anchor: r.from, head: r.from + rw.result.length }, effects: setRewriteRange.of(null), userEvent: "input.rewrite" });
+  rw.open = false;
+  rw.status = "idle";
+  view.focus();
+}
+const diffParts = computed(() => (rw.status === "review" ? diffWords(rw.original, rw.result) : []));
+function chip(c: string) { rw.instruction = rw.instruction ? `${rw.instruction.replace(/[.\s]+$/, "")}. ${c}` : c; instrEl.value?.focus(); }
+function onInstrKey(e: KeyboardEvent) {
+  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); runRewrite(); }
+  else if (e.key === "Escape") { e.preventDefault(); closeRewrite(); }
+}
+function onPanelKey(e: KeyboardEvent) {
+  if (rw.status === "review" && (e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); accept(); }
+  else if (e.key === "Escape") closeRewrite();
+}
+
+// ---- the writing helper: watches the passage you are writing and suggests links, references and tone changes (see lib/helper.ts)
+const hp = reactive({
+  open: localStorage.getItem("lanthorn:helper") === "1",
+  auto: localStorage.getItem("lanthorn:helper-auto") !== "0",
+  status: "idle" as "idle" | "thinking",
+  items: [] as Suggestion[],
+  err: "",
+  checks: 0,
+  from: 0,
+  to: 0,
+  label: "",
+  info: "",
+  busy: {} as Record<string, string>,
+});
+const dismissed = new Set<string>();
+let corpus: Doc[] | null = null;
+let hpTimer = 0;
+let hpKey = "";
+let hpAt = 0;
+let hpGen = 0;
+function toggleHelper() {
+  hp.open = !hp.open;
+  try { localStorage.setItem("lanthorn:helper", hp.open ? "1" : "0"); } catch { /* optional */ }
+  if (hp.open) scheduleHelper(600);
+}
+function toggleAuto() { hp.auto = !hp.auto; try { localStorage.setItem("lanthorn:helper-auto", hp.auto ? "1" : "0"); } catch { /* optional */ } if (hp.auto) scheduleHelper(600); }
+function scheduleHelper(ms = 5000) {
+  window.clearTimeout(hpTimer);
+  if (!hp.open || !hp.auto) return;
+  hpTimer = window.setTimeout(() => checkNow(false), ms);
+}
+function passageNow(): { from: number; to: number } | null {
+  if (!view) return null;
+  const r = view.state.selection.main;
+  const range = r.empty ? blockAt(view) : { from: r.from, to: r.to };
+  const t = view.state.sliceDoc(range.from, range.to);
+  if (t.trim().length < 40 || /^\s*(#|```)/.test(t.trim())) return null; // (a heading or a code fence is not prose to advise on)
+  return range;
+}
+async function checkNow(force: boolean) {
+  if (!view || !hp.open || hp.status === "thinking") return;
+  const range = passageNow();
+  if (!range) { if (force) hp.info = "Put the cursor in a paragraph, or select some text, and I'll look at it."; return; }
+  const passage = view.state.sliceDoc(range.from, range.to);
+  const key = passage;
+  if (!force && key === hpKey) return;
+  if (!force && Date.now() - hpAt < 15000) { scheduleHelper(15000 - (Date.now() - hpAt) + 200); return; }
+  const doc = view.state.doc;
+  const gen = ++hpGen;
+  hp.status = "thinking";
+  hp.err = "";
+  hp.info = "";
+  hp.from = range.from;
+  hp.to = range.to;
+  hp.label = passage.replace(/\s+/g, " ").slice(0, 70) + (passage.length > 70 ? "…" : "");
+  try {
+    if (!corpus) corpus = await loadCorpus(id.value);
+    const res = await helpWith({ passage, docLines: doc.toString().split("\n"), passageFrom: doc.lineAt(range.from).number - 1, passageTo: doc.lineAt(range.to).number - 1, docId: id.value, docTitle: title.value }, corpus);
+    if (gen !== hpGen) return;
+    hpKey = key;
+    hpAt = Date.now();
+    hp.checks++;
+    hp.items = res.suggestions.filter((q) => !dismissed.has(q.id));
+    hp.info = hp.items.length ? "" : `Nothing to suggest here (looked for ${res.terms.slice(0, 4).join(", ") || "related writing"}${res.hits ? `; ${res.hits} matching lines` : ""}).`;
+  } catch (e) {
+    if (gen !== hpGen) return;
+    hp.err = e instanceof Error ? e.message : String(e);
+  } finally {
+    if (gen === hpGen) hp.status = "idle";
+  }
+}
+function anchorRange(q: Suggestion): { from: number; to: number } | null {
+  if (!view || !q.anchor) return null;
+  const doc = view.state.doc.toString();
+  const lo = Math.max(0, hp.from - 300);
+  const i = doc.indexOf(q.anchor, lo);
+  return i >= 0 && i <= hp.to + 300 ? { from: i, to: i + q.anchor.length } : null;
+}
+function showItem(q: Suggestion, on: boolean) {
+  if (!view) return;
+  const r = on ? anchorRange(q) : null;
+  view.dispatch({ effects: setFocusRange.of(r), ...(on && r ? { scrollIntoView: true } : {}) });
+  if (on && r) view.dispatch({ effects: EditorView.scrollIntoView(r.from, { y: "center" }) });
+}
+function dismiss(q: Suggestion) { dismissed.add(q.id); hp.items = hp.items.filter((x) => x.id !== q.id); view?.dispatch({ effects: setFocusRange.of(null) }); }
+const docHref = (id: string) => `lanthorn://doc/${id}`;
+function linkAnchor(q: Suggestion, href: string): boolean {
+  if (!view) return false;
+  const r = anchorRange(q);
+  if (!r) { hp.err = "The words to link have changed since this was suggested."; return false; }
+  const before = view.state.sliceDoc(Math.max(0, r.from - 1), r.from);
+  if (before === "[") { hp.err = "That is already a link."; return false; }
+  view.dispatch({ changes: { from: r.from, to: r.to, insert: `[${q.anchor}](${href})` }, effects: setFocusRange.of(null), userEvent: "input.link" });
+  return true;
+}
+async function applyLink(q: Suggestion) {
+  hp.err = "";
+  if (q.doc) { if (linkAnchor(q, docHref(q.doc.id))) dismiss(q); return; }
+  if (!q.url) return;
+  hp.busy[q.id] = "Checking the address…";
+  try {
+    const page = await api.fetchPage(q.url); // (a suggested address is only inserted if it loads)
+    if (!page || !page.html) throw new Error("empty");
+    if (q.anchor ? linkAnchor(q, q.url) : false) dismiss(q);
+    else if (!q.anchor && view) { const r = view.state.selection.main; view.dispatch({ changes: { from: r.to, insert: `[${q.title}](${q.url})` } }); dismiss(q); }
+  } catch {
+    hp.err = `That address doesn't load, so I didn't insert it. Try the search instead.`;
+    q.url = undefined;
+  } finally { delete hp.busy[q.id]; }
+}
+function webSearch(q: Suggestion) { if (q.query) openUrl(`https://duckduckgo.com/?q=${encodeURIComponent(q.query)}`).catch(() => {}); }
+function applyFix(q: Suggestion) {
+  if (!view || !q.fix) return;
+  const range = { from: hp.from, to: hp.to };
+  if (view.state.sliceDoc(range.from, range.to).trim().length < 3) return;
+  view.dispatch({ selection: { anchor: range.from, head: range.to } });
+  startRewrite();
+  rw.instruction = q.fix;
+  dismiss(q);
+  runRewrite();
+}
+const SUG_LABEL: Record<string, string> = { link: "Link", resource: "Resource", reference: "In your writing", tone: "Tone", style: "Style", consistency: "Consistency" };
+
+// ---- the preview (the reader's typography), kept in step with the editor's scroll
+const previewEl = ref<HTMLElement | null>(null);
+const html = ref("");
+let htmlTimer = 0;
+function renderSoon() { window.clearTimeout(htmlTimer); htmlTimer = window.setTimeout(() => { html.value = md.render(text.value); }, 120); }
+function onPreviewClick(e: MouseEvent) {
+  const a = (e.target as HTMLElement).closest("a");
+  if (!a) return;
+  e.preventDefault();
+  const href = a.getAttribute("href") ?? "";
+  if (/^https?:\/\//i.test(href)) openUrl(href).catch(() => {});
+  else if (href.startsWith("lanthorn://doc/")) { saveNow().then(() => emit("open-doc", href.slice(15))); }
+}
+let syncing = false;
+function syncPreview() {
+  if (mode.value !== "split" || !view || !previewEl.value || syncing) return;
+  const s = view.scrollDOM;
+  const f = s.scrollTop / Math.max(1, s.scrollHeight - s.clientHeight);
+  syncing = true;
+  previewEl.value.scrollTop = f * Math.max(0, previewEl.value.scrollHeight - previewEl.value.clientHeight);
+  requestAnimationFrame(() => (syncing = false));
+}
+
+// ---- selection button, status
+function updateSel(v: EditorView) {
+  const r = v.state.selection.main;
+  const ln = v.state.doc.lineAt(r.head);
+  cursor.line = ln.number;
+  cursor.col = r.head - ln.from + 1;
+  cursor.sel = r.empty ? 0 : (v.state.sliceDoc(r.from, r.to).match(/\S+/g) ?? []).length;
+  if (r.empty || r.to - r.from < 3 || rw.open) { sel.show = false; return; }
+  const c = v.coordsAtPos(r.to);
+  const box = paneEl.value?.getBoundingClientRect();
+  if (!c || !box) { sel.show = false; return; }
+  sel.x = Math.min(box.width - 150, Math.max(8, c.left - box.left));
+  sel.y = c.bottom - box.top + 8;
+  sel.show = true;
+}
+
+onMounted(async () => {
+  let initial = "";
+  if (props.docId) {
+    try {
+      const raw = await api.libraryGet(props.docId);
+      if (raw) { const b = JSON.parse(raw) as Book; initial = markdownOfBook(b); prev.value = { imported: b.imported, author: b.author }; }
+    } catch { /* a new document */ }
+  } else initial = "# Untitled\n\n";
+  text.value = initial;
+  loaded.value = true;
+  view = new EditorView({
+    parent: host.value!,
+    state: EditorState.create({
+      doc: initial,
+      extensions: [
+        history(),
+        drawSelection(),
+        highlightActiveLine(),
+        highlightActiveLineGutter(),
+        bracketMatching(),
+        closeBrackets(),
+        EditorView.lineWrapping,
+        lineComp.of(showLines.value ? lineNumbers() : []),
+        markdown({ base: markdownLanguage }),
+        syntaxHighlighting(hl),
+        search({ top: true }),
+        rewriteRange,
+        focusRange,
+        placeholder("Start writing…  Select a passage and press ⌘K to have it rewritten."),
+        keymap.of([
+          { key: "Mod-b", run: () => !!cmds.bold() },
+          { key: "Mod-i", run: () => !!cmds.italic() },
+          { key: "Mod-k", run: () => (startRewrite(), true) },
+          { key: "Mod-Shift-k", run: () => !!cmds.link() },
+          { key: "Mod-Alt-1", run: () => !!cmds.h1() },
+          { key: "Mod-Alt-2", run: () => !!cmds.h2() },
+          { key: "Mod-Alt-3", run: () => !!cmds.h3() },
+          { key: "Mod-Shift-8", run: () => !!cmds.bullet() },
+          { key: "Mod-Shift-7", run: () => !!cmds.numbered() },
+          { key: "Mod-Shift-9", run: () => !!cmds.quote() },
+          { key: "Mod-s", run: () => (saveNow(), true) },
+          ...closeBracketsKeymap,
+          ...markdownKeymap,
+          ...searchKeymap,
+          ...historyKeymap,
+          indentWithTab,
+          ...defaultKeymap,
+        ]),
+        theme,
+        EditorView.updateListener.of((u) => {
+          if (u.docChanged) { text.value = u.state.doc.toString(); touched(); renderSoon(); }
+          if (u.docChanged || u.selectionSet || u.focusChanged) updateSel(u.view);
+          if (u.docChanged || u.selectionSet) scheduleHelper();
+        }),
+        EditorView.domEventHandlers({ scroll: () => syncPreview() }),
+      ],
+    }),
+  });
+  html.value = md.render(initial);
+  if (!props.docId) { view.focus(); view.dispatch({ selection: { anchor: initial.length } }); await saveNow(); }
+  else view.focus();
+});
+onBeforeUnmount(() => { window.clearTimeout(htmlTimer); window.clearTimeout(hpTimer); hpGen++; if (saveState.value === "dirty") saveNow(); view?.destroy(); view = null; });
+
+function setMode(m: "edit" | "split" | "preview") { mode.value = m; try { localStorage.setItem("lanthorn:ed-mode", m); } catch { /* optional */ } if (m !== "preview") nextTick(() => view?.requestMeasure()); }
+function toggleLines() {
+  showLines.value = !showLines.value;
+  try { localStorage.setItem("lanthorn:ed-lines", showLines.value ? "1" : "0"); } catch { /* optional */ }
+  view?.dispatch({ effects: lineComp.reconfigure(showLines.value ? lineNumbers() : []) });
+}
+async function read() {
+  await saveNow();
+  if (saveState.value === "error") return;
+  emit("read", id.value);
+}
+async function back() { await saveNow(); emit("close"); }
+const copied = ref("");
+async function copyMd() { try { await navigator.clipboard.writeText(text.value); copied.value = "Copied"; } catch { copied.value = "Couldn't copy"; } setTimeout(() => (copied.value = ""), 1800); }
+function exportMd() {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([text.value], { type: "text/markdown" }));
+  a.download = `${title.value.replace(/[^\w\- ]+/g, "").trim() || "document"}.md`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  copied.value = "Exported";
+  setTimeout(() => (copied.value = ""), 1800);
+}
+const hasText = computed(() => words.value > 0);
+const cols = computed(() => (mode.value === "split" ? "1fr 1fr" : "1fr") + (hp.open ? " 330px" : ""));
+if (import.meta.env.DEV) (window as any).__ed = { view: () => view, rw, hp, startRewrite, runRewrite, accept, saveNow, text, cmds, checkNow, toggleHelper, id };
+</script>
+
+<template>
+  <div class="ed">
+    <header class="top">
+      <button class="ghost" @click="back">← Library</button>
+      <div class="name">
+        <strong>{{ title }}</strong>
+        <span :class="['state', saveState]">{{ saveState === "saved" ? "Saved" : saveState === "saving" ? "Saving…" : saveState === "error" ? "Couldn't save: " + saveError : "Editing…" }}</span>
+      </div>
+      <div class="seg">
+        <button :class="{ on: mode === 'edit' }" @click="setMode('edit')">Edit</button>
+        <button :class="{ on: mode === 'split' }" @click="setMode('split')">Split</button>
+        <button :class="{ on: mode === 'preview' }" @click="setMode('preview')">Preview</button>
+      </div>
+      <div class="acts">
+        <button class="ghost" title="Copy the Markdown" @click="copyMd">{{ copied || "Copy" }}</button>
+        <button class="ghost" title="Save a .md file" @click="exportMd">Export</button>
+        <button class="primary" :disabled="!hasText" title="Open this document in the reader, with its pictures" @click="read">Read it</button>
+      </div>
+    </header>
+
+    <div class="tools" role="toolbar" aria-label="Formatting">
+      <button title="Undo (⌘Z)" @click="cmds.undo()">↶</button>
+      <button title="Redo (⇧⌘Z)" @click="cmds.redo()">↷</button>
+      <i />
+      <button title="Heading 1 (⌥⌘1)" @click="cmds.h1()">H1</button>
+      <button title="Heading 2 (⌥⌘2)" @click="cmds.h2()">H2</button>
+      <button title="Heading 3 (⌥⌘3)" @click="cmds.h3()">H3</button>
+      <i />
+      <button title="Bold (⌘B)" class="b" @click="cmds.bold()">B</button>
+      <button title="Italic (⌘I)" class="it" @click="cmds.italic()">I</button>
+      <button title="Strikethrough" class="st" @click="cmds.strike()">S</button>
+      <button title="Inline code" class="mono" @click="cmds.code()">&lt;/&gt;</button>
+      <i />
+      <button title="Bulleted list (⇧⌘8)" @click="cmds.bullet()">• List</button>
+      <button title="Numbered list (⇧⌘7)" @click="cmds.numbered()">1. List</button>
+      <button title="Task list" @click="cmds.task()">☑ Tasks</button>
+      <button title="Quote (⇧⌘9)" @click="cmds.quote()">❝</button>
+      <i />
+      <button title="Link (⇧⌘K)" @click="cmds.link()">Link</button>
+      <button title="Code block" class="mono" @click="cmds.codeblock()">{ }</button>
+      <button title="Table" @click="cmds.table()">Table</button>
+      <button title="Horizontal rule" @click="cmds.rule()">―</button>
+      <i />
+      <button title="Find and replace (⌘F)" @click="cmds.find()">Find</button>
+      <button title="Line numbers" :class="{ on: showLines }" @click="toggleLines">#</button>
+      <span class="grow" />
+      <button class="helper" :class="{ on: hp.open }" title="The writing helper: links, references and tone, from this document and your other writing" @click="toggleHelper">✎ Helper</button>
+      <button class="rewrite" title="Rewrite the selection, or the block you're in (⌘K)" @click="startRewrite()">✦ Rewrite…</button>
+    </div>
+
+    <div class="body" :class="mode" :style="{ gridTemplateColumns: cols }">
+      <div v-show="mode !== 'preview'" ref="paneEl" class="pane">
+        <div ref="host" class="cm" />
+        <button v-if="sel.show && !rw.open" class="selbtn" :style="{ left: sel.x + 'px', top: sel.y + 'px' }" @mousedown.prevent @click="startRewrite()">✦ Rewrite <kbd>⌘K</kbd></button>
+
+        <div v-if="rw.open" class="rwpanel" @keydown="onPanelKey">
+          <div class="rwhead">
+            <strong>Rewrite</strong>
+            <span class="rwsub">{{ rw.original.length > 90 ? rw.original.slice(0, 90).replace(/\s+/g, " ") + "…" : rw.original.replace(/\s+/g, " ") }}</span>
+            <button class="x" title="Close (Esc)" @click="closeRewrite">✕</button>
+          </div>
+          <template v-if="rw.status !== 'review'">
+            <textarea
+              ref="instrEl"
+              v-model="rw.instruction"
+              :disabled="rw.status === 'working'"
+              rows="2"
+              placeholder="Why should this change? (e.g. “too wordy, tighten it”, “make it sound less defensive”, “explain this to a beginner”)"
+              @keydown="onInstrKey"
+            />
+            <div class="chips">
+              <button v-for="c in CHIPS" :key="c" :disabled="rw.status === 'working'" @click="chip(c)">{{ c }}</button>
+            </div>
+            <div v-if="rw.history.length" class="chips hist">
+              <span>Recent</span>
+              <button v-for="h in rw.history.slice(0, 3)" :key="h" :disabled="rw.status === 'working'" :title="h" @click="rw.instruction = h">{{ h.length > 34 ? h.slice(0, 34) + "…" : h }}</button>
+            </div>
+            <p v-if="rw.error" class="rwerr">{{ rw.error }}</p>
+            <div class="rwrow">
+              <button class="primary" :disabled="rw.status === 'working'" @click="runRewrite">{{ rw.status === "working" ? "Rewriting…" : "Rewrite  ⌘↵" }}</button>
+              <button class="ghost" @click="closeRewrite">Cancel</button>
+            </div>
+          </template>
+          <template v-else>
+            <div class="diff" tabindex="0"><template v-for="(p, i) in diffParts" :key="i"><ins v-if="p.added">{{ p.value }}</ins><del v-else-if="p.removed">{{ p.value }}</del><span v-else>{{ p.value }}</span></template></div>
+            <div class="rwrow">
+              <button class="primary" @click="accept">Accept  ⌘↵</button>
+              <button class="ghost" @click="retry">Try again…</button>
+              <input v-model="rw.retryNote" class="note" placeholder="What was off? (optional)" @keydown.enter.prevent="rw.status = 'idle'; runRewrite()" />
+              <button class="ghost" @click="closeRewrite">Discard</button>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <article v-show="mode !== 'edit'" ref="previewEl" class="preview" @click="onPreviewClick">
+        <div class="prose" v-html="html" />
+      </article>
+      <aside v-if="hp.open" class="helperbar">
+        <div class="hhead">
+          <strong>Helper</strong>
+          <label class="auto" title="Look at the paragraph you're writing when you pause"><input type="checkbox" :checked="hp.auto" @change="toggleAuto" /> Auto</label>
+          <button class="ghost sm" :disabled="hp.status === 'thinking'" @click="checkNow(true)">{{ hp.status === "thinking" ? "Looking…" : "Check now" }}</button>
+        </div>
+        <p v-if="hp.label" class="hwatch">Looking at: <em>{{ hp.label }}</em></p>
+        <p v-if="hp.status === 'thinking'" class="hnote">Searching this document and your other writing…</p>
+        <p v-if="hp.err" class="rwerr">{{ hp.err }}</p>
+        <p v-else-if="hp.info && hp.status !== 'thinking'" class="hnote">{{ hp.info }}</p>
+        <p v-if="!hp.label && hp.status !== 'thinking' && !hp.info" class="hnote">Write, or select a passage. I'll suggest links to your other writing, sources, and where the tone drifts from the rest.</p>
+        <div v-for="q in hp.items" :key="q.id" class="card" :class="q.type" @mouseenter="showItem(q, true)" @mouseleave="showItem(q, false)">
+          <div class="ctop"><span class="tag">{{ SUG_LABEL[q.type] }}</span><button class="x" title="Dismiss" @click="dismiss(q)">✕</button></div>
+          <strong>{{ q.title }}</strong>
+          <p v-if="q.anchor" class="anc">“{{ q.anchor }}”</p>
+          <p>{{ q.detail }}</p>
+          <p v-if="q.doc" class="from">{{ q.doc.title }} · line {{ q.doc.line }}</p>
+          <div class="cact">
+            <button v-if="(q.type === 'link' || q.type === 'reference' || q.type === 'resource') && (q.doc || q.url) && q.anchor" class="ghost sm" :disabled="!!hp.busy[q.id]" @click="applyLink(q)">{{ hp.busy[q.id] || "Insert link" }}</button>
+            <button v-if="q.doc" class="ghost sm" @click="emit('open-doc', q.doc.id)">Open</button>
+            <button v-if="q.query" class="ghost sm" @click="webSearch(q)">Search</button>
+            <button v-if="q.fix" class="ghost sm gold" @click="applyFix(q)">Rewrite to fit</button>
+          </div>
+        </div>
+        <p v-if="hp.checks" class="hnote small">{{ hp.checks }} {{ hp.checks === 1 ? "check" : "checks" }} this session</p>
+      </aside>
+    </div>
+
+    <footer class="status">
+      <span>{{ words.toLocaleString() }} {{ words === 1 ? "word" : "words" }}</span>
+      <span>{{ text.length.toLocaleString() }} characters</span>
+      <span>{{ readMins }} min read</span>
+      <span class="grow" />
+      <span v-if="cursor.sel">{{ cursor.sel }} selected</span>
+      <span>Ln {{ cursor.line }}, Col {{ cursor.col }}</span>
+    </footer>
+  </div>
+</template>
+
+<style scoped>
+.ed { position: fixed; inset: 0; z-index: 1; background: var(--bg); color: var(--ink); display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; font: 13px system-ui, sans-serif; }
+.top { display: grid; grid-template-columns: auto 1fr auto auto; gap: 14px; align-items: center; padding: 38px 16px 8px; border-bottom: 1px solid #1f232a; }
+.name { display: grid; gap: 1px; min-width: 0; }
+.name strong { font: 600 15px system-ui, sans-serif; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.state { font-size: 11px; color: #6d7280; }
+.state.dirty, .state.saving { color: #c9a54a; }
+.state.error { color: #e59a9a; }
+.seg { display: inline-flex; border: 1px solid #2b2f38; border-radius: 8px; overflow: hidden; }
+.seg button { background: transparent; color: #9a9ea8; border: 0; padding: 6px 12px; cursor: pointer; font: 12px system-ui, sans-serif; }
+.seg button.on { background: #262a33; color: #e9e6dd; }
+.acts { display: flex; gap: 8px; }
+button { font: 600 12px system-ui, sans-serif; cursor: pointer; border-radius: 7px; }
+button.ghost { background: transparent; color: #aab; border: 1px solid #2b2f38; padding: 6px 12px; }
+button.ghost:hover { border-color: #3a3f4a; color: #e9e6dd; }
+button.primary { background: #c9a54a; color: #15120a; border: 0; padding: 7px 14px; }
+button:disabled { opacity: 0.5; cursor: default; }
+.tools { display: flex; flex-wrap: wrap; gap: 3px; align-items: center; padding: 6px 14px; border-bottom: 1px solid #1f232a; background: #12151a; }
+.tools button { background: transparent; color: #c8c5ba; border: 1px solid transparent; padding: 4px 8px; min-width: 28px; font: 600 12px system-ui, sans-serif; }
+.tools button:hover { background: #20242c; border-color: #2b2f38; }
+.tools button.on { background: #262a33; color: #e8c870; }
+.tools .b { font-weight: 800; }
+.tools .it { font-style: italic; font-family: Georgia, serif; }
+.tools .st { text-decoration: line-through; }
+.tools .mono { font-family: ui-monospace, Menlo, monospace; font-size: 11px; }
+.tools i { width: 1px; height: 18px; background: #2b2f38; margin: 0 5px; }
+.tools .rewrite { background: #2a2515; color: #e8c870; border-color: #5a4a22; }
+.tools .rewrite:hover { background: #352e18; }
+.grow { flex: 1; }
+.body { display: grid; min-height: 0; grid-template-columns: 1fr; }
+.body.split { grid-template-columns: 1fr 1fr; }
+.pane { position: relative; min-width: 0; min-height: 0; overflow: hidden; border-right: 1px solid #1f232a; }
+.body:not(.split) .pane { border-right: 0; }
+.cm { height: 100%; }
+.cm :deep(.cm-editor) { height: 100%; }
+.cm :deep(.cm-scroller) { overflow: auto; }
+.selbtn { position: absolute; z-index: 5; background: #2a2515; color: #e8c870; border: 1px solid #5a4a22; padding: 5px 10px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45); }
+.selbtn kbd { font: 10px ui-monospace, Menlo, monospace; color: #9a8c5a; margin-left: 4px; }
+.preview { min-width: 0; min-height: 0; overflow-y: auto; padding: 20px 0 40vh; background: #0f1115; }
+.prose { max-width: 40em; margin: 0 auto; padding: 0 28px; font: 18px/1.75 "Iowan Old Style", Palatino, Georgia, serif; color: #e0dccf; }
+.prose :deep(h1) { font: 600 2em/1.15 "Iowan Old Style", Palatino, Georgia, serif; margin: 0.2em 0 0.6em; letter-spacing: -0.01em; }
+.prose :deep(h2) { font: italic 400 1.45em/1.3 "Iowan Old Style", Palatino, Georgia, serif; color: #b8b2a2; margin: 1.8em 0 0.6em; }
+.prose :deep(h3), .prose :deep(h4) { font: 600 1.1em/1.4 system-ui, sans-serif; letter-spacing: 0.04em; color: #b8b2a2; margin: 1.5em 0 0.4em; }
+.prose :deep(p) { margin: 0 0 1.2em; }
+.prose :deep(a) { color: #7fb3ff; }
+.prose :deep(blockquote) { margin: 1.2em 0; padding: 0 0 0 1.1em; border-left: 3px solid #3a3f4a; color: #a8a490; font-style: italic; }
+.prose :deep(code) { font: 0.82em ui-monospace, Menlo, monospace; background: #1b1f26; padding: 1px 6px; border-radius: 5px; color: #9fd0b8; }
+.prose :deep(pre) { background: #14171d; border: 1px solid #23272f; border-radius: 10px; padding: 12px 14px; overflow-x: auto; }
+.prose :deep(pre code) { background: none; padding: 0; }
+.prose :deep(ul), .prose :deep(ol) { padding-left: 1.4em; margin: 0 0 1.2em; }
+.prose :deep(li) { margin: 0.25em 0; }
+.prose :deep(hr) { border: 0; border-top: 1px solid #2b2f38; margin: 2em 0; }
+.prose :deep(table) { border-collapse: collapse; margin: 1.2em 0; font: 15px system-ui, sans-serif; }
+.prose :deep(th), .prose :deep(td) { border: 1px solid #2b2f38; padding: 6px 12px; text-align: left; }
+.prose :deep(th) { background: #171a21; }
+.prose :deep(img) { max-width: 100%; }
+.status { display: flex; gap: 16px; align-items: center; padding: 5px 16px; border-top: 1px solid #1f232a; color: #6d7280; font-size: 11.5px; background: #12151a; }
+.rwpanel { position: absolute; z-index: 6; left: 50%; bottom: 18px; transform: translateX(-50%); width: min(640px, calc(100% - 32px)); background: #171a21; border: 1px solid #3a3f4a; border-radius: 14px; padding: 12px 14px 14px; box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6); display: grid; gap: 10px; max-height: 70%; overflow: auto; }
+.rwhead { display: flex; gap: 10px; align-items: baseline; min-width: 0; }
+.rwhead strong { font-size: 13px; color: #e8c870; }
+.rwsub { color: #7a7e89; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; font-style: italic; }
+.x { background: transparent; border: 0; color: #7a7e89; font-size: 13px; padding: 2px 6px; }
+textarea { background: #0f1115; color: #e9e6dd; border: 1px solid #2b2f38; border-radius: 9px; padding: 9px 11px; font: 14px/1.5 system-ui, sans-serif; resize: vertical; min-height: 52px; }
+textarea:focus, .note:focus { outline: 1px solid #c9a54a; border-color: #c9a54a; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.chips span { color: #6d7280; font-size: 11px; margin-right: 2px; }
+.chips button { background: #1d2129; color: #b8bcc6; border: 1px solid #2b2f38; padding: 3px 9px; font: 500 11.5px system-ui, sans-serif; border-radius: 99px; }
+.chips button:hover:not(:disabled) { border-color: #5a4a22; color: #e8c870; }
+.chips.hist button { font-style: italic; }
+.rwrow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.note { flex: 1; min-width: 120px; background: #0f1115; color: #e9e6dd; border: 1px solid #2b2f38; border-radius: 8px; padding: 6px 9px; font: 12.5px system-ui, sans-serif; }
+.rwerr { margin: 0; color: #e59a9a; font-size: 12.5px; }
+.diff { white-space: pre-wrap; font: 15px/1.7 "Iowan Old Style", Palatino, Georgia, serif; background: #0f1115; border: 1px solid #23272f; border-radius: 9px; padding: 10px 12px; max-height: 38vh; overflow: auto; color: #cfcabb; }
+.diff ins { background: rgba(110, 190, 130, 0.22); color: #c8f0d2; text-decoration: none; border-radius: 3px; }
+.diff del { background: rgba(220, 110, 110, 0.2); color: #f0b4b4; text-decoration: line-through; border-radius: 3px; }
+
+.tools .helper { background: #1a2230; color: #9ec4ff; border-color: #2c3f5f; margin-right: 4px; }
+.tools .helper.on { background: #223149; }
+.helperbar { min-width: 0; min-height: 0; overflow-y: auto; background: #12151a; border-left: 1px solid #1f232a; padding: 12px 12px 40px; display: grid; gap: 10px; align-content: start; }
+.hhead { display: flex; gap: 10px; align-items: center; }
+.hhead strong { font-size: 13px; color: #9ec4ff; flex: 1; }
+.auto { display: inline-flex; gap: 4px; align-items: center; color: #8b8f99; font-size: 11.5px; }
+.sm { padding: 3px 9px; font-size: 11.5px; }
+.hwatch, .hnote { margin: 0; color: #7a7e89; font-size: 12px; line-height: 1.5; }
+.hwatch em { color: #9a9ea8; }
+.hnote.small { font-size: 11px; color: #5d616c; }
+.card { background: #171a21; border: 1px solid #262a33; border-radius: 11px; padding: 10px 12px; display: grid; gap: 5px; }
+.card:hover { border-color: #3a3f4a; }
+.card strong { font-size: 13px; color: #e9e6dd; }
+.card p { margin: 0; font-size: 12.5px; line-height: 1.5; color: #aeb1ba; }
+.card .anc { color: #e8c870; font-style: italic; }
+.card .from { color: #6d7280; font-size: 11.5px; }
+.ctop { display: flex; justify-content: space-between; align-items: center; }
+.tag { font: 600 10px system-ui, sans-serif; text-transform: uppercase; letter-spacing: 0.08em; color: #7fb3ff; }
+.card.tone .tag, .card.style .tag { color: #e8a85a; }
+.card.consistency .tag { color: #e58a8a; }
+.card.reference .tag, .card.link .tag { color: #8fd0a0; }
+.cact { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 3px; }
+.cact .gold { color: #e8c870; border-color: #5a4a22; }
+@media (max-width: 620px) { .body.split { grid-template-columns: 1fr; } .body.split .preview { display: none; } }
+</style>

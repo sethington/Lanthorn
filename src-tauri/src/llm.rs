@@ -54,7 +54,7 @@ pub struct TestResult {
 pub fn resolve<'a>(s: &'a Settings, job: &str) -> Result<(&'a Provider, Option<String>), String> {
     // an install with no route for the judge or for authoring (characters, outfits, props) uses the book-scan one, on the smallest model
     // designing a living thing (a body built from shaped parts) is done once per kind of animal and kept, so it gets a stronger model than the bulk authoring does
-    let fallback = if job == "design" && !s.routing.contains_key(job) { s.routing.get("scan").map(|r| Route { provider: r.provider.clone(), model: Some("sonnet".into()) }) } else if (job == "judge" || job == "author") && !s.routing.contains_key(job) { s.routing.get("scan").map(|r| Route { provider: r.provider.clone(), model: Some("haiku".into()) }) } else { None };
+    let fallback = if (job == "design" || job == "rewrite") && !s.routing.contains_key(job) { s.routing.get("scan").map(|r| Route { provider: r.provider.clone(), model: Some("sonnet".into()) }) } else if (job == "judge" || job == "author") && !s.routing.contains_key(job) { s.routing.get("scan").map(|r| Route { provider: r.provider.clone(), model: Some("haiku".into()) }) } else { None };
     let route = s
         .routing
         .get(job)

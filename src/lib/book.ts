@@ -26,6 +26,8 @@ export type Book = {
   package?: PackageInfo;
   chapters: Chapter[];
   imported: number;
+  /** a document written or edited in Lanthorn: its Markdown source (the chapters are made from it) */
+  markdown?: string;
 };
 
 export type BookMeta = { id: string; title: string; author: string; chapters: number; updated: number; kind?: string };

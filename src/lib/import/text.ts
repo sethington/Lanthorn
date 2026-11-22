@@ -80,5 +80,7 @@ export function importText(rawIn: string, filename: string, kind: "text" | "mark
     });
     if (!chapters.length) chapters.push(makeChapter(0, title, raw.trim()));
   }
-  return makeBook({ title, author, source: { kind, ref: filename }, chapters });
+  const book = makeBook({ title, author, source: { kind, ref: filename }, chapters });
+  if (kind === "markdown") book.markdown = rawIn.replace(/\r\n?/g, "\n"); // (kept so it can be edited as it was written)
+  return book;
 }

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, triggerRef, watch } from "vue";
 import Library from "./Library.vue";
+import Editor from "./Editor.vue";
 import Settings from "./Settings.vue";
 import Cutscene from "./Cutscene.vue";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
@@ -284,7 +285,11 @@ const maskStyle = computed(() => {
 
 
 // --- LLM scene pass (slice 1: results are shown, not yet compiled to frames) ---
-const view = ref<"reader" | "settings" | "library">("library");
+const view = ref<"reader" | "settings" | "library" | "editor">("library");
+const editorDoc = ref<string | null>(null); // the document being edited (null: a new one)
+const editorKey = ref(0);
+function editDoc(id: string | null) { flushPos(); editorDoc.value = id; editorKey.value++; view.value = "editor"; }
+const editable = computed(() => !!book.value && (book.value.source.kind === "markdown" || book.value.source.kind === "text"));
 const curSid = ref(0); // the sentence under the reading line
 const filmReady = ref(false); // the chapter is open and the reader's place is restored: only then does the world start
 
@@ -686,6 +691,8 @@ function pollCommands() {
       else if (cmd.startsWith("spot:")) engine.test(cmd.slice(5));
       else if (cmd === "settings") view.value = "settings";
       else if (cmd === "library") view.value = "library";
+      else if (cmd === "editor") editDoc(null);
+      else if (cmd.startsWith("editor:")) editDoc(cmd.slice(7));
       else if (cmd.startsWith("import:")) devImport(cmd.slice(7));
       else if (cmd === "keycheck") { const ch = book.value?.chapters[chapterIdx.value]; debugLog("keycheck", { chapterKey: chapterKey.value, num: ch?.num, title: ch?.title, scenes: llmScenes.value.length }); }
       else if (cmd.startsWith("openbook:")) openBook(cmd.slice(9));
@@ -770,12 +777,14 @@ function setEl(el: unknown, i: number) {
   </div>
   <div class="topbar">
     <button v-if="view === 'reader'" class="pill" title="Your books (⌘O)" @click="view = 'library'">Library</button>
+    <button v-if="view === 'reader' && editable" class="pill" title="Edit this document" @click="editDoc(book!.id)">Edit</button>
     <button v-if="view === 'reader'" class="pill" :class="{ on: showDetails }" title="Scene details" @click="toggleDetails">Details<template v-if="llmScenes.length"> · {{ llmScenes.length }}</template></button>
     <button v-if="view === 'reader'" class="pill" :class="{ on: soundOn }" :title="soundOn ? 'Sound on: click to mute' : 'Turn sound on'" @click="setSound(!soundOn)">Sound {{ !soundOn ? "off" : soundReady ? "on" : "on · click to start" }}</button>
     <button class="pill" :title="view === 'settings' ? 'Back to reading' : 'Model settings'" @click="view = view === 'settings' ? 'reader' : 'settings'; if (view === 'reader') reloadSettings()">{{ modelBadge }}</button>
   </div>
   <Settings v-if="view === 'settings'" @close="view = book ? 'reader' : 'library'; reloadSettings()" />
-  <Library v-if="view === 'library'" :current-id="book?.id" @open="openBook($event)" @close="view = 'reader'" />
+  <Library v-if="view === 'library'" :current-id="book?.id" @open="openBook($event)" @edit="editDoc($event)" @new="editDoc(null)" @close="view = 'reader'" />
+  <Editor v-if="view === 'editor'" :key="editorKey" :doc-id="editorDoc" @close="view = 'library'" @read="openBook($event)" @open-doc="editDoc($event)" />
   <div v-show="view === 'reader'" class="app">
     <section class="reader" :style="maskStyle">
       <div ref="scroller" class="scroll" tabindex="0" @scroll.passive="update">
