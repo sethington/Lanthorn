@@ -197,7 +197,7 @@ def dress(name):
         reg[legs & (y <= ankle_y + 0.075)] = 5
         reg[torso] = 2
         if not o["dress"]:
-            reg[legs & (y > hips_y - 0.42)] = 2  # a coat to the knee, following the body (no flared skirt on a man)
+            reg[legs & (y > hips_y - (0.04 if name == "man" else 0.42))] = 2  # a jacket ending at the hips on a man (a coat to the knee read as a skirt); a longer coat on a child; trousers below, following the legs
         else:
             reg[legs & (y > hem)] = 2
         reg[arm & (ax < wrist_x - 0.035)] = 2

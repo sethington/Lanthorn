@@ -543,6 +543,7 @@ function Figure({ fig, f, p, leverA = 0 }: { fig: any; f: number; p: number; lev
           {(() => {
             const sk = fig.look?.skirt;
             if (fig.look?.custom && !sk) return null; // dressed in trousers: no skirt
+            if (!sk && !woman && !eloi && !fig.look?.robe) return null; // a man in a coat and trousers: the painted jacket is his coat (a cone hung from the hips read as a skirt)
             const bottom = sk ? Math.max(0.02, 1.0 - sk.len) : 0;
             const cy = sk ? (bottom + 1.12) / 2 : fig.look?.robe && !woman ? 0.56 : hp[1] - (woman ? 0.36 : eloi ? 0.2 : 0.2);
             const cr = sk ? sk.flare : woman ? 0.4 : eloi ? 0.26 : fig.look?.robe ? 0.27 : 0.185;
