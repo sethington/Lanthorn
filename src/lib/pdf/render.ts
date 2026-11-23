@@ -3,7 +3,7 @@
 
 import fontkit from "@pdf-lib/fontkit";
 import { PDFDocument, PDFFont, PDFName, PDFPage, PDFString, StandardFonts, rgb } from "pdf-lib";
-import { md } from "../markdown";
+import { md, stripDirectives } from "../markdown";
 import { type Family, type Theme, onColour, rgbOf } from "./theme";
 
 // ---- blocks
@@ -42,7 +42,7 @@ function inlineRuns(children: any[] | null | undefined, content = ""): Run[] {
 }
 
 export function blocksOf(src: string): Block[] {
-  const toks = md.parse(src.replace(/\r\n?/g, "\n"), {});
+  const toks = md.parse(stripDirectives(src.replace(/\r\n?/g, "\n")), {});
   let n = 0;
   const until = (close: string): Block[] => {
     const out: Block[] = [];

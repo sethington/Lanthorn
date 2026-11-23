@@ -4,7 +4,7 @@
 // A document is saved in the library as a book (its chapters made from the headings), so the reader opens it like any other.
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from "vue";
 import { Compartment, EditorState, StateEffect, StateField } from "@codemirror/state";
-import { Decoration, type DecorationSet, EditorView, drawSelection, highlightActiveLine, highlightActiveLineGutter, keymap, lineNumbers, placeholder } from "@codemirror/view";
+import { Decoration, type DecorationSet, EditorView, MatchDecorator, ViewPlugin, type ViewUpdate, drawSelection, highlightActiveLine, highlightActiveLineGutter, keymap, lineNumbers, placeholder } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, indentWithTab, redo, undo } from "@codemirror/commands";
 import { markdown, markdownKeymap, markdownLanguage } from "@codemirror/lang-markdown";
 import { HighlightStyle, bracketMatching, syntaxHighlighting } from "@codemirror/language";
@@ -17,7 +17,7 @@ import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialo
 import { IMAGE_EXTS, STORE_PREFIX, blobUrl, loadImage } from "./lib/images";
 import { api } from "./lib/api";
 import type { Book } from "./lib/book";
-import { baseName, docToBook, fileDocId, markdownOfBook, md, newDocId, parseDoc, plainOf } from "./lib/markdown";
+import { baseName, docToBook, fileDocId, markdownOfBook, md, newDocId, parseDoc, plainOf, stripDirectives } from "./lib/markdown";
 import { type Doc, type Suggestion, helpWith, loadCorpus, recordTaste } from "./lib/helper";
 import { fmtTokens, tokensOf, usage, useBook } from "./lib/usage";
 import ExportPdf from "./ExportPdf.vue";
@@ -138,6 +138,13 @@ let view: EditorView | null = null;
 const lineComp = new Compartment();
 
 const setRewriteRange = StateEffect.define<{ from: number; to: number } | null>();
+// the writer's directions (see lib/directives.ts) are drawn quietly in the text: they are for the picture side, and are never shown to a reader
+const directionMatcher = new MatchDecorator({ regexp: /<scene\b[^>\n]*>|<\/scene\s*>|<(?:character|note)\b[^>\n]*\/>|<(?:character|note)\b[^>\n]*>[^<\n]{0,600}<\/(?:character|note)\s*>/g, decoration: Decoration.mark({ class: "cm-direction" }) });
+const directionMarks = ViewPlugin.fromClass(class {
+  decos: DecorationSet;
+  constructor(v: EditorView) { this.decos = directionMatcher.createDeco(v); }
+  update(u: ViewUpdate) { this.decos = directionMatcher.updateDeco(u, this.decos); }
+}, { decorations: (p) => p.decos });
 const rewriteRange = StateField.define<{ from: number; to: number } | null>({
   create: () => null,
   update(v, tr) {
@@ -186,6 +193,7 @@ const theme = EditorView.theme(
     ".cm-selectionBackground, &.cm-focused .cm-selectionBackground, ::selection": { backgroundColor: "rgba(201,165,74,0.32) !important" },
     ".cm-cursor": { borderLeftColor: "#e8c870" },
     ".cm-focus": { backgroundColor: "rgba(232,200,112,0.22)", borderBottom: "2px solid #e8c870" },
+    ".cm-direction": { color: "#9a8fc9", fontStyle: "italic", fontFamily: "ui-monospace, Menlo, monospace", fontSize: "0.86em", backgroundColor: "rgba(154,143,201,0.10)", borderRadius: "3px" },
     ".cm-rewriting": { backgroundColor: "rgba(127,179,255,0.18)", borderBottom: "2px solid #7fb3ff" },
     ".cm-panels": { backgroundColor: "#171a21", color: "#e9e6dd", border: "none", fontFamily: "system-ui, sans-serif" },
     ".cm-panels-top": { borderBottom: "1px solid #2b2f38" },
@@ -259,6 +267,23 @@ function insertAtLine(v: V, s: string) {
   v.dispatch({ changes: { from: ln.to, insert: s }, selection: { anchor: ln.to + s.length } });
   v.focus();
   return true;
+}
+const DIRECTIONS: Record<string, { text: string; at: string; hint: string }> = {
+  scene: { text: '<scene place="exterior" location="" time="dusk" weather="clear" mood=""/>', at: 'location="', hint: "The place and time from here on" },
+  character: { text: '<character name="" look="man, "/>', at: 'name="', hint: "How a person or creature looks" },
+  note: { text: "<note></note>", at: "<note>", hint: "A note for the director and the judge" },
+};
+const showDir = ref(false);
+function insertDirection(kind: string) {
+  showDir.value = false;
+  const d = DIRECTIONS[kind];
+  if (!view || !d) return;
+  const line = view.state.doc.lineAt(view.state.selection.main.head);
+  const here = line.text.trim() === "";
+  const ins = here ? d.text + "\n\n" : d.text + "\n\n";
+  const from = here ? line.from : line.from;
+  view.dispatch({ changes: { from, insert: ins }, selection: { anchor: from + d.text.indexOf(d.at) + d.at.length } });
+  view.focus();
 }
 const cmds = {
   bold: () => view && wrap(view, "**"),
@@ -560,7 +585,7 @@ const SUG_LABEL: Record<string, string> = { link: "Link", resource: "Resource", 
 const previewEl = ref<HTMLElement | null>(null);
 const html = ref("");
 let htmlTimer = 0;
-function renderSoon() { window.clearTimeout(htmlTimer); htmlTimer = window.setTimeout(() => { html.value = md.render(text.value); nextTick(resolveImages); }, 120); }
+function renderSoon() { window.clearTimeout(htmlTimer); htmlTimer = window.setTimeout(() => { html.value = md.render(stripDirectives(text.value)); nextTick(resolveImages); }, 120); }
 function onPreviewClick(e: MouseEvent) {
   const a = (e.target as HTMLElement).closest("a");
   if (!a) return;
@@ -639,6 +664,7 @@ onMounted(async () => {
         search({ top: true }),
         rewriteRange,
         focusRange,
+        directionMarks,
         placeholder("Start writing…  Select a passage and press ⌘K to have it rewritten."),
         keymap.of([
           { key: "Mod-b", run: () => !!cmds.bold() },
@@ -673,7 +699,7 @@ onMounted(async () => {
       ],
     }),
   });
-  html.value = md.render(initial);
+  html.value = md.render(stripDirectives(initial));
   nextTick(resolveImages);
   window.addEventListener("focus", checkDisk);
   if (!props.docId && !props.file) { view.focus(); view.dispatch({ selection: { anchor: initial.length } }); await saveNow(); }
@@ -867,6 +893,12 @@ if (import.meta.env.DEV) (window as any).__ed = { view: () => view, rw, hp, star
       <button title="Table" @click="cmds.table()">Table</button>
       <button title="Horizontal rule" @click="cmds.rule()">―</button>
       <i />
+      <span class="dirwrap">
+        <button title="Directions for the picture: place, time, how a character looks (never shown to a reader)" :class="{ on: showDir }" @click="showDir = !showDir">◈ Direct</button>
+        <div v-if="showDir" class="dirmenu" @mouseleave="showDir = false">
+          <button v-for="(d, k) in DIRECTIONS" :key="k" @click="insertDirection(k as string)"><strong>{{ k }}</strong><span>{{ d.hint }}</span></button>
+        </div>
+      </span>
       <button title="Find and replace (⌘F)" @click="cmds.find()">Find</button>
       <button title="Line numbers" :class="{ on: showLines }" @click="toggleLines">#</button>
       <button title="Outline of the headings" :class="{ on: outlineOpen }" @click="toggleOutline">☰ Outline</button>
@@ -1087,6 +1119,12 @@ button:disabled { opacity: 0.5; cursor: default; }
 .hdiff .add { background: rgba(80, 180, 120, .16); color: #b8e6c8; display: block; }
 .hdiff .del { background: rgba(220, 90, 90, .16); color: #f0b4b4; display: block; }
 .hdiff .same { display: block; }
+.dirwrap { position: relative; display: inline-flex; }
+.dirmenu { position: absolute; top: 100%; left: 0; z-index: 12; margin-top: 4px; min-width: 250px; background: #171a21; border: 1px solid #2c313b; border-radius: 9px; padding: 4px; box-shadow: 0 10px 30px rgba(0,0,0,.5); display: flex; flex-direction: column; }
+.dirmenu button { all: unset; cursor: pointer; display: flex; flex-direction: column; gap: 1px; padding: 6px 9px; border-radius: 6px; }
+.dirmenu button:hover { background: #1f242d; }
+.dirmenu strong { color: #e6e8ee; font-size: 12.5px; text-transform: capitalize; }
+.dirmenu span { color: #7c8290; font-size: 11.5px; }
 .outline.float { position: absolute; z-index: 5; left: 0; top: 0; bottom: 0; width: 200px; box-shadow: 4px 0 16px rgba(0,0,0,.45); }
 .outline { overflow: auto; border-right: 1px solid #1f232a; background: #101318; padding: 8px 0; display: flex; flex-direction: column; }
 .outline button { all: unset; cursor: pointer; padding: 4px 10px; font-size: 12.5px; color: #aab0bd; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-left: 2px solid transparent; }

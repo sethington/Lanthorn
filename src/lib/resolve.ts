@@ -566,7 +566,7 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
   const loc = bible.locations.find((l) => l.id === scene.location);
   const locText = `${scene.location} ${loc?.desc ?? ""}`;
   const lw = words(locText.replace(/_/g, " "));
-  const kind: Kind = opts.place ?? (scene.interior && !EXT_WORDS.some((e) => lw.includes(e)) ? "interior" : "exterior");
+  const kind: Kind = opts.place ?? scene.writer?.place ?? (scene.interior && !EXT_WORDS.some((e) => lw.includes(e)) ? "interior" : "exterior");
   const r = rng(hash(`${scene.id}:${scene.from}:${scene.to}${opts.seed ? ":re" + opts.seed : ""}`));
   const nSent = scene.to - scene.from + 1;
   // frames are scrubbed by reading position, so a scene needs resolution only where something changes: a static scene

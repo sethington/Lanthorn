@@ -10,6 +10,8 @@ export type Chapter = {
   text: string;
   paragraphs: string[];
   /** Pictures a document carries (Markdown): each sits before paragraph `at`; the reader shows them, the world never sees them. */
+  /** The writer's own directions for the picture side (hidden tags in a Markdown document): each comes before paragraph `at`. See lib/directives.ts. */
+  directives?: { kind: "scene" | "character" | "note"; attrs: Record<string, string>; text: string; at: number; close?: boolean }[];
   images?: { at: number; src: string; alt: string; title: string }[];
   /** Pre-made scenes shipped in a package ({ scenes, bible }, the same shape the LLM pass produces): skips analysis. */
   scenes?: unknown;

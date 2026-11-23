@@ -53,6 +53,8 @@ export type Scene = {
   beats: { at: number; action: string }[];
   audio: { bed: string; spots: { at: number; sound: string }[] };
   confidence: number;
+  /** the writer's own direction for this passage (hidden tags in their document, lib/directives.ts): the judge keeps to it */
+  writer?: { place?: "interior" | "exterior"; note: string };
   /** optional, for hand-made scenes: put a bundled asset exactly here (metres; height scales it) */
   /** direction: camera shots, who speaks, what characters do. All optional: missing parts are directed automatically. */
   shots?: Shot[];
@@ -126,6 +128,7 @@ Rules:
 - Formulas in the sentences appear as $LaTeX$ (a ^{} superscript, a _{} subscript, | between table cells): use them exactly as given in a board's eq items (without the dollar signs).
 - BOARD: a theorem, proof, derivation, formula, algorithm or data passage is not a place: set visual:true, kind:"board", location:"board", no subjects, and give "board" with 2-8 steps. Each step "at" is the sentence where it appears; items show in order: eq (one LaTeX equation, display style, no $ signs), plot (a function drawn with optional marked points, a chord between two x values, a tangent at x; draw what the text describes, e.g. a theorem about a function gets a plot of an example function), note (a plain caption). A plot stays on screen until the next plot. Equations are exactly what the text states, step by step as it derives them. Also a board (kind:"board"): a journey through named real places (map: x east, y south, put places where they really lie relative to each other; route lists the places in the order travelled), a genealogy or any hierarchy (tree), a run of dated events or stages (timeline). ANYTHING ELSE that needs a picture (a circuit, a molecule, a flowchart, a state machine, a chessboard, a musical staff, a geometry figure, a diagram of an argument, a table, an org chart, a floor plan) is a \"draw\" item: shapes in a 100 x 70 box, x right, y down: rect {x,y,w,h,fill,stroke,r}, circle {x,y,r}, line {x1,y1,x2,y2,stroke,dash,arrow}, poly {pts:[[x,y]..],closed}, path {d: SVG path data}, text {x,y,s,size,anchor,color}, tex {x,y,tex,size}. Colours are #rrggbb. The board is DARK (#12141c): draw with light colours (strokes and text #e9e4d4, bright fills like #7fb3ff #ff8f70 #d8b45a #8fd0c0), never black or dark grey. Draw it properly: label parts, keep text inside the box, 4-40 shapes. Shapes with the same id accumulate across steps so the drawing builds up as the text explains it; replace:true starts it again. Prefer draw whenever the fixed kinds (plot, map, tree, timeline) do not fit. Maps, trees and timelines stay on screen until the next one; a map's route is drawn only as far as the step reached. Narrative prose with people in a scene keeps its normal scene; when such a scene is a journey or turns on a family or sequence, ALSO give it a \"board\" with \"inset\":true (a map or tree or timeline shown small in a corner while the scene plays) and keep visual:true with its normal fields.
 - interior is true only when walls and a roof surround the people (a room, a cabin, a cave, a hall, a tent). On a raft, a boat or a ship's deck, a beach, a roof, a road or a cart, in a field, it is false, however small or enclosed the place feels.
+- writer_direction, when present, is the author's own word for the sentences it names: follow it exactly (indoors or outdoors, location, time, weather, mood, sky, props) and begin a new scene at each "from [n]" line. Never contradict it and never mention it. Characters already in the bible were described by the author: keep their ids and looks.
 - Scenes contiguous, cover every given sentence, ordered, no overlap. New scene on location, time-jump, or mood change.
 - visual:false for dialogue/exposition with nothing to draw; keep other fields minimal.
 - kind timelapse: passage describes accelerated time. abstract: sensation/emotion, no concrete objects.
@@ -146,9 +149,9 @@ Rules:
   cam: how "look_up" (swing up to the sky/moon/sun: pair it with moon or sun) | "roll" | "spin" | "crane" (rise up and look down) | "punch" (dolly-zoom, shock).
 - Continue from prev_end when given: same lighting/time unless text changes it.`;
 
-export function buildUser(bible: Bible, prevEnd: string | null, sentences: Sentence[]): string {
+export function buildUser(bible: Bible, prevEnd: string | null, sentences: Sentence[], writer = ""): string {
   const lines = sentences.map((s) => `[${s.id}] ${s.text.trim()}`).join("\n");
-  return `bible: ${JSON.stringify(bible)}\nprev_end: ${prevEnd ?? "none"}\nsentences:\n${lines}`;
+  return `bible: ${JSON.stringify(bible)}\nprev_end: ${prevEnd ?? "none"}${writer ? `\nwriter_direction:\n${writer}` : ""}\nsentences:\n${lines}`;
 }
 
 export function endState(s: Scene): string {

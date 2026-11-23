@@ -2,7 +2,7 @@
 // readable style that follows the reader's light or dark setting and prints cleanly.
 
 import { loadImage, type Img } from "./images";
-import { md } from "./markdown";
+import { md, stripDirectives } from "./markdown";
 
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const dataUrl = (img: Img) => {
@@ -25,7 +25,7 @@ hr{border:0;border-top:1px solid var(--rule);margin:2.4em 0}
 @media print{body{background:#fff;color:#000;font-size:11pt}main{padding:0}a{color:#000}}`;
 
 export async function exportHtml(src: string, title: string, dir?: string): Promise<string> {
-  const doc = new DOMParser().parseFromString(`<body>${md.render(src)}</body>`, "text/html");
+  const doc = new DOMParser().parseFromString(`<body>${md.render(stripDirectives(src))}</body>`, "text/html");
   const imgs = Array.from(doc.querySelectorAll<HTMLImageElement>("img.mdimg"));
   await Promise.all(imgs.map(async (el) => {
     const s = el.getAttribute("data-src") ?? "";

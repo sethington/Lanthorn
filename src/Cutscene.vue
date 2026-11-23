@@ -415,6 +415,8 @@ let judging = false;
 let judgeBroken = false;
 let movedAt = performance.now();
 let lastKey = "";
+/** The writer's own direction for a passage, for the judge: it is the brief the picture is held to. */
+const writerLine = (sc?: { writer?: { note: string } }) => (sc?.writer?.note ? `\nThe writer's own direction, which the picture must follow: ${sc.writer.note}.` : "");
 async function judgeTick() {
   if (judging || judgeBroken || !judgeSettings.on || !budgetLeft() || ui.controlling || loading || !loadedG || !ui.up || document.visibilityState !== "visible") return;
   const f = frame.value;
@@ -460,8 +462,10 @@ async function judgeTick() {
     await api.worldCmd({ cmd: "snapshot", path });
     await new Promise((r) => setTimeout(r, 1200));
     const text = props.sentences.slice(Math.max(0, sid - 1), sid + 2).map((s) => s.text.trim()).join(" ");
-    const c = await api.llmVision("judge", RUBRIC, `Text being read: "${text}"\nThe world was directed to show: ${what}.\nDoes the picture suit it?`, path);
+    const scW = g.scenes.map((i) => props.scenes[i]).find((x) => sid >= x.from && sid <= x.to);
+    const c = await api.llmVision("judge", RUBRIC, `Text being read: "${text}"\nThe world was directed to show: ${what}.${writerLine(scW)}\nDoes the picture suit it?`, path);
     const v = parseVerdict(c.text);
+    if (v && scW?.writer?.place && kind === "shot") delete v.place;
     if (v) {
       if (applyVerdict(key, kind, v, sig(g))) { preps.delete(sig(g)); preps.delete(sig(g) + "|fast"); ready.delete(sig(g)); if (loadedG && sig(loadedG) === sig(g)) { loadedSig = ""; loadedG = null; } } // wrong kind of place: build it again
       stats.judged++;
@@ -516,8 +520,9 @@ async function judgeAheadTick() {
         const what = `${sc.interior ? "an indoor" : "an outdoor"} place: ${(loc?.desc ?? sc.location).slice(0, 140)}; ${sc.time.start}, ${sc.weather}. People in the world: ${who || "none"}. Props: ${sc.props.slice(0, 6).join(", ") || "none"}. Camera: ${x.framing ?? "wide"} shot on ${x.focus ?? "the scene"}`;
         const sid = Math.min(props.sentences.length - 1, Math.max(0, x.from ?? sc.from));
         const text = props.sentences.slice(Math.max(0, sid - 1), sid + 2).map((q) => q.text.trim()).join(" ");
-        const c = await api.llmVision("judge", RUBRIC, `Text being read: "${text}"\nThe world was directed to show: ${what}.\nDoes the picture suit it?`, out);
+        const c = await api.llmVision("judge", RUBRIC, `Text being read: "${text}"\nThe world was directed to show: ${what}.${writerLine(sc)}\nDoes the picture suit it?`, out);
         const v = parseVerdict(c.text);
+        if (v && sc.writer?.place) delete v.place; // (the writer has said whether it is indoors: the judge does not overrule that)
         if (v) {
           if (applyVerdict(key, "shot", v, key0)) { preps.delete(key0); preps.delete(key0 + "|fast"); ready.delete(key0); }
           stats.judged++;

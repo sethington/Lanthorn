@@ -4,6 +4,7 @@
 import MarkdownIt from "markdown-it";
 import { type Book, type Chapter, makeChapter } from "./book";
 import { hashStr, paragraphsOf } from "./text";
+import { type Directive, extractDirectives } from "./directives";
 
 export const md = new MarkdownIt({ html: false, linkify: true, typographer: true, breaks: false });
 
@@ -43,24 +44,31 @@ function inlineText(tok: { children?: any[] | null; content: string }): string {
 
 /** A picture in a document, and where it sits: before paragraph `at` of its section. */
 export type DocImage = { at: number; src: string; alt: string; title: string };
-export type DocChapter = { title: string; paragraphs: string[]; images: DocImage[] };
+export type DocChapter = { title: string; paragraphs: string[]; images: DocImage[]; dirs: Directive[] };
 
 /** A document's title (its first # heading) and its sections: split at ## headings (and any later # heading); deeper headings stay as lines of their own. */
 export function parseDoc(src: string): { title: string; sections: DocChapter[] } {
-  const toks = md.parse(src.replace(/\r\n?/g, "\n"), {});
+  // the writer's directions come out first: they are never part of the text
+  const { clean, list } = extractDirectives(src.replace(/\r\n?/g, "\n"));
+  const toks = md.parse(clean, {});
+  let nextDir = 0;
   let title = "";
   const sections: DocChapter[] = [];
-  let cur: DocChapter = { title: "", paragraphs: [], images: [] };
+  let cur: DocChapter = { title: "", paragraphs: [], images: [], dirs: [] };
   let seenH1 = false;
-  const flush = () => { if (cur.paragraphs.length || cur.images.length) sections.push(cur); };
+  /** Directions that come before this line belong to the section now being read, before its next paragraph. */
+  const placeDirs = (line: number) => { while (nextDir < list.length && list[nextDir].line <= line) { const d = list[nextDir++]; cur.dirs.push({ kind: d.kind, attrs: d.attrs, text: d.text, at: cur.paragraphs.length, ...(d.close ? { close: true } : {}) }); } };
+  const flush = () => { if (cur.paragraphs.length || cur.images.length || cur.dirs.length) sections.push(cur); };
   const para = (s: string) => { const t = s.replace(/\s+/g, " ").trim(); if (t) cur.paragraphs.push(t); };
   for (let i = 0; i < toks.length; i++) {
     const t = toks[i];
+    const splits = t.type === "heading_open" && (Number(t.tag.slice(1)) <= 2 && !(Number(t.tag.slice(1)) === 1 && !seenH1 && !title));
+    if (t.map && !splits) placeDirs(t.map[0]);
     if (t.type === "heading_open") {
       const level = Number(t.tag.slice(1));
       const text = inlineText(toks[i + 1] ?? { content: "" }).trim();
       if (level === 1 && !seenH1) { seenH1 = true; title = text; cur.title = cur.title || text; }
-      else if (level <= 2) { flush(); cur = { title: text, paragraphs: [], images: [] }; }
+      else if (level <= 2) { flush(); cur = { title: text, paragraphs: [], images: [], dirs: [] }; placeDirs(t.map?.[0] ?? 0); }
       else para(text);
       i += 2;
     } else if (t.type === "inline") {
@@ -79,11 +87,13 @@ export function parseDoc(src: string): { title: string; sections: DocChapter[] }
       para(cells.join(" | "));
     }
   }
+  placeDirs(Infinity);
   flush();
   return { title: title.trim(), sections };
 }
 
 /** The plain prose of a document, for word counts and the like. */
+export { stripDirectives } from "./directives";
 export const plainOf = (src: string): string => parseDoc(src).sections.map((s) => s.paragraphs.join("\n\n")).join("\n\n");
 
 /** A document as a book the reader can open: its title from the first # heading, chapters from the sections. */
@@ -97,6 +107,7 @@ export function docToBook(src: string, id: string, prev?: Pick<Book, "imported" 
     const ch = makeChapter(chapters.length, s.title || name, text);
     // the reader's paragraphs are the text split again (a code block can hold blank lines), so each picture's place is counted in those
     if (s.images.length) ch.images = s.images.map((im) => ({ ...im, at: paragraphsOf(s.paragraphs.slice(0, im.at).join("\n\n")).length }));
+    if (s.dirs.length) ch.directives = s.dirs.map((d) => ({ ...d, at: paragraphsOf(s.paragraphs.slice(0, d.at).join("\n\n")).length }));
     chapters.push(ch);
   });
   if (!chapters.length) chapters.push(makeChapter(0, name, ""));

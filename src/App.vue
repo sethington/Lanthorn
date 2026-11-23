@@ -17,6 +17,7 @@ import "katex/dist/katex.min.css";
 import { RUNTIME_VERSION } from "./lib/resolve";
 import { hashStr, splitSentences, type Sentence } from "./lib/text";
 import { shiftScene } from "./lib/offset";
+import { applyWriter, fixedBible, makePlan, promptFor } from "./lib/writer";
 import { describeCue, judgeSpent, judgeUseBook, judgeSettings, memory as judgeMemory } from "./lib/judge";
 import { fmtTokens, recordChapterUsage, tokensOf, usage, useBook } from "./lib/usage";
 import Progress from "./Progress.vue";
@@ -129,7 +130,7 @@ function buildChaps(b: Book) {
     const paras: Sentence[][] = ch.paragraphs.map(() => []);
     sents.forEach((s) => paras[s.para].push(s));
     all.push(...sents);
-    const c: Chap = { idx, base, nsent: sents.length, key: hashStr(ch.text), chars: ch.text.length, paras, scenes: [], bible: { characters: [], locations: [] }, state: "idle", checked: false, done: 0, total: 0, cached: 0, err: "", fresh: 0, freshMs: 0 };
+    const c: Chap = { idx, base, nsent: sents.length, key: hashStr(ch.text + (ch.directives?.length ? JSON.stringify(ch.directives) : "")), chars: ch.text.length, paras, scenes: [], bible: { characters: [], locations: [] }, state: "idle", checked: false, done: 0, total: 0, cached: 0, err: "", fresh: 0, freshMs: 0 };
     base += sents.length;
     return c;
   });
@@ -537,7 +538,9 @@ async function analyzeChapter(c: Chap, force = false) {
   const chunks = Math.ceil(all.length / CHUNK);
   c.total = chunks;
   touch();
-  let b: Bible = c.resume?.b ?? { characters: [], locations: [] };
+  // the writer's own directions for this chapter (hidden tags in a Markdown document): told to the model, and laid over what it makes
+  const plan = makePlan(book.value?.chapters[c.idx]?.directives, (at) => { for (let k = at; k < c.paras.length; k++) { const s0 = c.paras[k][0]; if (s0) return s0.id - c.base; } return (all[all.length - 1]?.id ?? 0) + 1; });
+  let b: Bible = c.resume?.b ?? fixedBible(plan);
   let prevEnd: string | null = c.resume?.prevEnd ?? null;
   const local: LlmScene[] = c.resume?.local ?? [];
   const i0 = c.resume?.i ?? 0;
@@ -560,7 +563,7 @@ async function analyzeChapter(c: Chap, force = false) {
       for (let attempt = 0; ; attempt++) {
         try {
           // the prompt carries the bible and previous scene, so an unchanged chunk in an unchanged context hits the cache
-          const user = buildUser(b, prevEnd, slice);
+          const user = buildUser(b, prevEnd, slice, promptFor(plan, slice[0].id, slice[slice.length - 1].id));
           const ckey = `${c.key}-${PROMPT_VERSION}-${hashStr(user)}`;
           let text = force || attempt > 0 ? null : await cacheRead(ckey);
           if (text) c.cached++;
@@ -580,6 +583,7 @@ async function analyzeChapter(c: Chap, force = false) {
         }
       }
       if (chaps.value !== owner) return; // another book was opened while the model was working
+      applyWriter(chunk.scenes, chunk.bible, plan);
       b = chunk.bible;
       chunk.scenes.forEach((sc, k) => (sc.id = `s${local.length + k + 1}`));
       local.push(...chunk.scenes);
