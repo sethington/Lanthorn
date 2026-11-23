@@ -169,3 +169,19 @@ pub fn write_pdf(path: &str, bytes: &[u8]) -> Result<u64, String> {
     std::fs::rename(&tmp, &p).map_err(|e| { let _ = std::fs::remove_file(&tmp); format!("Couldn't save: {e}") })?;
     Ok(bytes.len() as u64)
 }
+
+/// Save a web page the editor made from a document (an .html or .htm only; written to a temporary file and renamed).
+pub fn write_html(path: &str, text: &str) -> Result<u64, String> {
+    let p = expand(path.trim());
+    if !matches!(p.extension().and_then(|x| x.to_str()).unwrap_or("").to_lowercase().as_str(), "html" | "htm") {
+        return Err("A web page must be saved with the .html extension.".into());
+    }
+    if !text.contains("<html") {
+        return Err("That isn't a web page.".into());
+    }
+    let dir = p.parent().ok_or("No folder for that file")?;
+    let tmp = dir.join(format!(".{}.lanthorn-tmp", p.file_name().and_then(|n| n.to_str()).unwrap_or("file")));
+    std::fs::write(&tmp, text).map_err(|e| format!("Couldn't write: {e}"))?;
+    std::fs::rename(&tmp, &p).map_err(|e| { let _ = std::fs::remove_file(&tmp); format!("Couldn't save: {e}") })?;
+    Ok(text.len() as u64)
+}

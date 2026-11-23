@@ -85,6 +85,24 @@ export function grep(corpus: Doc[], terms: string[], max = 8): Hit[] {
   return hits.slice(0, max).map(({ score: _s, ...h }) => h);
 }
 
+// ---- what this writer takes and what they wave away, remembered (so the suggestions drift toward what they use)
+type Taste = Record<string, { taken: number; dismissed: number }>;
+const TASTE = "lanthorn:helper-taste";
+const readTaste = (): Taste => { try { return JSON.parse(localStorage.getItem(TASTE) || "{}"); } catch { return {}; } };
+export function recordTaste(type: string, taken: boolean) {
+  const t = readTaste();
+  const e = (t[type] ??= { taken: 0, dismissed: 0 });
+  taken ? e.taken++ : e.dismissed++;
+  try { localStorage.setItem(TASTE, JSON.stringify(t)); } catch { /* optional */ }
+}
+/** One line for the model, once there is enough history to say anything (a type that is nearly always dismissed is to be rare; one that is taken, welcome). */
+export function tasteNote(): string {
+  const t = readTaste();
+  const rows = Object.entries(t).filter(([, e]) => e.taken + e.dismissed >= 3);
+  if (!rows.length) return "";
+  return rows.map(([k, e]) => `${k}: taken ${e.taken}, dismissed ${e.dismissed}`).join("; ");
+}
+
 // ---- how a piece of writing sounds, measured
 export type Voice = { words: number; sentence: number; wordLen: number; long: number; contractions: number; first: number; second: number; questions: number; exclaims: number; passive: number; paragraph: number };
 export function voice(text: string): Voice {
@@ -181,7 +199,8 @@ export async function helpWith(inp: HelpInput, corpus: Doc[], folder = ""): Prom
   const user =
     `Document: "${inp.docTitle}"\nOutline:\n${out}\n\nPassage (lines ${inp.passageFrom + 1}-${inp.passageTo + 1}):\n${inp.passage.slice(0, 2400)}\n\n` +
     `Matches (from searching for: ${terms.join(", ")}):\n${hits.length ? hits.map((h) => `- [${h.here ? "this document" : h.docTitle}] id=${h.doc} line ${h.line}: ${h.text}`).join("\n") : "(none)"}\n\n` +
-    `How the passage sounds against the rest:\n${notes.length ? notes.map((n) => `- ${n}`).join("\n") : "(no clear difference)"}`;
+    `How the passage sounds against the rest:\n${notes.length ? notes.map((n) => `- ${n}`).join("\n") : "(no clear difference)"}` +
+    (tasteNote() ? `\n\nHow this writer has reacted to past suggestions (${tasteNote()}). Offer fewer of the kinds they mostly dismiss, and only when it is clearly worth it.` : "");
   const c = await api.llmComplete("rewrite", HELP_SYSTEM, user);
   const j = jsonOf(c.text);
   const titleOf = new Map<string, string>([[inp.docId, inp.docTitle], ...corpus.map((d) => [d.id, d.title] as [string, string])]);

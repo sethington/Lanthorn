@@ -86,6 +86,11 @@ fn file_write_pdf(path: String, bytes: Vec<u8>) -> Result<u64, String> {
 }
 
 #[tauri::command]
+fn file_write_html(path: String, text: String) -> Result<u64, String> {
+    writing::write_html(&path, &text)
+}
+
+#[tauri::command]
 fn image_read(path: String) -> Result<images::ImageData, String> {
     images::read(&path)
 }
@@ -300,6 +305,7 @@ pub fn run() {
             file_read,
             file_write,
             file_write_pdf,
+            file_write_html,
             library_get,
             library_save,
             library_delete,

@@ -66,6 +66,7 @@ export const api = {
   writingGrep: (dir: string, terms: string[], max: number) => need(() => invoke<{ path: string; name: string; line: number; text: string; score: number }[]>("writing_grep", { dir, terms, max })),
   fileRead: (path: string) => need(() => invoke<{ text: string; path: string; mtime: number }>("file_read", { path })),
   fileWrite: (path: string, text: string, expect?: number) => need(() => invoke<number>("file_write", { path, text, expect: expect ?? null })),
+  fileWriteHtml: (path: string, text: string) => need(() => invoke<number>("file_write_html", { path, text })),
   fileWritePdf: (path: string, bytes: Uint8Array) => need(() => invoke<number>("file_write_pdf", { path, bytes: Array.from(bytes) })),
   imageRead: (path: string) => need(() => invoke<{ bytes: number[]; mime: string }>("image_read", { path })),
   imageFetch: (url: string) => need(() => invoke<{ bytes: number[]; mime: string }>("image_fetch", { url })),

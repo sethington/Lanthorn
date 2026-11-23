@@ -2,7 +2,7 @@
 // The Markdown editor: CodeMirror 6 with a toolbar, a live preview, search and replace, and "rewrite this": select a passage (or put the cursor in a
 // block), say why it should change, and the language model rewrites it; the change is shown as a word diff to accept or refuse.
 // A document is saved in the library as a book (its chapters made from the headings), so the reader opens it like any other.
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from "vue";
 import { Compartment, EditorState, StateEffect, StateField } from "@codemirror/state";
 import { Decoration, type DecorationSet, EditorView, drawSelection, highlightActiveLine, highlightActiveLineGutter, keymap, lineNumbers, placeholder } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, indentWithTab, redo, undo } from "@codemirror/commands";
@@ -18,8 +18,10 @@ import { IMAGE_EXTS, STORE_PREFIX, blobUrl, loadImage } from "./lib/images";
 import { api } from "./lib/api";
 import type { Book } from "./lib/book";
 import { baseName, docToBook, fileDocId, markdownOfBook, md, newDocId, parseDoc, plainOf } from "./lib/markdown";
-import { type Doc, type Suggestion, helpWith, loadCorpus } from "./lib/helper";
+import { type Doc, type Suggestion, helpWith, loadCorpus, recordTaste } from "./lib/helper";
+import { fmtTokens, tokensOf, usage, useBook } from "./lib/usage";
 import ExportPdf from "./ExportPdf.vue";
+import { exportHtml } from "./lib/htmlExport";
 
 const props = defineProps<{ docId?: string | null; file?: string | null }>();
 const emit = defineEmits<{ (e: "close"): void; (e: "read", id: string): void; (e: "open-doc", id: string): void; (e: "open-file", path: string): void }>();
@@ -507,7 +509,7 @@ function showItem(q: Suggestion, on: boolean) {
   view.dispatch({ effects: setFocusRange.of(r), ...(on && r ? { scrollIntoView: true } : {}) });
   if (on && r) view.dispatch({ effects: EditorView.scrollIntoView(r.from, { y: "center" }) });
 }
-function dismiss(q: Suggestion) { dismissed.add(q.id); hp.items = hp.items.filter((x) => x.id !== q.id); view?.dispatch({ effects: setFocusRange.of(null) }); }
+function dismiss(q: Suggestion, taken = false) { recordTaste(q.type, taken); dismissed.add(q.id); hp.items = hp.items.filter((x) => x.id !== q.id); view?.dispatch({ effects: setFocusRange.of(null) }); }
 const docHref = (id: string) => `lanthorn://doc/${id}`;
 function linkAnchor(q: Suggestion, href: string): boolean {
   if (!view) return false;
@@ -520,14 +522,14 @@ function linkAnchor(q: Suggestion, href: string): boolean {
 }
 async function applyLink(q: Suggestion) {
   hp.err = "";
-  if (q.doc) { if (linkAnchor(q, docHref(q.doc.id))) dismiss(q); return; }
+  if (q.doc) { if (linkAnchor(q, docHref(q.doc.id))) dismiss(q, true); return; }
   if (!q.url) return;
   hp.busy[q.id] = "Checking the address…";
   try {
     const page = await api.fetchPage(q.url); // (a suggested address is only inserted if it loads)
     if (!page || !page.html) throw new Error("empty");
-    if (q.anchor ? linkAnchor(q, q.url) : false) dismiss(q);
-    else if (!q.anchor && view) { const r = view.state.selection.main; view.dispatch({ changes: { from: r.to, insert: `[${q.title}](${q.url})` } }); dismiss(q); }
+    if (q.anchor ? linkAnchor(q, q.url) : false) dismiss(q, true);
+    else if (!q.anchor && view) { const r = view.state.selection.main; view.dispatch({ changes: { from: r.to, insert: `[${q.title}](${q.url})` } }); dismiss(q, true); }
   } catch {
     hp.err = `That address doesn't load, so I didn't insert it. Try the search instead.`;
     q.url = undefined;
@@ -542,7 +544,7 @@ function applyFix(q: Suggestion) {
   view.dispatch({ selection: { anchor: range.from, head: range.to } });
   startRewrite();
   rw.instruction = q.fix;
-  dismiss(q);
+  dismiss(q, true);
   runRewrite();
 }
 const SUG_LABEL: Record<string, string> = { link: "Link", resource: "Resource", reference: "In your writing", tone: "Tone", style: "Style", consistency: "Consistency" };
@@ -682,16 +684,63 @@ async function read() {
   emit("read", id.value);
 }
 async function back() { await saveNow(); emit("close"); }
+// ---- outline, focus mode, word goal, web page export
+type Head = { level: number; text: string; line: number; n: number };
+const outlineOpen = ref(localStorage.getItem("lanthorn:outline") === "1");
+const headings = computed<Head[]>(() => {
+  const out: Head[] = [];
+  let fence = "";
+  text.value.split("\n").forEach((l, i) => {
+    const f = /^\s{0,3}(`{3,}|~{3,})/.exec(l);
+    if (f) { fence = fence ? (l.trim().startsWith(fence[0]) ? "" : fence) : f[1]; return; }
+    if (fence) return;
+    const m = /^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/.exec(l);
+    if (m) out.push({ level: m[1].length, text: m[2].replace(/[*_`]/g, ""), line: i + 1, n: out.length });
+  });
+  return out;
+});
+const activeHead = computed(() => { let a = -1; for (const h of headings.value) if (h.line <= cursor.line) a = h.n; return a; });
+function toggleOutline() { outlineOpen.value = !outlineOpen.value; try { localStorage.setItem("lanthorn:outline", outlineOpen.value ? "1" : "0"); } catch { /* optional */ } }
+function gotoHead(h: Head) {
+  if (mode.value === "preview") { previewEl.value?.querySelectorAll("h1,h2,h3,h4,h5,h6")[h.n]?.scrollIntoView({ block: "start", behavior: "smooth" }); return; }
+  if (!view) return;
+  const ln = view.state.doc.line(Math.min(h.line, view.state.doc.lines));
+  view.dispatch({ selection: { anchor: ln.from }, effects: EditorView.scrollIntoView(ln.from, { y: "start", yMargin: 24 }) });
+  view.focus();
+  if (mode.value === "split") previewEl.value?.querySelectorAll("h1,h2,h3,h4,h5,h6")[h.n]?.scrollIntoView({ block: "start" });
+}
+const focus = ref(false);
+function toggleFocus() { focus.value = !focus.value; if (focus.value) { if (mode.value !== "edit") setMode("edit"); hp.open = false; } nextTick(() => { view?.requestMeasure(); view?.focus(); }); }
+const goalKey = () => `lanthorn:goal:${id.value}`;
+const goal = ref(0);
+const goalEdit = ref(false);
+function loadGoal() { try { goal.value = Number(localStorage.getItem(goalKey())) || 0; } catch { goal.value = 0; } }
+watch(id, loadGoal, { immediate: true });
+watch(id, (v) => useBook(`doc:${v}`), { immediate: true }); // (the model's tokens used on this document are counted under it)
+function saveGoal() { goalEdit.value = false; goal.value = Math.max(0, Math.round(goal.value) || 0); try { if (goal.value) localStorage.setItem(goalKey(), String(goal.value)); else localStorage.removeItem(goalKey()); } catch { /* optional */ } }
+async function saveHtml() {
+  const suggested = `${title.value.replace(/[^\w\- ]+/g, "").trim() || "document"}.html`;
+  let path: string | null = null;
+  try { path = await saveDialog({ defaultPath: suggested, filters: [{ name: "Web page", extensions: ["html"] }] }); } catch { path = null; }
+  if (!path) return;
+  if (!/\.html?$/i.test(path)) path += ".html";
+  try {
+    const page = await exportHtml(text.value, title.value, docDir.value);
+    const n = await api.fileWriteHtml(path, page);
+    notice.value = `Saved ${baseName(path)} · ${(n / 1024).toFixed(0)} KB`;
+  } catch (e) { notice.value = `Couldn't save the page: ${e instanceof Error ? e.message : String(e)}`; }
+  setTimeout(() => (notice.value = ""), 4000);
+}
 const showPdf = ref(false);
 const copied = ref("");
 async function copyMd() { try { await navigator.clipboard.writeText(text.value); copied.value = "Copied"; } catch { copied.value = "Couldn't copy"; } setTimeout(() => (copied.value = ""), 1800); }
 const hasText = computed(() => words.value > 0);
-const cols = computed(() => (mode.value === "split" ? "1fr 1fr" : "1fr") + (hp.open ? " 330px" : ""));
-if (import.meta.env.DEV) (window as any).__ed = { view: () => view, rw, hp, startRewrite, runRewrite, accept, saveNow, text, cmds, checkNow, toggleHelper, id, applyLink, read, dismiss, filePath, saveAs, checkDisk, conflict, showPdf, addImageFiles };
+const cols = computed(() => (outlineOpen.value && !focus.value ? "170px " : "") + (mode.value === "split" && !focus.value ? "1fr 1fr" : "1fr") + (hp.open ? " 300px" : ""));
+if (import.meta.env.DEV) (window as any).__ed = { view: () => view, rw, hp, startRewrite, runRewrite, accept, saveNow, text, cmds, checkNow, toggleHelper, id, applyLink, read, dismiss, filePath, saveAs, checkDisk, conflict, showPdf, addImageFiles, headings, toggleOutline, toggleFocus, saveHtml, goal, outlineOpen, focus };
 </script>
 
 <template>
-  <div class="ed">
+  <div class="ed" :class="{ focus }" @keydown.esc="focus && toggleFocus()">
     <header class="top">
       <button class="ghost" @click="back">← Library</button>
       <div class="name">
@@ -707,6 +756,7 @@ if (import.meta.env.DEV) (window as any).__ed = { view: () => view, rw, hp, star
       <div class="acts">
         <button class="ghost" title="Copy the Markdown" @click="copyMd">{{ copied || "Copy" }}</button>
         <button class="ghost" title="Export as a PDF, plain or designed" :disabled="!hasText" @click="showPdf = true">PDF</button>
+        <button class="ghost" title="Export as one web page, pictures included" :disabled="!hasText" @click="saveHtml">HTML</button>
         <button class="ghost" title="Save a copy to a .md file" @click="saveAs">{{ filePath ? "Save as…" : "Save to file…" }}</button>
         <button class="primary" :disabled="!hasText" title="Open this document in the reader, with its pictures" @click="read">Read it</button>
       </div>
@@ -745,12 +795,18 @@ if (import.meta.env.DEV) (window as any).__ed = { view: () => view, rw, hp, star
       <i />
       <button title="Find and replace (⌘F)" @click="cmds.find()">Find</button>
       <button title="Line numbers" :class="{ on: showLines }" @click="toggleLines">#</button>
+      <button title="Outline of the headings" :class="{ on: outlineOpen }" @click="toggleOutline">☰ Outline</button>
+      <button title="Focus: just the text (Esc leaves)" @click="toggleFocus">◐ Focus</button>
       <span class="grow" />
       <button class="helper" :class="{ on: hp.open }" title="The writing helper: links, references and tone, from this document and your other writing" @click="toggleHelper">✎ Helper</button>
       <button class="rewrite" title="Rewrite the selection, or the block you're in (⌘K)" @click="startRewrite()">✦ Rewrite…</button>
     </div>
 
     <div class="body" :class="mode" :style="{ gridTemplateColumns: cols }">
+      <nav v-if="outlineOpen && !focus" class="outline" aria-label="Outline">
+        <p v-if="!headings.length" class="none">Headings (# Title, ## Section) appear here.</p>
+        <button v-for="h in headings" :key="h.n" :class="{ on: h.n === activeHead }" :style="{ paddingLeft: 8 + (h.level - 1) * 12 + 'px' }" :title="h.text" @click="gotoHead(h)">{{ h.text }}</button>
+      </nav>
       <div v-show="mode !== 'preview'" ref="paneEl" class="pane">
         <div ref="host" class="cm" />
         <button v-if="sel.show && !rw.open" class="selbtn" :style="{ left: sel.x + 'px', top: sel.y + 'px' }" @mousedown.prevent @click="startRewrite()">✦ Rewrite <kbd>⌘K</kbd></button>
@@ -830,7 +886,7 @@ if (import.meta.env.DEV) (window as any).__ed = { view: () => view, rw, hp, star
             <button v-if="q.fix" class="ghost sm gold" @click="applyFix(q)">Rewrite to fit</button>
           </div>
         </div>
-        <p v-if="hp.checks" class="hnote small">{{ hp.checks }} {{ hp.checks === 1 ? "check" : "checks" }} this session</p>
+        <p v-if="hp.checks || usage.data.total.calls" class="hnote small">{{ hp.checks }} {{ hp.checks === 1 ? "check" : "checks" }} this session · this document has used {{ fmtTokens(tokensOf(usage.data.total)) }} tokens in {{ usage.data.total.calls }} {{ usage.data.total.calls === 1 ? "call" : "calls" }}<template v-if="usage.data.total.cost"> (about ${{ usage.data.total.cost.toFixed(2) }})</template></p>
       </aside>
     </div>
 
@@ -839,6 +895,11 @@ if (import.meta.env.DEV) (window as any).__ed = { view: () => view, rw, hp, star
       <span>{{ words.toLocaleString() }} {{ words === 1 ? "word" : "words" }}</span>
       <span>{{ text.length.toLocaleString() }} characters</span>
       <span>{{ readMins }} min read</span>
+      <span class="goal" :title="goal ? 'Word goal: click to change' : 'Set a word goal'" @click="goalEdit = true">
+        <template v-if="goalEdit"><input v-model.number="goal" type="number" min="0" step="100" autofocus @click.stop @keydown.enter="saveGoal" @keydown.esc.stop="goalEdit = false" @blur="saveGoal" /> words</template>
+        <template v-else-if="goal"><i class="gbar"><b :style="{ width: Math.min(100, (words / goal) * 100) + '%' }" :class="{ met: words >= goal }" /></i>{{ words.toLocaleString() }} / {{ goal.toLocaleString() }}</template>
+        <template v-else>Set a goal</template>
+      </span>
       <span class="grow" />
       <span v-if="cursor.sel">{{ cursor.sel }} selected</span>
       <span>Ln {{ cursor.line }}, Col {{ cursor.col }}</span>
@@ -911,6 +972,22 @@ button:disabled { opacity: 0.5; cursor: default; }
 .prose :deep(.mdfig img) { max-width: 100%; }
 .prose :deep(.mdcap) { display: block; margin-top: 6px; font-size: 0.88em; font-style: italic; color: #8b8f99; }
 .prose :deep(.imgmiss) { display: block; margin: 1em 0; padding: 10px 12px; border: 1px dashed #3a3f4a; border-radius: 8px; color: #8b8f99; font: 13px system-ui, sans-serif; }
+.outline { overflow: auto; border-right: 1px solid #1f232a; background: #101318; padding: 8px 0; display: flex; flex-direction: column; }
+.outline button { all: unset; cursor: pointer; padding: 4px 10px; font-size: 12.5px; color: #aab0bd; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-left: 2px solid transparent; }
+.outline button:hover { background: #181c23; color: #e6e8ee; }
+.outline button.on { color: #e6e8ee; border-left-color: #7aa2f7; background: #161a21; }
+.outline .none { margin: 8px 12px; color: #6d7280; font-size: 12px; }
+.goal { cursor: pointer; display: inline-flex; gap: 6px; align-items: center; }
+.goal:hover { color: #aab0bd; }
+.goal input { width: 70px; background: #0e1014; color: inherit; border: 1px solid #2a2f38; border-radius: 4px; padding: 1px 4px; font: inherit; }
+.gbar { width: 60px; height: 4px; border-radius: 2px; background: #232830; display: inline-block; overflow: hidden; }
+.gbar b { display: block; height: 100%; background: #7aa2f7; }
+.gbar b.met { background: #6fcf97; }
+.ed.focus { grid-template-rows: minmax(0, 1fr); }
+.ed.focus > .top, .ed.focus > .tools, .ed.focus > .status, .ed.focus > .banner { display: none; }
+.ed.focus .pane :deep(.cm-content) { max-width: 44em; margin: 0 auto; padding: 8vh 24px; }
+.ed.focus .pane :deep(.cm-gutters) { display: none; }
+.ed.focus .pane :deep(.cm-activeLine) { background: transparent; }
 .status { display: flex; gap: 16px; align-items: center; padding: 5px 16px; border-top: 1px solid #1f232a; color: #6d7280; font-size: 11.5px; background: #12151a; }
 .rwpanel { position: absolute; z-index: 6; left: 50%; bottom: 18px; transform: translateX(-50%); width: min(640px, calc(100% - 32px)); background: #171a21; border: 1px solid #3a3f4a; border-radius: 14px; padding: 12px 14px 14px; box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6); display: grid; gap: 10px; max-height: 70%; overflow: auto; }
 .rwhead { display: flex; gap: 10px; align-items: baseline; min-width: 0; }
