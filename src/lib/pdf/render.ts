@@ -1,6 +1,7 @@
 // Markdown to a paginated PDF, laid out here with pdf-lib (real text, links that click, page numbers), in the look a Theme describes.
 // Only the standard PDF fonts are used, so nothing is embedded and nothing needs a licence; a character they can't show becomes "?".
 
+import fontkit from "@pdf-lib/fontkit";
 import { PDFDocument, PDFFont, PDFName, PDFPage, PDFString, StandardFonts, rgb } from "pdf-lib";
 import { md } from "../markdown";
 import { type Family, type Theme, onColour, rgbOf } from "./theme";
@@ -96,7 +97,7 @@ export function blocksOf(src: string): Block[] {
 
 // ---- the page
 export type PdfImage = { bytes: Uint8Array; kind: "png" | "jpg"; w: number; h: number };
-export type PdfOptions = { size: "letter" | "a4"; author: string; title?: string; cover: boolean; date?: string; /** gives the bytes of an image the document refers to (null: it can't be found) */ loadImage?: (src: string) => Promise<PdfImage | null> };
+export type PdfOptions = { size: "letter" | "a4"; author: string; title?: string; cover: boolean; date?: string; /** gives the bytes of an image the document refers to (null: it can't be found) */ loadImage?: (src: string) => Promise<PdfImage | null>; /** gives the bytes of a bundled font file (Noto, by file name); used only when the text needs more than the standard fonts hold */ loadFont?: (file: string) => Promise<Uint8Array> };
 type Word = { text: string; font: PDFFont; size: number; color: [number, number, number]; width: number; href?: string; under?: boolean; strike?: boolean; gap: number; joined?: boolean; br?: boolean };
 const SIZES = { letter: [612, 792], a4: [595.28, 841.89] } as const;
 const col = (h: string) => { const [r, g, b] = rgbOf(h); return [r / 255, g / 255, b / 255] as [number, number, number]; };
@@ -105,25 +106,41 @@ const RGB = (c: [number, number, number]) => rgb(c[0], c[1], c[2]);
 export async function renderPdf(src: string, theme: Theme, opts: PdfOptions): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   const [W, H] = SIZES[opts.size];
-  const F: Record<Family, { r: PDFFont; b: PDFFont; i: PDFFont; bi: PDFFont }> = {
+  let F: Record<Family, { r: PDFFont; b: PDFFont; i: PDFFont; bi: PDFFont }> = {
     serif: { r: await doc.embedFont(StandardFonts.TimesRoman), b: await doc.embedFont(StandardFonts.TimesRomanBold), i: await doc.embedFont(StandardFonts.TimesRomanItalic), bi: await doc.embedFont(StandardFonts.TimesRomanBoldItalic) },
     sans: { r: await doc.embedFont(StandardFonts.Helvetica), b: await doc.embedFont(StandardFonts.HelveticaBold), i: await doc.embedFont(StandardFonts.HelveticaOblique), bi: await doc.embedFont(StandardFonts.HelveticaBoldOblique) },
     mono: { r: await doc.embedFont(StandardFonts.Courier), b: await doc.embedFont(StandardFonts.CourierBold), i: await doc.embedFont(StandardFonts.CourierOblique), bi: await doc.embedFont(StandardFonts.CourierBoldOblique) },
   };
   const charsets = new Map<PDFFont, Set<number>>();
   const supported = (f: PDFFont) => { let s = charsets.get(f); if (!s) { s = new Set(f.getCharacterSet()); charsets.set(f, s); } return s; };
-  const REPL: Record<string, string> = { "→": "->", "←": "<-", "✓": "v", "✔": "v", "✗": "x", "≤": "<=", "≥": ">=", "≠": "!=", "−": "-", "‑": "-", " ": " ", " ": " ", "​": "", "️": "" };
+  const REPL: Record<string, string> = { "→": "->", "←": "<-", "✓": "v", "✔": "v", "✗": "x", "≤": "<=", "≥": ">=", "≠": "!=", "−": "-", "‑": "-", "\u00a0": " ", "\u2009": " ", "\u200b": "", "\ufe0f": "" };
+  const stripMarks = (ch: string) => ch.normalize("NFD").replace(/[̀-ͯ]/g, "");
+  /** What a font can draw of this text: what it holds, else a plain stand-in (an arrow becomes "->", an accent is dropped), else nothing. */
   const clean = (f: PDFFont, text: string) => {
     const set = supported(f);
     let out = "";
     for (const ch of text.replace(/\t/g, "    ")) {
       const cp = ch.codePointAt(0)!;
-      if (REPL[ch] !== undefined) out += REPL[ch];
-      else if (set.has(cp)) out += ch;
-      else { const d = ch.normalize("NFD").replace(/[̀-ͯ]/g, ""); out += d !== ch && [...d].every((c) => set.has(c.codePointAt(0)!)) ? d : cp > 0x2000 ? "" : "?"; }
+      if (set.has(cp)) out += ch;
+      else if (REPL[ch] !== undefined) out += REPL[ch];
+      else { const d = stripMarks(ch); out += d !== ch && [...d].every((c) => set.has(c.codePointAt(0)!)) ? d : "?"; } // (a character no font here holds shows as "?", so the loss is seen)
     }
     return out;
   };
+  // The standard fonts hold Western European text. If the document has anything beyond that (Greek, Cyrillic, more symbols), every face is swapped for an
+  // embedded Noto one (Latin, Greek and Cyrillic, subset to the characters used), so the whole document keeps one consistent look.
+  if (opts.loadFont) {
+    const std = supported(F.serif.r);
+    const beyond = [...src].some((ch) => { const cp = ch.codePointAt(0)!; return cp > 0x7e && !std.has(cp) && REPL[ch] === undefined && !(stripMarks(ch) !== ch && [...stripMarks(ch)].every((c) => std.has(c.codePointAt(0)!))); });
+    if (beyond) {
+      try {
+        doc.registerFontkit(fontkit);
+        const get = async (n: string) => doc.embedFont(await opts.loadFont!(`${n}.ttf`), { subset: true });
+        const face = async (n: string, mono = false) => mono ? { r: await get(`${n}-Regular`), b: await get(`${n}-Bold`), i: await get(`${n}-Regular`), bi: await get(`${n}-Bold`) } : { r: await get(`${n}-Regular`), b: await get(`${n}-Bold`), i: await get(`${n}-Italic`), bi: await get(`${n}-BoldItalic`) };
+        F = { serif: await face("NotoSerif"), sans: await face("NotoSans"), mono: await face("NotoSansMono", true) };
+      } catch { /* the fonts could not be loaded: the standard ones are kept, and what they lack is left out */ }
+    }
+  }
 
   const ink = col(theme.colors.ink), muted = col(theme.colors.muted), accent = col(theme.colors.accent), paper = col(theme.colors.paper), band = col(theme.colors.band);
   const tint = (c: [number, number, number], t: number): [number, number, number] => [paper[0] + (c[0] - paper[0]) * t, paper[1] + (c[1] - paper[1]) * t, paper[2] + (c[2] - paper[2]) * t];

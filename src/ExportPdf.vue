@@ -61,7 +61,7 @@ async function rebuild() {
   error.value = "";
   try {
     const t = active.value;
-    const out = await renderPdf(props.text, t, { size: size.value, author: author.value.trim(), title: props.title, cover: cover.value && (style.value === "designed" || false), date: dated.value ? dateText() : "", loadImage: async (src) => { const img = await loadImage(src, { dir: props.dir }); return img ? forPdf(img) : null; } });
+    const out = await renderPdf(props.text, t, { size: size.value, author: author.value.trim(), title: props.title, cover: cover.value && (style.value === "designed" || false), date: dated.value ? dateText() : "", loadImage: async (src) => { const img = await loadImage(src, { dir: props.dir }); return img ? forPdf(img) : null; }, loadFont: async (f) => { const r = await fetch(`/fonts/pdf/${f}`); if (!r.ok) throw new Error(f); return new Uint8Array(await r.arrayBuffer()); } });
     if (g !== gen) return;
     bytes = out;
     // thumbnails of the first pages

@@ -272,7 +272,7 @@ book, with its chapters made from the headings, so **Read it** opens it in the r
   them without asking. **Save to file…** puts a library document on disk.
 - **PDF:** exports the document as a paginated PDF with real text and clickable links. *Plain* is a clean fixed design. *Designed* has the
   model choose the look from the content (and anything you ask for): fonts, colours, title page, headings, ornaments, borders. The design is
-  checked so it stays readable, and a preview shows before anything is saved. Only the standard PDF fonts are used, so text outside Latin-1 is not supported yet.
+  checked so it stays readable, and a preview shows before anything is saved. Western European text uses the standard PDF fonts; a document with Greek, Cyrillic or more symbols switches whole to embedded Noto fonts (SIL Open Font License, in `public/fonts/pdf`). CJK, Arabic, Hebrew and maths symbols are not covered: they print as `?`.
 - **Images:** `![alt](path)` shows in the preview and in the PDF (as a figure, captioned from its title or description). Local paths are relative to the
   file; web images and inline data images work too. **Image** in the toolbar, or pasting or dropping a picture, saves it into an `images/` folder beside a
   file-backed document (or into the app's own folder for a library document, which moves when you save it to a file). PNG, JPEG, GIF, WebP and BMP (GIF and WebP are flattened to a still, white-backed picture in the PDF).
