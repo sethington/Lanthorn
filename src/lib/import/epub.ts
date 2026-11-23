@@ -117,6 +117,9 @@ export function importEpub(bytes: Uint8Array, filename: string): Book {
       if (en >= 0) body_ = body_.slice(0, en).trim();
       const lic = body_.search(/(the full project gutenberg license|please read this before you proceed|section 1\.\s+general terms of use|project gutenberg\W{0,3} electronic works)/i);
       if (lic >= 0) body_ = body_.slice(0, lic).replace(/\n+[^\n]{0,80}$/, "").trim(); // the licence at the back is not the book
+      // the Gutenberg volunteers' own notes at the back (typographical errors corrected, transcriber's notes) and any licence wording that is left
+      const tail = body_.search(/\n[ \t]*(typographical errors corrected|transcriber.s notes?\b|errata\b|project gutenberg\W{0,3}\s+(?:electronic\s+)?works\b|redistribution of project gutenberg)/i);
+      if (tail > body_.length * 0.4) body_ = body_.slice(0, tail).replace(/\n+[^\n]{0,80}$/, "").trim();
       if (/this ebook is for the use of anyone anywhere|royalty fee of 20|gutenberg\W{0,3} license included with this ebook/i.test(body_.slice(0, 1800))) continue; // the licence page
       if (body_.length < 300 || FRONT.test(chTitle)) continue; // cover, title page, contents, copyright…
       // a scripture-style book whose verses are numbered "3:14 ..." is its chapters: "Genesis 3"
