@@ -273,6 +273,10 @@ book, with its chapters made from the headings, so **Read it** opens it in the r
 - **PDF:** exports the document as a paginated PDF with real text and clickable links. *Plain* is a clean fixed design. *Designed* has the
   model choose the look from the content (and anything you ask for): fonts, colours, title page, headings, ornaments, borders. The design is
   checked so it stays readable, and a preview shows before anything is saved. Western European text uses the standard PDF fonts; a document with Greek, Cyrillic or more symbols switches whole to embedded Noto fonts (SIL Open Font License, in `public/fonts/pdf`). CJK, Arabic, Hebrew and maths symbols are not covered: they print as `?`.
+- **History:** every document keeps earlier versions (taken on opening, as you save, before a rewrite is accepted or the file is reloaded, and when you name one). **History** shows
+  any of them against the text now and restores it (undoable). They live in the app's own database, not next to your file.
+- **Word, HTML, PDF:** **Word** writes a .docx (headings, lists, quotes, code, tables, links and pictures with captions); **HTML** one self-contained page with the pictures inside.
+- **Outline and focus:** **Outline** lists the headings and jumps to them; **Focus** hides everything but the text (Esc leaves). A word goal shows in the status bar.
 - **Images:** `![alt](path)` shows in the preview and in the PDF (as a figure, captioned from its title or description). Local paths are relative to the
   file; web images and inline data images work too. **Image** in the toolbar, or pasting or dropping a picture, saves it into an `images/` folder beside a
   file-backed document (or into the app's own folder for a library document, which moves when you save it to a file). PNG, JPEG, GIF, WebP and BMP (GIF and WebP are flattened to a still, white-backed picture in the PDF).

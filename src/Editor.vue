@@ -619,6 +619,7 @@ onMounted(async () => {
   if (missing) { notice.value = "The file is missing, so this is the last saved copy. Save as… to put it back."; filePath.value = ""; }
   text.value = initial;
   loaded.value = true;
+  lastSnap = Date.now();
   snapshot(id.value, initial, "opened");
   view = new EditorView({
     parent: host.value!,
@@ -1005,8 +1006,8 @@ if (import.meta.env.DEV) (window as any).__ed = { view: () => view, rw, hp, star
 
 <style scoped>
 .ed { position: fixed; inset: 0; z-index: 1; background: var(--bg); color: var(--ink); display: grid; grid-template-rows: auto auto auto minmax(0, 1fr) auto; font: 13px system-ui, sans-serif; }
-.top { display: grid; grid-template-columns: auto 1fr auto auto; gap: 14px; align-items: center; padding: 38px 16px 8px; border-bottom: 1px solid #1f232a; }
-.name { display: grid; gap: 1px; min-width: 0; }
+.top { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; padding: 38px 16px 8px; border-bottom: 1px solid #1f232a; }
+.name { display: grid; gap: 1px; min-width: 0; flex: 1 1 200px; }
 .name strong { font: 600 15px system-ui, sans-serif; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .state { font-size: 11px; color: #6d7280; }
 .path { font: 11px ui-monospace, Menlo, monospace; color: #6d7280; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1018,7 +1019,7 @@ if (import.meta.env.DEV) (window as any).__ed = { view: () => view, rw, hp, star
 .seg { display: inline-flex; border: 1px solid #2b2f38; border-radius: 8px; overflow: hidden; }
 .seg button { background: transparent; color: #9a9ea8; border: 0; padding: 6px 12px; cursor: pointer; font: 12px system-ui, sans-serif; }
 .seg button.on { background: #262a33; color: #e9e6dd; }
-.acts { display: flex; gap: 8px; }
+.acts { display: flex; flex-wrap: wrap; gap: 6px; }
 button { font: 600 12px system-ui, sans-serif; cursor: pointer; border-radius: 7px; }
 button.ghost { background: transparent; color: #aab; border: 1px solid #2b2f38; padding: 6px 12px; }
 button.ghost:hover { border-color: #3a3f4a; color: #e9e6dd; }
