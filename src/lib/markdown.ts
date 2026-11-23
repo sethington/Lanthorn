@@ -67,7 +67,9 @@ export function parseDoc(src: string): { title: string; sections: DocChapter[] }
       // a paragraph, list item, table cell or quote line: its words, as prose
       const parent = toks[i - 1];
       if (parent && (parent.type === "td_open" || parent.type === "th_open")) continue; // (table rows are gathered below)
-      for (const c of t.children ?? []) if (c.type === "image") cur.images.push({ at: cur.paragraphs.length, src: String(c.attrGet("src") ?? ""), alt: (c.children ?? []).map((x: any) => x.content).join("") || c.content || "", title: String(c.attrGet("title") ?? "") });
+      // a picture on a line of its own comes before the next paragraph; one in the middle of a sentence comes after the paragraph it is in
+      const inSentence = (t.children ?? []).some((c) => (c.type === "text" && c.content.trim()) || c.type === "code_inline");
+      for (const c of t.children ?? []) if (c.type === "image") cur.images.push({ at: cur.paragraphs.length + (inSentence ? 1 : 0), src: String(c.attrGet("src") ?? ""), alt: (c.children ?? []).map((x: any) => x.content).join("") || c.content || "", title: String(c.attrGet("title") ?? "") });
       para(inlineText(t));
     } else if (t.type === "fence" || t.type === "code_block") {
       para(t.content);

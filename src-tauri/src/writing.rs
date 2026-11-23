@@ -185,3 +185,19 @@ pub fn write_html(path: &str, text: &str) -> Result<u64, String> {
     std::fs::rename(&tmp, &p).map_err(|e| { let _ = std::fs::remove_file(&tmp); format!("Couldn't save: {e}") })?;
     Ok(text.len() as u64)
 }
+
+/// Save a Word file the editor made (a .docx only, and it must be a zip; written to a temporary file and renamed).
+pub fn write_docx(path: &str, bytes: &[u8]) -> Result<u64, String> {
+    let p = expand(path.trim());
+    if p.extension().and_then(|x| x.to_str()).unwrap_or("").to_lowercase() != "docx" {
+        return Err("A Word file must be saved with the .docx extension.".into());
+    }
+    if bytes.len() < 22 || &bytes[..2] != b"PK" {
+        return Err("That isn't a Word file.".into());
+    }
+    let dir = p.parent().ok_or("No folder for that file")?;
+    let tmp = dir.join(format!(".{}.lanthorn-tmp", p.file_name().and_then(|n| n.to_str()).unwrap_or("file")));
+    std::fs::write(&tmp, bytes).map_err(|e| format!("Couldn't write: {e}"))?;
+    std::fs::rename(&tmp, &p).map_err(|e| { let _ = std::fs::remove_file(&tmp); format!("Couldn't save: {e}") })?;
+    Ok(bytes.len() as u64)
+}

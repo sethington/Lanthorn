@@ -86,6 +86,11 @@ fn file_write_pdf(path: String, bytes: Vec<u8>) -> Result<u64, String> {
 }
 
 #[tauri::command]
+fn file_write_docx(path: String, bytes: Vec<u8>) -> Result<u64, String> {
+    writing::write_docx(&path, &bytes)
+}
+
+#[tauri::command]
 fn file_write_html(path: String, text: String) -> Result<u64, String> {
     writing::write_html(&path, &text)
 }
@@ -306,6 +311,7 @@ pub fn run() {
             file_write,
             file_write_pdf,
             file_write_html,
+            file_write_docx,
             library_get,
             library_save,
             library_delete,

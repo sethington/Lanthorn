@@ -7,8 +7,8 @@ import { md } from "../markdown";
 import { type Family, type Theme, onColour, rgbOf } from "./theme";
 
 // ---- blocks
-type Run = { t: string; b?: boolean; i?: boolean; code?: boolean; href?: string; s?: boolean };
-type Block =
+export type Run = { t: string; b?: boolean; i?: boolean; code?: boolean; href?: string; s?: boolean };
+export type Block =
   | { k: "h"; level: number; runs: Run[] }
   | { k: "p"; runs: Run[] }
   | { k: "list"; ordered: boolean; start: number; items: Block[][] }

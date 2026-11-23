@@ -11,7 +11,7 @@ import { HighlightStyle, bracketMatching, syntaxHighlighting } from "@codemirror
 import { openSearchPanel, search, searchKeymap } from "@codemirror/search";
 import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
 import { tags as t } from "@lezer/highlight";
-import { diffWords } from "diff";
+import { diffLines, diffWords } from "diff";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { IMAGE_EXTS, STORE_PREFIX, blobUrl, loadImage } from "./lib/images";
@@ -22,6 +22,9 @@ import { type Doc, type Suggestion, helpWith, loadCorpus, recordTaste } from "./
 import { fmtTokens, tokensOf, usage, useBook } from "./lib/usage";
 import ExportPdf from "./ExportPdf.vue";
 import { exportHtml } from "./lib/htmlExport";
+import { renderDocx } from "./lib/docx";
+import { forPdf } from "./lib/images";
+import { type Version, ago, removeVersion, snapshot, versions } from "./lib/history";
 
 const props = defineProps<{ docId?: string | null; file?: string | null }>();
 const emit = defineEmits<{ (e: "close"): void; (e: "read", id: string): void; (e: "open-doc", id: string): void; (e: "open-file", path: string): void }>();
@@ -45,6 +48,7 @@ const readMins = computed(() => Math.max(1, Math.round(words.value / 230)));
 const cursor = reactive({ line: 1, col: 1, sel: 0 });
 
 let saveTimer = 0;
+let lastSnap = 0;
 async function saveNow(overwrite = false) {
   window.clearTimeout(saveTimer);
   if (!loaded.value) return;
@@ -64,6 +68,7 @@ async function saveNow(overwrite = false) {
     await api.librarySave(book.id, JSON.stringify(book));
     saveState.value = "saved";
     saveError.value = "";
+    if (Date.now() - lastSnap > 5 * 60_000) { lastSnap = Date.now(); snapshot(id.value, text.value, "autosave"); } // (now and then, not on every save)
   } catch (e) {
     saveState.value = "error";
     saveError.value = e instanceof Error ? e.message : String(e);
@@ -76,6 +81,7 @@ async function reloadFromDisk() {
     const f = await api.fileRead(filePath.value);
     fileTime = f.mtime;
     conflict.value = "";
+    await snapshot(id.value, text.value, "before loading the file's version");
     view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: f.text }, userEvent: "input.reload" });
     saveState.value = "saved";
   } catch (e) { saveError.value = e instanceof Error ? e.message : String(e); }
@@ -357,6 +363,7 @@ function accept() {
   if (!view || rw.status !== "review") return;
   const r = view.state.field(rewriteRange);
   if (!r || view.state.sliceDoc(r.from, r.to) !== rw.original) { rw.error = "The passage was edited while it was being rewritten. Select it again."; rw.status = "idle"; return; }
+  snapshot(id.value, text.value, "before a rewrite");
   view.dispatch({ changes: { from: r.from, to: r.to, insert: rw.result }, selection: { anchor: r.from, head: r.from + rw.result.length }, effects: setRewriteRange.of(null), userEvent: "input.rewrite" });
   rw.open = false;
   rw.status = "idle";
@@ -612,6 +619,7 @@ onMounted(async () => {
   if (missing) { notice.value = "The file is missing, so this is the last saved copy. Save as… to put it back."; filePath.value = ""; }
   text.value = initial;
   loaded.value = true;
+  snapshot(id.value, initial, "opened");
   view = new EditorView({
     parent: host.value!,
     state: EditorState.create({
@@ -686,6 +694,12 @@ async function read() {
 async function back() { await saveNow(); emit("close"); }
 // ---- outline, focus mode, word goal, web page export
 type Head = { level: number; text: string; line: number; n: number };
+const winW = ref(window.innerWidth);
+const onResize = () => { winW.value = window.innerWidth; };
+window.addEventListener("resize", onResize);
+onBeforeUnmount(() => window.removeEventListener("resize", onResize));
+/** In a narrow window the outline floats over the text instead of taking a column, and the helper takes less. */
+const narrow = computed(() => winW.value < 1150);
 const outlineOpen = ref(localStorage.getItem("lanthorn:outline") === "1");
 const headings = computed<Head[]>(() => {
   const out: Head[] = [];
@@ -718,6 +732,19 @@ function loadGoal() { try { goal.value = Number(localStorage.getItem(goalKey()))
 watch(id, loadGoal, { immediate: true });
 watch(id, (v) => useBook(`doc:${v}`), { immediate: true }); // (the model's tokens used on this document are counted under it)
 function saveGoal() { goalEdit.value = false; goal.value = Math.max(0, Math.round(goal.value) || 0); try { if (goal.value) localStorage.setItem(goalKey(), String(goal.value)); else localStorage.removeItem(goalKey()); } catch { /* optional */ } }
+async function saveDocx() {
+  const suggested = `${title.value.replace(/[^\w\- ]+/g, "").trim() || "document"}.docx`;
+  let path: string | null = null;
+  try { path = await saveDialog({ defaultPath: suggested, filters: [{ name: "Word document", extensions: ["docx"] }] }); } catch { path = null; }
+  if (!path) return;
+  if (!/\.docx$/i.test(path)) path += ".docx";
+  try {
+    const bytes = await renderDocx(text.value, { title: title.value, author: prev.value?.author ?? "", loadImage: async (src) => { const img = await loadImage(src, { dir: docDir.value }); return img ? forPdf(img) : null; } });
+    const n = await api.fileWriteDocx(path, bytes);
+    notice.value = `Saved ${baseName(path)} · ${(n / 1024).toFixed(0)} KB`;
+  } catch (e) { notice.value = `Couldn't save the Word file: ${e instanceof Error ? e.message : String(e)}`; }
+  setTimeout(() => (notice.value = ""), 4000);
+}
 async function saveHtml() {
   const suggested = `${title.value.replace(/[^\w\- ]+/g, "").trim() || "document"}.html`;
   let path: string | null = null;
@@ -731,12 +758,56 @@ async function saveHtml() {
   } catch (e) { notice.value = `Couldn't save the page: ${e instanceof Error ? e.message : String(e)}`; }
   setTimeout(() => (notice.value = ""), 4000);
 }
+// ---- version history (lib/history.ts)
+const hist = reactive({ open: false, items: [] as Version[], sel: null as Version | null, name: "", busy: false });
+async function openHistory() {
+  await saveNow();
+  hist.open = true;
+  hist.items = await versions(id.value);
+  hist.sel = hist.items[0] ?? null;
+}
+async function saveVersion() {
+  const label = hist.name.trim() || "Saved version";
+  await snapshot(id.value, text.value, "named", label);
+  hist.name = "";
+  hist.items = await versions(id.value);
+  hist.sel = hist.items[0] ?? null;
+}
+async function restoreVersion(v: Version) {
+  if (!view) return;
+  await snapshot(id.value, text.value, "before restoring a version");
+  view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: v.text }, userEvent: "input.restore" });
+  notice.value = `Restored the version from ${ago(v.t)}. Undo (⌘Z) goes back.`;
+  setTimeout(() => (notice.value = ""), 5000);
+  hist.items = await versions(id.value);
+  hist.open = false;
+}
+async function dropVersion(v: Version) {
+  if (v.key === undefined) return;
+  await removeVersion(v.key);
+  hist.items = hist.items.filter((x) => x.key !== v.key);
+  if (hist.sel?.key === v.key) hist.sel = hist.items[0] ?? null;
+}
+/** The selected version against the text now: lines removed since (red) and added since (green), unchanged runs folded. */
+const histDiff = computed(() => {
+  const v = hist.sel;
+  if (!hist.open || !v) return [] as { k: "same" | "add" | "del"; t: string }[];
+  const out: { k: "same" | "add" | "del"; t: string }[] = [];
+  for (const p of diffLines(v.text, text.value)) {
+    const lines = p.value.replace(/\n$/, "").split("\n");
+    if (p.added) lines.forEach((t) => out.push({ k: "add", t }));
+    else if (p.removed) lines.forEach((t) => out.push({ k: "del", t }));
+    else if (lines.length > 6) { lines.slice(0, 2).forEach((t) => out.push({ k: "same", t })); out.push({ k: "same", t: `… ${lines.length - 4} unchanged lines …` }); lines.slice(-2).forEach((t) => out.push({ k: "same", t })); }
+    else lines.forEach((t) => out.push({ k: "same", t }));
+  }
+  return out;
+});
 const showPdf = ref(false);
 const copied = ref("");
 async function copyMd() { try { await navigator.clipboard.writeText(text.value); copied.value = "Copied"; } catch { copied.value = "Couldn't copy"; } setTimeout(() => (copied.value = ""), 1800); }
 const hasText = computed(() => words.value > 0);
-const cols = computed(() => (outlineOpen.value && !focus.value ? "170px " : "") + (mode.value === "split" && !focus.value ? "1fr 1fr" : "1fr") + (hp.open ? " 300px" : ""));
-if (import.meta.env.DEV) (window as any).__ed = { view: () => view, rw, hp, startRewrite, runRewrite, accept, saveNow, text, cmds, checkNow, toggleHelper, id, applyLink, read, dismiss, filePath, saveAs, checkDisk, conflict, showPdf, addImageFiles, headings, toggleOutline, toggleFocus, saveHtml, goal, outlineOpen, focus };
+const cols = computed(() => (outlineOpen.value && !focus.value && !narrow.value ? "170px " : "") + (mode.value === "split" && !focus.value ? "1fr 1fr" : "1fr") + (hp.open ? (narrow.value ? " 260px" : " 300px") : ""));
+if (import.meta.env.DEV) (window as any).__ed = { view: () => view, rw, hp, startRewrite, runRewrite, accept, saveNow, text, cmds, checkNow, toggleHelper, id, applyLink, read, dismiss, filePath, saveAs, checkDisk, conflict, showPdf, addImageFiles, hist, openHistory, saveVersion, restoreVersion, headings, toggleOutline, toggleFocus, saveHtml, saveDocx, goal, outlineOpen, focus };
 </script>
 
 <template>
@@ -754,8 +825,10 @@ if (import.meta.env.DEV) (window as any).__ed = { view: () => view, rw, hp, star
         <button :class="{ on: mode === 'preview' }" @click="setMode('preview')">Preview</button>
       </div>
       <div class="acts">
+        <button class="ghost" title="Earlier versions of this document" @click="openHistory">History</button>
         <button class="ghost" title="Copy the Markdown" @click="copyMd">{{ copied || "Copy" }}</button>
         <button class="ghost" title="Export as a PDF, plain or designed" :disabled="!hasText" @click="showPdf = true">PDF</button>
+        <button class="ghost" title="Export as a Word document (.docx), pictures included" :disabled="!hasText" @click="saveDocx">Word</button>
         <button class="ghost" title="Export as one web page, pictures included" :disabled="!hasText" @click="saveHtml">HTML</button>
         <button class="ghost" title="Save a copy to a .md file" @click="saveAs">{{ filePath ? "Save as…" : "Save to file…" }}</button>
         <button class="primary" :disabled="!hasText" title="Open this document in the reader, with its pictures" @click="read">Read it</button>
@@ -803,7 +876,7 @@ if (import.meta.env.DEV) (window as any).__ed = { view: () => view, rw, hp, star
     </div>
 
     <div class="body" :class="mode" :style="{ gridTemplateColumns: cols }">
-      <nav v-if="outlineOpen && !focus" class="outline" aria-label="Outline">
+      <nav v-if="outlineOpen && !focus" class="outline" :class="{ float: narrow }" aria-label="Outline">
         <p v-if="!headings.length" class="none">Headings (# Title, ## Section) appear here.</p>
         <button v-for="h in headings" :key="h.n" :class="{ on: h.n === activeHead }" :style="{ paddingLeft: 8 + (h.level - 1) * 12 + 'px' }" :title="h.text" @click="gotoHead(h)">{{ h.text }}</button>
       </nav>
@@ -890,6 +963,29 @@ if (import.meta.env.DEV) (window as any).__ed = { view: () => view, rw, hp, star
       </aside>
     </div>
 
+    <div v-if="hist.open" class="histback" @click.self="hist.open = false" @keydown.esc="hist.open = false">
+      <div class="hist" role="dialog" aria-label="Version history">
+        <div class="hhead"><strong>Version history</strong><span class="grow" /><button class="ghost sm" @click="hist.open = false">Close</button></div>
+        <div class="hbody">
+          <div class="hlist">
+            <div class="hname"><input v-model="hist.name" placeholder="Name this version…" @keydown.enter="saveVersion" /><button class="ghost sm" @click="saveVersion">Save version</button></div>
+            <p v-if="!hist.items.length" class="hnote">No earlier versions yet. They are kept as you write.</p>
+            <button v-for="v in hist.items" :key="v.key" class="hitem" :class="{ on: hist.sel?.key === v.key }" @click="hist.sel = v">
+              <span class="ht">{{ v.label || ago(v.t) }}</span>
+              <span class="hs">{{ v.label ? ago(v.t) + " · " : "" }}{{ v.words.toLocaleString() }} words · {{ v.reason }}</span>
+            </button>
+          </div>
+          <div class="hview">
+            <template v-if="hist.sel">
+              <div class="hbar"><span>{{ hist.sel.words.toLocaleString() }} words then, {{ words.toLocaleString() }} now</span><span class="grow" /><button class="ghost sm" title="Delete this version" @click="dropVersion(hist.sel)">Delete</button><button class="primary sm" @click="restoreVersion(hist.sel)">Restore this version</button></div>
+              <div v-if="hist.sel.text === text" class="hnote">This is the same as the document now.</div>
+              <pre v-else class="hdiff"><span v-for="(l, i) in histDiff" :key="i" :class="l.k">{{ l.k === "add" ? "+ " : l.k === "del" ? "− " : "  " }}{{ l.t }}</span></pre>
+              <p v-if="hist.sel.text !== text" class="hnote small">Red lines were in that version and are not in the document now; green lines are new since.</p>
+            </template>
+          </div>
+        </div>
+      </div>
+    </div>
     <ExportPdf v-if="showPdf" :text="text" :title="title" :dir="docDir" @close="showPdf = false" />
     <footer class="status">
       <span>{{ words.toLocaleString() }} {{ words === 1 ? "word" : "words" }}</span>
@@ -940,7 +1036,7 @@ button:disabled { opacity: 0.5; cursor: default; }
 .tools .rewrite { background: #2a2515; color: #e8c870; border-color: #5a4a22; }
 .tools .rewrite:hover { background: #352e18; }
 .grow { flex: 1; }
-.body { display: grid; min-height: 0; grid-template-columns: 1fr; }
+.body { position: relative; display: grid; min-height: 0; grid-template-columns: 1fr; }
 .body.split { grid-template-columns: 1fr 1fr; }
 .pane { position: relative; min-width: 0; min-height: 0; overflow: hidden; border-right: 1px solid #1f232a; }
 .body:not(.split) .pane { border-right: 0; }
@@ -972,6 +1068,25 @@ button:disabled { opacity: 0.5; cursor: default; }
 .prose :deep(.mdfig img) { max-width: 100%; }
 .prose :deep(.mdcap) { display: block; margin-top: 6px; font-size: 0.88em; font-style: italic; color: #8b8f99; }
 .prose :deep(.imgmiss) { display: block; margin: 1em 0; padding: 10px 12px; border: 1px dashed #3a3f4a; border-radius: 8px; color: #8b8f99; font: 13px system-ui, sans-serif; }
+.histback { position: absolute; inset: 0; z-index: 30; background: rgba(8, 10, 14, .62); display: grid; place-items: center; }
+.hist { width: min(960px, 94vw); height: min(640px, 86vh); background: #14171d; border: 1px solid #2a2f38; border-radius: 12px; display: grid; grid-template-rows: auto minmax(0, 1fr); overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,.55); }
+.hhead { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid #232830; }
+.hbody { display: grid; grid-template-columns: 270px minmax(0, 1fr); min-height: 0; }
+.hlist { overflow: auto; border-right: 1px solid #232830; padding: 8px; display: flex; flex-direction: column; gap: 4px; }
+.hname { display: flex; gap: 6px; margin-bottom: 6px; }
+.hname input { flex: 1; min-width: 0; background: #0e1014; color: inherit; border: 1px solid #2a2f38; border-radius: 6px; padding: 4px 8px; font: inherit; }
+.hitem { all: unset; cursor: pointer; display: flex; flex-direction: column; gap: 2px; padding: 7px 9px; border-radius: 7px; border: 1px solid transparent; }
+.hitem:hover { background: #1a1e25; }
+.hitem.on { background: #1b2230; border-color: #2f3b55; }
+.hitem .ht { color: #e6e8ee; font-size: 13px; }
+.hitem .hs { color: #7c8290; font-size: 11.5px; }
+.hview { display: flex; flex-direction: column; min-height: 0; padding: 10px 14px; gap: 8px; }
+.hbar { display: flex; align-items: center; gap: 8px; color: #aab0bd; font-size: 12.5px; }
+.hdiff { flex: 1; overflow: auto; margin: 0; background: #0e1014; border-radius: 8px; padding: 10px; font: 12.5px/1.55 ui-monospace, Menlo, monospace; white-space: pre-wrap; color: #8b909b; }
+.hdiff .add { background: rgba(80, 180, 120, .16); color: #b8e6c8; display: block; }
+.hdiff .del { background: rgba(220, 90, 90, .16); color: #f0b4b4; display: block; }
+.hdiff .same { display: block; }
+.outline.float { position: absolute; z-index: 5; left: 0; top: 0; bottom: 0; width: 200px; box-shadow: 4px 0 16px rgba(0,0,0,.45); }
 .outline { overflow: auto; border-right: 1px solid #1f232a; background: #101318; padding: 8px 0; display: flex; flex-direction: column; }
 .outline button { all: unset; cursor: pointer; padding: 4px 10px; font-size: 12.5px; color: #aab0bd; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-left: 2px solid transparent; }
 .outline button:hover { background: #181c23; color: #e6e8ee; }
