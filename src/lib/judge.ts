@@ -68,7 +68,7 @@ export function describeCue(c: { k: string; what?: string; how?: string }): stri
 }
 
 // ---- what the judge has learned about this book: per place and shot, saved
-type Memory = { seed?: Record<string, number>; frame?: Record<string, string>; redo?: Record<string, { why: string; n: number; used?: number }>; made?: Record<string, Make[]>; style?: Record<string, string>; aim?: Record<string, number>; crowd?: Record<string, number>; place?: Record<string, "interior" | "exterior">; bright?: Record<string, number>; widen: Record<string, number>; fails: Record<string, number>; done: Record<string, 1>; drop: string[]; stats: Record<string, { ok: number; bad: number }> };
+type Memory = { flips?: Record<string, number>; seed?: Record<string, number>; frame?: Record<string, string>; redo?: Record<string, { why: string; n: number; used?: number }>; made?: Record<string, Make[]>; style?: Record<string, string>; aim?: Record<string, number>; crowd?: Record<string, number>; place?: Record<string, "interior" | "exterior">; bright?: Record<string, number>; widen: Record<string, number>; fails: Record<string, number>; done: Record<string, 1>; drop: string[]; stats: Record<string, { ok: number; bad: number }> };
 const MKEY = (book: string) => `lanthorn:judge:${book}`;
 export const memory = reactive<{ book: string; m: Memory }>({ book: "", m: { widen: {}, fails: {}, done: {}, drop: [], stats: {} } });
 export function judgeUseBook(id: string) {
@@ -103,14 +103,16 @@ export const isDropped = (key: string) => memory.m.drop.includes(key);
 export function applyVerdict(key: string, kind: string, v: Verdict, groupKey?: string): boolean {
   const m = memory.m;
   let flipped = false;
-  if (!v.ok && v.place && groupKey && kind === "shot" && m.place?.[groupKey] !== v.place) { (m.place ??= {})[groupKey] = v.place; flipped = true; } // the whole place is the wrong kind: make it again
-  if (!v.ok && v.issues.includes("misplaced") && groupKey && kind === "shot" && (m.seed?.[groupKey] ?? 0) < 2) { (m.seed ??= {})[groupKey] = (m.seed[groupKey] ?? 0) + 1; flipped = true; } // laid out badly: lay it out again, differently (twice at most)
-  if (!v.ok && v.make?.length && groupKey && kind === "shot") { // the language model builds what is missing (next time the place is made)
+  // a place is remade at most three times: past that, whatever the judge still dislikes is what the world can build, and only the camera is adjusted
+  const remake = !!groupKey && kind === "shot" && (m.flips?.[groupKey] ?? 0) < 3;
+  if (!v.ok && remake && v.place && groupKey && kind === "shot" && m.place?.[groupKey] !== v.place) { (m.place ??= {})[groupKey] = v.place; flipped = true; } // the whole place is the wrong kind: make it again
+  if (!v.ok && remake && v.issues.includes("misplaced") && groupKey && kind === "shot" && (m.seed?.[groupKey] ?? 0) < 2) { (m.seed ??= {})[groupKey] = (m.seed[groupKey] ?? 0) + 1; flipped = true; } // laid out badly: lay it out again, differently (twice at most)
+  if (!v.ok && remake && v.make?.length && groupKey && kind === "shot") { // the language model builds what is missing (next time the place is made)
     const have = (m.made ??= {})[groupKey] ?? [];
     const add = v.make.filter((q) => !have.some((h) => h.what.toLowerCase() === q.what.toLowerCase()));
     if (add.length && have.length < 6) { m.made[groupKey] = [...have, ...add].slice(0, 6); flipped = true; }
   }
-  if (!v.ok && v.redo?.length && groupKey && kind === "shot") { // a character that was drawn badly is drawn again, told what was wrong (twice at most)
+  if (!v.ok && remake && v.redo?.length && groupKey && kind === "shot") { // a character that was drawn badly is drawn again, told what was wrong (twice at most)
     for (const q of v.redo) {
       const k = `${q.kind}:${q.who}`;
       const have = (m.redo ??= {})[k];
@@ -121,7 +123,8 @@ export function applyVerdict(key: string, kind: string, v: Verdict, groupKey?: s
   m.done[key] = 1;
   const s = (m.stats[kind] ??= { ok: 0, bad: 0 });
   if (v.ok) s.ok++; else s.bad++;
-  if (!v.ok && v.style && groupKey && kind === "shot" && m.style?.[groupKey] !== v.style) { (m.style ??= {})[groupKey] = v.style; flipped = true; } // the room is the wrong kind of room: make it again
+  if (!v.ok && remake && v.style && groupKey && kind === "shot" && m.style?.[groupKey] !== v.style) { (m.style ??= {})[groupKey] = v.style; flipped = true; } // the room is the wrong kind of room: make it again
+  if (flipped && groupKey) (m.flips ??= {})[groupKey] = (m.flips[groupKey] ?? 0) + 1;
   if (flipped) { delete m.widen[key]; delete m.done[key]; save(); return true; } // wrong kind of place: it is made again and judged afresh, not widened
   if (!v.ok) {
     if (v.issues.includes("people_missing")) (m.crowd ??= {})[key] = Math.min(6, (m.crowd[key] ?? 0) + 3); // more people appear in the running scene
