@@ -818,6 +818,12 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
   const standing = figures.filter((g) => g.kind !== "creature");
   const xs = standing.map((g) => g.x), zs = standing.map((g) => g.z);
   const afloat: Resolved["afloat"] = afloatW ? { w: Math.max(1.9, (xs.length ? Math.max(...xs) - Math.min(...xs) : 0) + 1.3), d: Math.max(2.2, (zs.length ? Math.max(...zs) - Math.min(...zs) : 0) + 1.4), x: xs.length ? (Math.max(...xs) + Math.min(...xs)) / 2 : 0, z: zs.length ? (Math.max(...zs) + Math.min(...zs)) / 2 : 0.3 } : null;
+  if (afloat) { // everything that is not in the water stands on the deck: nothing hangs in the air beside it
+    const hx = afloat.w / 2 - 0.3, hz = afloat.d / 2 - 0.3;
+    const cl = (v: number, c: number, h: number) => Math.max(c - h, Math.min(c + h, v));
+    for (const a of assets) if (!/^pkg:beast-/.test(a.id) && a.pos) a.pos = [cl(a.pos[0], afloat.x, hx), a.pos[1], cl(a.pos[2], afloat.z, hz)];
+    for (const g of figures) if (g.kind === "creature" && !/^(whale|fish|piranha)$/.test(g.creature?.species ?? "")) { g.x = cl(g.x, afloat.x, hx); g.z = cl(g.z, afloat.z, hz); }
+  }
   const water: Resolved["water"] = kind === "exterior" && (wet || afloatW) && !/\b(rain|raindrop)\b/.test(locText) ? {
     zEdge: afloatW ? 30 : /\b(lakes?|rivers?|harbou?rs?)\b/.test(sceneText) ? -9 : -6,
     mood: /\b(red (?:water|sea|waters|seas)|crimson|scarlet (?:sea|water)|blood)\b/.test(sceneText) ? "red" : /\b(oily|black water|dark water|slick|tar|tarry)\b/.test(sceneText) ? "oily" : /\b(storm|stormy|rough|gale|tempest|heavy seas)\b/.test(sceneText + " " + scene.weather) ? "storm" : "calm",
@@ -1109,7 +1115,7 @@ export function assetsNeeded(r: Resolved): { kind: string; id: string; res: stri
 }
 
 /** Bump when runtime/scene.tsx changes in a way that alters frames, so cached renders are redone. */
-export const RUNTIME_VERSION = "rt131";
+export const RUNTIME_VERSION = "rt132";
 
 /** Cache key: changes whenever the resolved plan or the runtime does. */
 export function sceneKey(r: Resolved): string {
