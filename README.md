@@ -277,6 +277,16 @@ book, with its chapters made from the headings, so **Read it** opens it in the r
   any of them against the text now and restores it (undoable). They live in the app's own database, not next to your file.
 - **Word, HTML, PDF:** **Word** writes a .docx (headings, lists, quotes, code, tables, links and pictures with captions); **HTML** one self-contained page with the pictures inside.
 - **Outline and focus:** **Outline** lists the headings and jumps to them; **Focus** hides everything but the text (Esc leaves). A word goal shows in the status bar.
+- **Directions for the picture:** a document can carry XML-style tags that no reader ever sees (not in the reader, the preview, a PDF, a Word file or a web page), only the
+  model that builds the world and the judge that checks it. **◈ Direct** in the toolbar inserts them; they show in a quiet violet in the editor.
+  ```
+  <scene place="exterior" location="a raft on a flat calm sea" time="dusk>night" weather="fog" mood="dread" sky="a brass haze" props="oar, water cask"/>
+  <character name="the Mariner" look="old man, long grey beard, a wet tattered coat"/>
+  <note>Nothing moves but the albatross; keep the horizon empty.</note>
+  ```
+  A `<scene …/>` holds from where it stands until the next one (or `</scene>`); each attribute is optional, and a later tag changes only what it names. `place` is
+  `interior` or `exterior`, and once set the judge cannot overrule it. A `<character/>` fixes how that person or creature looks (add `kind="animal"` for an animal);
+  a `<note>` is for the next paragraph. Tags inside code blocks or `` `code` `` are left alone.
 - **Images:** `![alt](path)` shows in the preview and in the PDF (as a figure, captioned from its title or description). Local paths are relative to the
   file; web images and inline data images work too. **Image** in the toolbar, or pasting or dropping a picture, saves it into an `images/` folder beside a
   file-backed document (or into the app's own folder for a library document, which moves when you save it to a file). PNG, JPEG, GIF, WebP and BMP (GIF and WebP are flattened to a still, white-backed picture in the PDF).
