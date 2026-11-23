@@ -1436,7 +1436,7 @@ function creatureAt(c: any, q: number, f: number): { x: number; y: number; z: nu
   const dir = it.rotY > 0 ? 1 : -1;
   const x = it.pos[0] + dir * 18 * q;
   const fly = c.what === "butterfly" || c.what === "bird";
-  const y = fly ? 3 + Math.sin(q * 9 + f * 0.02) * 0.9 + (c.what === "bird" ? 3 : 0) : 0;
+  const y = fly ? (c.what === "bird" ? 2.3 + Math.sin(q * 9 + f * 0.02) * 0.6 : 3 + Math.sin(q * 9 + f * 0.02) * 0.9) : 0; // (a bird crosses low enough to be in the frame of a camera set for people)
   const z = it.pos[2] + (fly ? Math.sin(q * 6) * 1.5 : Math.sin(q * 7) * 0.8);
   return { x, y, z, yaw: it.rotY, size: c.what === "crab" ? 2.4 : c.what === "butterfly" ? 2.4 : c.what === "beast" ? 1.6 : 2.6 };
 }

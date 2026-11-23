@@ -229,5 +229,77 @@
   "run": "Armature|Armature|Run",
   "jump": "Armature|Armature|Jump",
   "any": "Armature|Armature|Death"
+ },
+ "bird-brown": {
+  "yaw": 0,
+  "len": 0.3,
+  "scale": 0.0491,
+  "height": 0.128,
+  "idle": null,
+  "walk": null,
+  "run": null,
+  "jump": null,
+  "any": "ArmatureAction",
+  "swatch": "#7a5a3c"
+ },
+ "bird-dark": {
+  "yaw": 0,
+  "len": 0.3,
+  "scale": 0.0491,
+  "height": 0.128,
+  "idle": null,
+  "walk": null,
+  "run": null,
+  "jump": null,
+  "any": "ArmatureAction",
+  "swatch": "#26262d"
+ },
+ "bird-white": {
+  "yaw": 0,
+  "len": 0.3,
+  "scale": 0.0491,
+  "height": 0.128,
+  "idle": null,
+  "walk": null,
+  "run": null,
+  "jump": null,
+  "any": "ArmatureAction",
+  "swatch": "#e9e6df"
+ },
+ "bird-red": {
+  "yaw": 0,
+  "len": 0.3,
+  "scale": 0.0491,
+  "height": 0.128,
+  "idle": null,
+  "walk": null,
+  "run": null,
+  "jump": null,
+  "any": "ArmatureAction",
+  "swatch": "#b5442f"
+ },
+ "bird-yellow": {
+  "yaw": 0,
+  "len": 0.3,
+  "scale": 0.0491,
+  "height": 0.128,
+  "idle": null,
+  "walk": null,
+  "run": null,
+  "jump": null,
+  "any": "ArmatureAction",
+  "swatch": "#d9b43a"
+ },
+ "bird-grey": {
+  "yaw": 0,
+  "len": 0.3,
+  "scale": 0.0491,
+  "height": 0.128,
+  "idle": null,
+  "walk": null,
+  "run": null,
+  "jump": null,
+  "any": "ArmatureAction",
+  "swatch": "#7d8088"
  }
 }

@@ -220,10 +220,22 @@ const SPECIES: [RegExp, Omit<Creature, "body" | "belly" | "dark" | "dress">, str
   [/\b(camel|camels)\b/, { species: "camel", cls: "quad", size: 1.7, ears: "round", tail: "short", snout: "long", legs: 4 }, "#b8955a"],
   [/\b(frog|toad)\b/, { species: "frog", cls: "quad", size: 0.18, ears: "none", tail: "none", snout: "flat", legs: 4 }, "#5a8a3a"],
   [/\b(duck|ducks|duckling|goose|geese|gosling|swan|hen|hens|chicken|chick|rooster|cock|turkey)\b/, { species: "duck", cls: "bird", size: 0.4, ears: "none", tail: "short", snout: "beak", legs: 2 }, "#e8e0c0"],
+  [/\b(crow|crows|raven|ravens|rook|rooks|blackbird|blackbirds|starling|jackdaw|cormorant)\b/, { species: "bird", cls: "bird", size: 0.3, ears: "none", tail: "long", snout: "beak", legs: 2 }, "#26262d"],
+  [/\b(dove|doves|pigeon|pigeons|gull|gulls|seagull|seagulls|albatross)\b/, { species: "bird", cls: "bird", size: 0.3, ears: "none", tail: "long", snout: "beak", legs: 2 }, "#e9e6df"],
+  [/\b(robin|robins|cardinal)\b/, { species: "bird", cls: "bird", size: 0.22, ears: "none", tail: "long", snout: "beak", legs: 2 }, "#b5442f"],
   [/\b(bird|birds|robin|sparrow|crow|raven|owl|eagle|hawk|dove|pigeon|parrot|nightingale|lark|swallow|finch|wren|magpie|gull|seagull|albatross)\b/, { species: "bird", cls: "bird", size: 0.25, ears: "none", tail: "long", snout: "beak", legs: 2 }, "#7a6a58"],
 ];
 /** which real model stands for which species (the rest are built from the book's words) */
 const MODEL_OF: Record<string, string> = { cow: "cow", horse: "horse", pig: "pig", sheep: "sheep", dog: "dog", pug: "pug", cat: "cat", wolf: "wolf", fox: "red-fox", whale: "whale", fish: "fish", piranha: "piranha", dragon: "dragon", bat: "bat", eagle: "eagle", zebra: "zebra", llama: "llama", skeleton: "skeleton", slime: "slime" };
+const BIRD_TONES: [string, string][] = [["bird", "#4f86c2"], ["bird-brown", "#7a5a3c"], ["bird-dark", "#26262d"], ["bird-white", "#e9e6df"], ["bird-red", "#b5442f"], ["bird-yellow", "#d9b43a"], ["bird-grey", "#7d8088"]];
+/** The bird model whose colour is closest to this one. */
+function nearestBird(hex: string): string {
+  const c = (h: string) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+  const a = c(hex);
+  let best = "bird", bd = 1e9;
+  for (const [n, h] of BIRD_TONES) { const b = c(h); const d = (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2; if (d < bd) { bd = d; best = n; } }
+  return (beasts as any)[best] ? best : "bird";
+}
 /** a smaller or larger one of the same model (a pony, a lamb, a calf) */
 const SIZE_OF = (t: string) => (/\b(pony|foal|colt|donkey|mule|ass)\b/.test(t) ? 0.72 : /\b(lamb|lambs|calf|piglet|puppy|pup|kitten|cub)\b/.test(t) ? 0.6 : /\b(huge|giant|great|enormous|vast)\b/.test(t) ? 1.4 : /\b(little|small|tiny|young|baby)\b/.test(t) ? 0.75 : 1);
 const NOT_ANIMAL = /\b(man|woman|boy|girl|mr|mrs|miss|king|queen|lord|lady|sir|captain|doctor|professor|child|children)\b/;
@@ -1031,11 +1043,13 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
       // a path across the ground in front of the default camera, left to right or right to left
       const dir = sr() < 0.5 ? -1 : 1;
       // a four-legged one that has a real model crosses as that model (a generic "beast" is one of the field animals)
-      const birdM = type === "bird" ? (/eagle|hawk|vulture|falcon/.test(w) ? "eagle" : "bird") : null;
+      const birdM: string | null = type === "bird" ? (/eagle|hawk|vulture|falcon/.test(w) ? "eagle" : "bird") : null;
       const cl = type === "beast" ? creatureLook(/\b(beasts?|animals?)\b/.test(w) && !/horse|cow|dog|cat|wolf|fox|sheep|pig/.test(w) ? "beast" : w, w, sr) : null;
-      const mname = birdM ?? cl?.model;
+      // a bird of the one bird model, in the nearest of its colours to the colour the words give it (a crow dark, a gull white, a sparrow brown, a bluebird blue)
+      const birdTone = type === "bird" && birdM === "bird" ? nearestBird(creatureLook(w, w, sr)?.body ?? "#7a5a3c") : null;
+      const mname = birdTone ?? birdM ?? cl?.model;
       const bm = mname ? (beasts as any)[mname] : null;
-      const model = bm ? { file: `creatures/${mname}.glb`, scale: bm.scale * SIZE_OF(w) * (birdM ? 4 : 1), yaw: bm.yaw, clip: bm.walk ?? bm.idle ?? bm.any } : undefined;
+      const model = bm ? { file: `creatures/${mname}.glb`, scale: bm.scale * SIZE_OF(w) * (birdM === "eagle" ? 4 : birdM ? 6 : 1), yaw: bm.yaw, clip: bm.walk ?? bm.idle ?? bm.any } : undefined;
       stage.push({ ...base, what: type, kind: w, az: fwdAz + dir * 0.0, items: [{ id: type, file: "", pos: [lookX + dir * -9, 0, 2.2 + sr() * 1.6], rotY: dir > 0 ? Math.PI / 2 : -Math.PI / 2, scale: 1, d: 0, ...(model ? { model } : {}) } as any] });
     } else if (cue.k === "dim") {
       stage.push({ ...base, az: fwdAz + 0.3, el: 38 });
@@ -1086,7 +1100,7 @@ export function assetsNeeded(r: Resolved): { kind: string; id: string; res: stri
 }
 
 /** Bump when runtime/scene.tsx changes in a way that alters frames, so cached renders are redone. */
-export const RUNTIME_VERSION = "rt124";
+export const RUNTIME_VERSION = "rt126";
 
 /** Cache key: changes whenever the resolved plan or the runtime does. */
 export function sceneKey(r: Resolved): string {
