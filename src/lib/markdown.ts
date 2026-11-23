@@ -3,7 +3,7 @@
 
 import MarkdownIt from "markdown-it";
 import { type Book, type Chapter, makeChapter } from "./book";
-import { hashStr } from "./text";
+import { hashStr, paragraphsOf } from "./text";
 
 export const md = new MarkdownIt({ html: false, linkify: true, typographer: true, breaks: false });
 
@@ -12,9 +12,20 @@ const esc = (s: string | number | null) => String(s ?? "").replace(/&/g, "&amp;"
 md.renderer.rules.image = (tokens, i) => {
   const t = tokens[i];
   const alt = esc(t.children?.map((c) => c.content).join("") || t.content || "");
-  const title = t.attrGet("title");
-  return `<img class="mdimg" data-src="${esc(t.attrGet("src") ?? "")}" alt="${alt}"${title ? ` title="${esc(title)}"` : ""}>`;
+  const title = String(t.attrGet("title") ?? "");
+  const img = `<img class="mdimg" data-src="${esc(t.attrGet("src") ?? "")}" alt="${alt}"${title ? ` title="${esc(title)}"` : ""}>`;
+  // an image on a line of its own is a figure, captioned by its title or else its description (as in the PDF); one inside a sentence is just a picture
+  const cap = (title || alt).trim();
+  return t.meta?.fig && cap ? `<span class="mdfig">${img}<span class="mdcap">${esc(cap)}</span></span>` : img;
 };
+md.core.ruler.push("lone_images", (state) => {
+  for (const t of state.tokens) {
+    if (t.type !== "inline" || !t.children) continue;
+    const parts = t.children.filter((c) => !(c.type === "softbreak" || (c.type === "text" && !c.content.trim())));
+    if (parts.length && parts.every((c) => c.type === "image")) parts.forEach((c) => { c.meta = { ...(c.meta ?? {}), fig: true }; });
+  }
+  return true;
+});
 // markdown-it refuses some address forms for links; local and data image paths are plain text to it, which is what the image rule needs
 const baseValidate = md.validateLink.bind(md);
 md.validateLink = (url: string) => (/^data:image\/(png|jpe?g|gif|webp|bmp);base64,/i.test(url) ? true : baseValidate(url));
@@ -26,21 +37,22 @@ function inlineText(tok: { children?: any[] | null; content: string }): string {
   for (const c of tok.children) {
     if (c.type === "text" || c.type === "code_inline") s += c.content;
     else if (c.type === "softbreak" || c.type === "hardbreak") s += " ";
-    else if (c.type === "image") s += c.content || "";
   }
   return s;
 }
 
-export type DocChapter = { title: string; paragraphs: string[] };
+/** A picture in a document, and where it sits: before paragraph `at` of its section. */
+export type DocImage = { at: number; src: string; alt: string; title: string };
+export type DocChapter = { title: string; paragraphs: string[]; images: DocImage[] };
 
 /** A document's title (its first # heading) and its sections: split at ## headings (and any later # heading); deeper headings stay as lines of their own. */
 export function parseDoc(src: string): { title: string; sections: DocChapter[] } {
   const toks = md.parse(src.replace(/\r\n?/g, "\n"), {});
   let title = "";
   const sections: DocChapter[] = [];
-  let cur: DocChapter = { title: "", paragraphs: [] };
+  let cur: DocChapter = { title: "", paragraphs: [], images: [] };
   let seenH1 = false;
-  const flush = () => { if (cur.paragraphs.length) sections.push(cur); };
+  const flush = () => { if (cur.paragraphs.length || cur.images.length) sections.push(cur); };
   const para = (s: string) => { const t = s.replace(/\s+/g, " ").trim(); if (t) cur.paragraphs.push(t); };
   for (let i = 0; i < toks.length; i++) {
     const t = toks[i];
@@ -48,13 +60,14 @@ export function parseDoc(src: string): { title: string; sections: DocChapter[] }
       const level = Number(t.tag.slice(1));
       const text = inlineText(toks[i + 1] ?? { content: "" }).trim();
       if (level === 1 && !seenH1) { seenH1 = true; title = text; cur.title = cur.title || text; }
-      else if (level <= 2) { flush(); cur = { title: text, paragraphs: [] }; }
+      else if (level <= 2) { flush(); cur = { title: text, paragraphs: [], images: [] }; }
       else para(text);
       i += 2;
     } else if (t.type === "inline") {
       // a paragraph, list item, table cell or quote line: its words, as prose
       const parent = toks[i - 1];
       if (parent && (parent.type === "td_open" || parent.type === "th_open")) continue; // (table rows are gathered below)
+      for (const c of t.children ?? []) if (c.type === "image") cur.images.push({ at: cur.paragraphs.length, src: String(c.attrGet("src") ?? ""), alt: (c.children ?? []).map((x: any) => x.content).join("") || c.content || "", title: String(c.attrGet("title") ?? "") });
       para(inlineText(t));
     } else if (t.type === "fence" || t.type === "code_block") {
       para(t.content);
@@ -78,7 +91,11 @@ export function docToBook(src: string, id: string, prev?: Pick<Book, "imported" 
   const chapters: Chapter[] = [];
   sections.forEach((s) => {
     const text = s.paragraphs.join("\n\n");
-    if (text.trim()) chapters.push(makeChapter(chapters.length, s.title || name, text));
+    if (!text.trim()) return; // (a section of pictures alone has nothing to read)
+    const ch = makeChapter(chapters.length, s.title || name, text);
+    // the reader's paragraphs are the text split again (a code block can hold blank lines), so each picture's place is counted in those
+    if (s.images.length) ch.images = s.images.map((im) => ({ ...im, at: paragraphsOf(s.paragraphs.slice(0, im.at).join("\n\n")).length }));
+    chapters.push(ch);
   });
   if (!chapters.length) chapters.push(makeChapter(0, name, ""));
   return { id, title: name, author: prev?.author ?? "", source: { kind: "markdown", ref: `${name}.md` }, chapters, imported: prev?.imported ?? Date.now(), markdown: src, ...(file ? { file } : {}) };

@@ -416,7 +416,7 @@ function resolveImages() {
     loadImage(src, { dir: docDir.value }).then((img) => {
       if (!el.isConnected) return;
       if (img) { const u = blobUrl(img); blobs.push(u); el.src = u; el.classList.add("loaded"); }
-      else { const sp = document.createElement("span"); sp.className = "imgmiss"; sp.textContent = `🖼 ${el.alt || "image"} — can't load ${src.length > 50 ? src.slice(0, 50) + "…" : src}`; el.replaceWith(sp); }
+      else { const sp = document.createElement("span"); sp.className = "imgmiss"; sp.textContent = `🖼 ${el.alt || "image"} — can't load ${src.length > 50 ? src.slice(0, 50) + "…" : src}`; el.parentElement?.querySelector(".mdcap")?.remove(); el.replaceWith(sp); }
     });
   });
 }
@@ -907,6 +907,9 @@ button:disabled { opacity: 0.5; cursor: default; }
 .prose :deep(th) { background: #171a21; }
 .prose :deep(img) { max-width: 100%; height: auto; border-radius: 6px; display: block; margin: 1.1em auto; }
 .prose :deep(img.mdimg:not(.loaded)) { min-height: 28px; min-width: 120px; background: #1b1f26; }
+.prose :deep(.mdfig) { display: block; margin: 1em 0; text-align: center; }
+.prose :deep(.mdfig img) { max-width: 100%; }
+.prose :deep(.mdcap) { display: block; margin-top: 6px; font-size: 0.88em; font-style: italic; color: #8b8f99; }
 .prose :deep(.imgmiss) { display: block; margin: 1em 0; padding: 10px 12px; border: 1px dashed #3a3f4a; border-radius: 8px; color: #8b8f99; font: 13px system-ui, sans-serif; }
 .status { display: flex; gap: 16px; align-items: center; padding: 5px 16px; border-top: 1px solid #1f232a; color: #6d7280; font-size: 11.5px; background: #12151a; }
 .rwpanel { position: absolute; z-index: 6; left: 50%; bottom: 18px; transform: translateX(-50%); width: min(640px, calc(100% - 32px)); background: #171a21; border: 1px solid #3a3f4a; border-radius: 14px; padding: 12px 14px 14px; box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6); display: grid; gap: 10px; max-height: 70%; overflow: auto; }

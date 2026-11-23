@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, triggerRef, watch } from "vue";
 import Library from "./Library.vue";
 import Editor from "./Editor.vue";
+import ReaderImage from "./ReaderImage.vue";
 import Settings from "./Settings.vue";
 import Cutscene from "./Cutscene.vue";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
@@ -42,6 +43,9 @@ function mathSegs(text: string) {
 
 // --- the open book: any imported book, one chapter at a time ---
 const book = ref<Book | null>(null);
+/** The pictures a document carries that sit before paragraph `pi` of chapter `ci` (past the last paragraph: at the end). */
+const imagesAt = (ci: number, pi: number) => (book.value?.chapters[ci]?.images ?? []).filter((im) => (im.at >= (book.value?.chapters[ci]?.paragraphs.length ?? 0) ? pi === (book.value?.chapters[ci]?.paragraphs.length ?? 0) : im.at === pi));
+const bookDir = computed(() => { const f = book.value?.file; return f && f.includes("/") ? f.slice(0, f.lastIndexOf("/")) : undefined; });
 const chapterIdx = ref(0);
 let renderGen = 0; // bumped on every chapter change: work started for the previous chapter is then ignored
 const LAST_KEY = "lanthorn:last";
@@ -449,7 +453,7 @@ const analysisDetail = computed(() => {
   const eta = a.etaSec > 90 ? `about ${Math.round(a.etaSec / 60)} min left` : a.etaSec > 5 ? `about ${a.etaSec} s left` : a.done > 0 && a.done === a.total ? "almost done" : "";
   return `part ${Math.min(a.done + 1, a.total)} of ${a.total}${a.cached ? " · " + a.cached + " saved" : ""}${eta ? " · " + eta : ""}`;
 });
-if (import.meta.env.DEV) (window as any).__app = { chaps, llmScenes, analysis, chapterIdx, filmReady, winCenter };
+if (import.meta.env.DEV) (window as any).__app = { chaps, llmScenes, analysis, chapterIdx, filmReady, winCenter, editFile, openBook, view, book };
 const curScenes = computed(() => chaps.value[chapterIdx.value]?.scenes ?? []);
 
 /** Join the chapters' scenes (and characters and places) into the book's. */
@@ -799,9 +803,13 @@ function setEl(el: unknown, i: number) {
               <p v-if="meta.author" class="author">{{ meta.author }}</p>
             </header>
             <h2 class="chapterhead"><span v-if="book?.chapters[c.idx].num">{{ book?.chapters[c.idx].num }}</span>{{ book?.chapters[c.idx].title }}</h2>
-            <p v-for="(ps, pi) in c.paras" :key="pi">
+            <template v-for="(ps, pi) in c.paras" :key="pi">
+            <ReaderImage v-for="(im, ii) in imagesAt(c.idx, pi)" :key="'i' + pi + '-' + ii" :src="im.src" :alt="im.alt" :title="im.title" :dir="bookDir" @settled="update" />
+            <p>
               <span v-for="s in ps" :key="s.id" :ref="(el) => setEl(el, s.id)" class="sent" :style="{ opacity: opacities[s.id] ?? 0.15 }"><template v-if="s.text.includes('$')"><template v-for="(seg, i) in mathSegs(s.text)" :key="i"><span v-if="seg.tex !== undefined" class="imath" v-html="seg.html" /><template v-else>{{ seg.text }}</template></template></template><template v-else>{{ s.text }}</template></span>
             </p>
+            </template>
+            <ReaderImage v-for="(im, ii) in imagesAt(c.idx, c.paras.length)" :key="'e' + ii" :src="im.src" :alt="im.alt" :title="im.title" :dir="bookDir" @settled="update" />
           </section>
           <div v-else class="chapspace" :style="{ height: (heights[c.idx] ?? estH(c)) + 'px' }" />
         </template>

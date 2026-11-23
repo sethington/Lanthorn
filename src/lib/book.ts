@@ -9,6 +9,8 @@ export type Chapter = {
   /** The chapter body exactly as imported. Its hash identifies the chapter in the analysis and render caches. */
   text: string;
   paragraphs: string[];
+  /** Pictures a document carries (Markdown): each sits before paragraph `at`; the reader shows them, the world never sees them. */
+  images?: { at: number; src: string; alt: string; title: string }[];
   /** Pre-made scenes shipped in a package ({ scenes, bible }, the same shape the LLM pass produces): skips analysis. */
   scenes?: unknown;
   /** the look a package recommends for this chapter (the reader's choice wins) */
