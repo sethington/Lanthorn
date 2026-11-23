@@ -915,7 +915,7 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
     const level = framing === "extreme_close" || framing === "close" ? 1.5 : framing === "medium" ? 1.15 : 0.95;
     const fig = figures.find((g) => g.ref.toLowerCase() === f || f.includes(g.ref.toLowerCase()) || g.ref.toLowerCase().includes(f));
     if (fig && f !== "scene") {
-      const seatedLift = fig.pose === "seated" ? -0.1 : 0;
+      const seatedLift = fig.pose === "seated" ? (framing === "close" || framing === "extreme_close" ? -0.55 : -0.1) : 0; // (a seated person's face is lower: a close shot aims at it)
       // a wide shot of a person beside a building keeps both in frame: aim between them
       const bld = (framing as string) === "wide" ? assets.find((a) => a.id.startsWith("bld:")) : undefined;
       if (bld && !fig.onMachine) return [(fig.x + bld.pos[0]) / 2, (level + seatedLift) * fig.scale, (fig.z + bld.pos[2]) / 2];
@@ -965,7 +965,7 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
     // alternate the side the camera sits on, so a cut changes the view instead of repeating it
     const az = az0 + (i % 2 === 0 ? -0.3 : 0.55) + (sh.angle === "over_shoulder" ? 0.7 : 0);
     const camY0 = landscape ? tgt[1] + (sh.angle === "low" ? -0.5 : 0.25) : sh.angle === "low" ? Math.max(0.55, tgt[1] - Math.min(0.45, d0 * 0.17)) : sh.angle === "high" ? Math.max(2.4 * Math.min(1, csc * 1.5), tgt[1] + 1.4 * Math.min(1, csc * 1.5)) : sh.angle === "over_shoulder" ? tgt[1] + 0.15 : Math.max(0.9, Math.min(1.7, tgt[1] + 0.1));
-    const camY = afloatW && sh.angle !== "low" ? camY0 + 0.9 : camY0; // (over a raft the camera rides higher, so the deck and the sea around it show)
+    const camY = afloatW && sh.angle !== "low" ? camY0 + (framing === "close" || framing === "extreme_close" ? 0.25 : 0.9) : camY0; // (over a raft the camera rides higher, so the deck and the sea around it show; a close shot of a person stays near their eyes)
     const push = sh.move === "push" ? [1.14, 0.9] : sh.move === "pull" ? [0.88, 1.12] : [1, 1];
     const sweep = sh.move === "orbit" ? 0.5 : sh.move === "drift" ? 0.18 : 0.02;
     const place2 = (a: number, d: number): [number, number, number] => {
@@ -1116,7 +1116,7 @@ export function assetsNeeded(r: Resolved): { kind: string; id: string; res: stri
 }
 
 /** Bump when runtime/scene.tsx changes in a way that alters frames, so cached renders are redone. */
-export const RUNTIME_VERSION = "rt133";
+export const RUNTIME_VERSION = "rt137";
 
 /** Cache key: changes whenever the resolved plan or the runtime does. */
 export function sceneKey(r: Resolved): string {
