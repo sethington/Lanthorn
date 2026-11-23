@@ -377,6 +377,7 @@ function styleFor(s: LlmScene): StyleId {
   const over = ci === chapterIdx.value ? styleChapterOver.value : book.value ? getChapterOverride(book.value.id, ch?.id ?? "") : null;
   return effectiveStyle({ chapter: over, book: styleOver.value, def: defaultStyle.value, pkgChapter: ch?.style, pkgBook: book.value?.package?.style, picked: styleAuto.value.id }).id;
 }
+const JOB_NAME: Record<string, string> = { scan: "Book scan", bible: "Story bible", scene: "Scenes", judge: "Picture judge", author: "Outfits and props", design: "Animals and creatures", rewrite: "Writing helper" };
 const SOURCE_TEXT: Record<StyleSource, string> = { chapter: "your choice for this chapter", book: "your choice for this book", default: "your default look", "package-chapter": "the package's look for this chapter", package: "the package's look", picked: "" };
 function loadChapterStyle() {
   styleChapterOver.value = book.value ? getChapterOverride(book.value.id, book.value.chapters[chapterIdx.value]?.id ?? "") : null;
@@ -875,7 +876,7 @@ function setEl(el: unknown, i: number) {
           <div class="tokrow"><span>This chapter</span><span>{{ fmtTokens(tokensOf(usage.data.byChapter[curChap?.key ?? ""])) }}<template v-if="usage.data.byChapter[curChap?.key ?? '']"> · {{ fmtTokens(usage.data.byChapter[curChap?.key ?? ""].output) }} out</template><template v-else> · none (saved)</template></span></div>
           <div class="tokrow"><span>This book</span><span>{{ fmtTokens(tokensOf(usage.data.total)) }} · {{ fmtTokens(usage.data.total.output) }} out · {{ usage.data.total.calls }} calls<template v-if="usage.data.total.cost"> · ${{ usage.data.total.cost.toFixed(2) }}</template></span></div>
           <div v-if="judgeSettings.on" class="tokrow sub"><span>judge budget</span><span>${{ judgeSpent().toFixed(2) }}<template v-if="judgeSettings.cap > 0"> of ${{ judgeSettings.cap.toFixed(2) }}</template><template v-else> (no limit)</template> · {{ Object.values(judgeMemory.m.stats).reduce((n, s) => n + s.ok + s.bad, 0) }} checked · {{ Object.keys(judgeMemory.m.widen).length }} widened · {{ judgeMemory.m.drop.length }} dropped</span></div>
-          <div v-for="(t, job) in usage.data.byJob" :key="job" class="tokrow sub"><span>{{ job }}</span><span>{{ fmtTokens(tokensOf(t)) }} · {{ t.calls }} calls</span></div>
+          <div v-for="(t, job) in usage.data.byJob" :key="job" class="tokrow sub"><span>{{ JOB_NAME[job] ?? job }}</span><span>{{ fmtTokens(tokensOf(t)) }} · {{ t.calls }} calls</span></div>
         </div>
         <p v-if="curScenes.length && !analysis.running" class="dim stats">{{ curScenes.length }} scenes · {{ bible.characters.length }} characters · {{ bible.locations.length }} places · {{ visualCount }} with a picture<template v-if="analysis.cached"> · {{ analysis.cached }}/{{ analysis.total }} chunks from cache</template></p>
         <p v-if="analysis.error" class="llmerr">{{ analysis.error }}</p>
