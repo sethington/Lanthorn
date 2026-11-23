@@ -27,6 +27,8 @@ export function judgeSpent(): number {
   return !t ? 0 : t.cost > 0 ? t.cost : (t.input + t.output + t.cacheWrite + t.cacheRead * 0.1) * 4e-6;
 }
 
+/** What the world builds for a place on a small craft at sea, said to the judge so it does not take the deck for land. */
+export const afloatNote = (loc: string): string => (/\b(raft|dinghy|rowing ?boat|row-?boat|skiff|canoe|lifeboat|punt|adrift|afloat)\b/i.test(loc) && !/\b(shore|beach|harbou?r|quay|dock|pier|jetty)\b/i.test(loc) ? " The people sit on a small raft of lashed logs (the brown deck under them is the raft, not land); open sea runs to the horizon all around." : "");
 export type Verdict = { ok: boolean; issues: string[]; note: string; place?: "interior" | "exterior"; style?: string; make?: Make[]; redo?: Redo[]; /** a character (id from People in the world) that is missing, cut off, tiny or hidden: the camera is put on it */ frame?: string };
 /** A character whose drawn body (an animal or creature: a rig) or clothes (a person: an outfit) look wrong, and why: it is drawn again with that as the brief. */
 export type Redo = { kind: "rig" | "outfit"; who: string; why: string };

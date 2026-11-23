@@ -579,7 +579,14 @@ function applyFix(q: Suggestion) {
   dismiss(q, true);
   runRewrite();
 }
-const SUG_LABEL: Record<string, string> = { link: "Link", resource: "Resource", reference: "In your writing", tone: "Tone", style: "Style", consistency: "Consistency" };
+const SUG_LABEL: Record<string, string> = { link: "Link", resource: "Resource", reference: "In your writing", tone: "Tone", style: "Style", consistency: "Consistency", direction: "For the picture" };
+/** Put the suggested direction on a line of its own before the passage (it is hidden from every reader). */
+function applyDirection(q: Suggestion) {
+  if (!view || !q.tag) return;
+  const ln = view.state.doc.lineAt(Math.min(hp.from, view.state.doc.length));
+  view.dispatch({ changes: { from: ln.from, insert: q.tag + "\n\n" }, userEvent: "input.direction" });
+  dismiss(q, true);
+}
 
 // ---- the preview (the reader's typography), kept in step with the editor's scroll
 const previewEl = ref<HTMLElement | null>(null);
@@ -990,6 +997,8 @@ if (import.meta.env.DEV) (window as any).__ed = { view: () => view, rw, hp, star
             <button v-if="q.doc && q.doc.file" class="ghost sm" @click="openFileDoc(q)">Open file</button>
             <button v-if="q.query" class="ghost sm" @click="webSearch(q)">Search</button>
             <button v-if="q.fix" class="ghost sm gold" @click="applyFix(q)">Rewrite to fit</button>
+            <button v-if="q.tag" class="ghost sm gold" title="Put this direction before the passage; no reader sees it" @click="applyDirection(q)">Add the direction</button>
+            <code v-if="q.tag" class="dirtag">{{ q.tag }}</code>
           </div>
         </div>
         <p v-if="hp.checks || usage.data.total.calls" class="hnote small">{{ hp.checks }} {{ hp.checks === 1 ? "check" : "checks" }} this session · this document has used {{ fmtTokens(tokensOf(usage.data.total)) }} tokens in {{ usage.data.total.calls }} {{ usage.data.total.calls === 1 ? "call" : "calls" }}<template v-if="usage.data.total.cost"> (about ${{ usage.data.total.cost.toFixed(2) }})</template></p>
@@ -1125,6 +1134,7 @@ button:disabled { opacity: 0.5; cursor: default; }
 .dirmenu button:hover { background: #1f242d; }
 .dirmenu strong { color: #e6e8ee; font-size: 12.5px; text-transform: capitalize; }
 .dirmenu span { color: #7c8290; font-size: 11.5px; }
+.dirtag { display: block; margin-top: 6px; font: 11px/1.4 ui-monospace, Menlo, monospace; color: #9a8fc9; word-break: break-all; }
 .outline.float { position: absolute; z-index: 5; left: 0; top: 0; bottom: 0; width: 200px; box-shadow: 4px 0 16px rgba(0,0,0,.45); }
 .outline { overflow: auto; border-right: 1px solid #1f232a; background: #101318; padding: 8px 0; display: flex; flex-direction: column; }
 .outline button { all: unset; cursor: pointer; padding: 4px 10px; font-size: 12.5px; color: #aab0bd; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-left: 2px solid transparent; }

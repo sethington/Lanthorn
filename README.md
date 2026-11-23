@@ -284,7 +284,7 @@ book, with its chapters made from the headings, so **Read it** opens it in the r
   <character name="the Mariner" look="old man, long grey beard, a wet tattered coat"/>
   <note>Nothing moves but the albatross; keep the horizon empty.</note>
   ```
-  A `<scene …/>` holds from where it stands until the next one (or `</scene>`); each attribute is optional, and a later tag changes only what it names. `place` is
+  A `<scene …/>` holds from where it stands until the next one (or `</scene>`); each attribute is optional, and a later tag changes only what it names. Besides the ones above, `style` (a picture style: cinematic, storybook, cartoon, dream, noir, pixel), `camera` (`wide`, `medium` or `close`) and `sound` (the ambient bed) can be set. The helper will draft a direction for a passage that moves somewhere new (**Add the direction**). A place on a raft or small boat at sea is built as one: a log raft in open water, no land. `place` is
   `interior` or `exterior`, and once set the judge cannot overrule it. A `<character/>` fixes how that person or creature looks (add `kind="animal"` for an animal);
   a `<note>` is for the next paragraph. Tags inside code blocks or `` `code` `` are left alone.
 - **Images:** `![alt](path)` shows in the preview and in the PDF (as a figure, captioned from its title or description). Local paths are relative to the

@@ -83,9 +83,11 @@ export function applyWriter(scenes: Scene[], bible: Bible, plan: Plan | null): v
       if (w.weather) sc.weather = w.weather;
       if (w.mood) sc.mood = w.mood;
       if (w.sky || w.light || w.fog) sc.atmosphere = { ...(sc.atmosphere ?? {}), ...(w.sky ? { sky: w.sky } : {}), ...(w.light ? { light: w.light } : {}), ...(w.fog ? { fog: w.fog } : {}) };
+      if (w.camera) { sc.camera = { ...sc.camera, framing: w.camera }; if (sc.shots?.length) sc.shots[0] = { ...sc.shots[0], framing: w.camera }; }
+      if (w.sound) sc.audio = { ...sc.audio, bed: w.sound };
       if (w.props?.length) sc.props = Array.from(new Set([...w.props, ...sc.props])).slice(0, 8);
     }
     const note = [w ? describeScene(w) : "", ...notes].filter(Boolean).join(" | ");
-    if (note) sc.writer = { ...(w?.place ? { place: w.place } : {}), note: note.slice(0, 500) };
+    if (note || w?.style) sc.writer = { ...(w?.place ? { place: w.place } : {}), ...(w?.style ? { style: w.style } : {}), note: note.slice(0, 500) };
   }
 }

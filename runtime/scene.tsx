@@ -1093,6 +1093,35 @@ function Building({ a }: { a: any }) {
   );
 }
 
+/** A small raft: boards laid across two beams, under the people (resolver: `afloat`). */
+function Raft({ w, d, x, z }: { w: number; d: number; x: number; z: number }) {
+  // a bundle of logs lashed side by side with two cross-pieces on top, floating a little above the water (the sea is lowered to show its freeboard)
+  const n = Math.max(5, Math.round(w / 0.34)), lw = w / n;
+  const wood = (c: string) => <StandardMaterial base_color={c} perceptual_roughness={0.95} metallic={0} reflectance={0.05} />;
+  return (
+    <Entity transform={Transform.fromXyz(x, 0, z)}>
+      {Array.from({ length: n }, (_, i) => (
+        <Mesh3d key={i} transform={Transform.fromXyz(-w / 2 + lw * (i + 0.5), -0.17 + (i % 2) * 0.02, (i % 3) * 0.05 - 0.05)}>
+          <Cuboid half_size={[lw / 2 * 0.94, 0.17, d / 2]} />
+          {wood(["#9a7a52", "#8a6c48", "#a58559", "#7d6140"][i % 4])}
+        </Mesh3d>
+      ))}
+      {[-1, 1].map((s) => (
+        <Mesh3d key={s} transform={Transform.fromXyz(0, 0.03, s * (d / 2 - 0.35))}>
+          <Cuboid half_size={[w / 2 + 0.06, 0.05, 0.07]} />
+          {wood("#4a3826")}
+        </Mesh3d>
+      ))}
+      {[-1, 1].flatMap((s) => [-1, 1].map((t) => (
+        <Mesh3d key={`${s}${t}`} transform={Transform.fromXyz(t * (w / 2 - 0.1), 0.06, s * (d / 2 - 0.35))}>
+          <Cuboid half_size={[0.11, 0.06, 0.11]} />
+          {wood("#d8cdb4")}
+        </Mesh3d>
+      )))}
+    </Entity>
+  );
+}
+
 // ---- the sea: a big plane drawn by a water shader (wave normals from four crossing swells, a fresnel mix of deep colour and sky, the sun's
 // glint, haze to the horizon). The shader reads the frame's clock, so it moves in the reader's world and in a render alike.
 const WATER_WGSL = `
@@ -1130,7 +1159,7 @@ fn shade(in: VertexOutput) -> vec4<f32> {
   col = mix(col, u_fogc().rgb, clamp(dist / 700.0, 0.0, 1.0));
   return vec4<f32>(col, 1.0);
 }`;
-function Sea({ elev, sunPos, night, sunColor, weather }: { elev: number; sunPos: V3; night: boolean; sunColor: string; weather: string }) {
+function Sea({ elev, sunPos, night, sunColor, weather, lower = 0 }: { elev: number; sunPos: V3; night: boolean; sunColor: string; weather: string; lower?: number }) {
   const W = R.water;
   const storm = W.mood === "storm" || /storm|rain|hail/.test(weather);
   // [deep, sky/reflection, haze] by the kind of water and the light
@@ -1151,7 +1180,7 @@ function Sea({ elev, sunPos, night, sunColor, weather }: { elev: number; sunPos:
     <ShaderMesh
       name="sea"
       shape="box(900, 0.1, 900)"
-      position={[0, -0.05, W.zEdge + 1 - 450]}
+      position={[0, -0.05 - lower, W.zEdge + 1 - 450]}
       wgsl={WATER_WGSL}
       uniforms={{ deep, sky: skyc, sun: sunDir, suncol: sunColor, fogc: haze, mood: [calm, sharp, glint, 0], shore: [W.zEdge, 0, 0, 0] }}
     />
@@ -1971,7 +2000,8 @@ function Scene() {
           />
         </Mesh3d>
       ) : null}
-      {R.water ? <Sea elev={elev} sunPos={sunPos} night={night} sunColor={sunColor} weather={R.weather} /> : null}
+      {R.afloat ? <Raft w={R.afloat.w} d={R.afloat.d} x={R.afloat.x} z={R.afloat.z} /> : null}
+      {R.water ? <Sea elev={elev} sunPos={sunPos} night={night} sunColor={sunColor} weather={R.weather} lower={R.afloat ? 0.38 : 0} /> : null}
       {R.room ? <Room p={p} /> : null}
 
       {R.assets.map((a: any, i: number) =>

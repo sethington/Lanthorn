@@ -78,6 +78,8 @@ export type Resolved = {
   ground: { id: string; tile: number } | null;
   /** water at the edge of the land (the sea, a lake): where the shore runs (z) and what kind of water it is */
   water: { zEdge: number; mood: "calm" | "oily" | "red" | "storm" } | null;
+  /** the people are on a small craft in open water (a raft, a skiff): no land in view, a wooden deck under them */
+  afloat: { w: number; d: number; x: number; z: number } | null;
   room: RoomR | null;
   fog: { color: string; density: number };
   assets: Placed[];
@@ -205,7 +207,7 @@ const SPECIES: [RegExp, Omit<Creature, "body" | "belly" | "dark" | "dress">, str
   [/\b(piranha|piranhas|shark|sharks)\b/, { species: "piranha", cls: "quad", size: 0.4, ears: "none", tail: "short", snout: "short", legs: 4 }, "#6a7a8a"],
   [/\b(dragon|dragons|wyrm|drake)\b/, { species: "dragon", cls: "quad", size: 2.2, ears: "point", tail: "long", snout: "long", legs: 4 }, "#6a8a4a"],
   [/\b(bat|bats)\b/, { species: "bat", cls: "bird", size: 0.3, ears: "point", tail: "short", snout: "short", legs: 2 }, "#3a3238"],
-  [/\b(eagle|eagles|hawk|hawks|falcon|vulture|condor|albatross)\b/, { species: "eagle", cls: "bird", size: 0.7, ears: "none", tail: "short", snout: "beak", legs: 2 }, "#6a5a48"],
+  [/\b(eagle|eagles|hawk|hawks|falcon|vulture|condor)\b/, { species: "eagle", cls: "bird", size: 0.7, ears: "none", tail: "short", snout: "beak", legs: 2 }, "#6a5a48"],
   [/\b(zebra|zebras)\b/, { species: "zebra", cls: "quad", size: 1.7, ears: "point", tail: "long", snout: "long", legs: 4 }, "#e8e8e8"],
   [/\b(llama|llamas|alpaca|alpacas|camel|camels|dromedary)\b/, { species: "llama", cls: "quad", size: 1.7, ears: "point", tail: "short", snout: "long", legs: 4 }, "#b8956a"],
   [/\b(pug|pugs)\b/, { species: "pug", cls: "quad", size: 0.4, ears: "floppy", tail: "short", snout: "flat", legs: 4 }, "#d8c090"],
@@ -732,10 +734,13 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
   }
   // anything named that we couldn't place (and isn't part of the hero) is reported, not invented
   const heroish = /\b(time[- ]machine|machine|levers?|quartz|dials?|saddle|traveller|traveler)\b/;
+  // on a raft or a small boat in open water: the sea runs right up to the camera and a deck is built under the people (never a lawn beside the sea)
+  const afloatW = kind === "exterior" && /\b(raft|dinghy|rowing ?boat|row-?boat|skiff|canoe|lifeboat|punt|adrift|afloat|castaway)\b/.test(`${locText} ${sceneText}`.toLowerCase()) && !/\b(shore|beach|harbou?r|quay|dock|pier|jetty)\b/.test(locText.toLowerCase());
   const extraKind = new Map((opts.extra ?? []).map((e) => [e.what.toLowerCase(), e.kind]));
   const fishProps: string[] = [];
   for (const p of [...scene.props, ...(opts.extra ?? []).map((e) => e.what)]) {
     if (heroish.test(p.toLowerCase())) continue;
+    if (afloatW && /\b(raft|boat|skiff|dinghy|canoe|punt|deck|planks?)\b/.test(p.toLowerCase())) continue; // (the deck under them is built already)
     if (ENVIRONMENT.test(headWord(p)) && !/\b(beasts?|animals?|cattle|kine|herds?|flocks?)\b/.test(p.toLowerCase())) continue; // a sea, the land, the sky, light, mist: the world itself, not an object to find in a catalogue
     if (room) {
       const lp = p.toLowerCase();
@@ -810,8 +815,11 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
   // water: the sea, a lake, a shore. The land ends at a shoreline and the water runs on to the horizon.
   const aquatic = figures.filter((g) => g.kind === "creature" && /^(whale|fish|piranha)$/.test(g.creature?.species ?? ""));
   const wet = aquatic.length > 0 || /\b(sea|seas|ocean|shore|shoreline|beach|waves?|tide|tides|surf|harbou?r|bay|lake|coast|swell|brine|strand|shoal|lagoon|estuary|river|water)\b/.test(sceneText + " " + (scene.weather ?? ""));
-  const water: Resolved["water"] = kind === "exterior" && wet && !/\b(rain|raindrop)\b/.test(locText) ? {
-    zEdge: /\b(lakes?|rivers?|harbou?rs?)\b/.test(sceneText) ? -9 : -6,
+  const standing = figures.filter((g) => g.kind !== "creature");
+  const xs = standing.map((g) => g.x), zs = standing.map((g) => g.z);
+  const afloat: Resolved["afloat"] = afloatW ? { w: Math.max(1.9, (xs.length ? Math.max(...xs) - Math.min(...xs) : 0) + 1.3), d: Math.max(2.2, (zs.length ? Math.max(...zs) - Math.min(...zs) : 0) + 1.4), x: xs.length ? (Math.max(...xs) + Math.min(...xs)) / 2 : 0, z: zs.length ? (Math.max(...zs) + Math.min(...zs)) / 2 : 0.3 } : null;
+  const water: Resolved["water"] = kind === "exterior" && (wet || afloatW) && !/\b(rain|raindrop)\b/.test(locText) ? {
+    zEdge: afloatW ? 30 : /\b(lakes?|rivers?|harbou?rs?)\b/.test(sceneText) ? -9 : -6,
     mood: /\b(red (?:water|sea|waters|seas)|crimson|scarlet (?:sea|water)|blood)\b/.test(sceneText) ? "red" : /\b(oily|black water|dark water|slick|tar|tarry)\b/.test(sceneText) ? "oily" : /\b(storm|stormy|rough|gale|tempest|heavy seas)\b/.test(sceneText + " " + scene.weather) ? "storm" : "calm",
   } : null;
   // whales and fish live in the water: out in the sea, not on the shore
@@ -873,7 +881,7 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
   // a person standing beside the machine widens the shot
   const beside = figures.some((g) => !g.onMachine && !g.walk) && hero.kind === "time_machine";
   const dist = Math.min(kind === "interior" ? (beside ? 5.6 : 4.4) : 40, (heroH * (beside ? 1.4 : 1)) / (2 * Math.tan((fov * Math.PI) / 360) * fill));
-  const eye = 1.35 + (scene.camera.framing === "wide" ? 0.5 : 0);
+  const eye = 1.35 + (scene.camera.framing === "wide" ? 0.5 : 0) + (afloatW ? 0.7 : 0); // (a little higher over a raft, so its deck and edges show)
   const az0 = -0.35 + (r() - 0.5) * 0.3;
   const move = scene.camera.motion;
   const arc = move === "orbit" ? 0.7 : move === "drift" ? 0.25 : 0.08;
@@ -1068,6 +1076,7 @@ export function resolveScene(scene: Scene, bible: Bible, opts: { frames?: number
     sun: { startElev: SUN_ELEV[t0] ?? 30, endElev: SUN_ELEV[t1] ?? 30, cycles, azimuth: -0.8 + r() * 1.6, color: scene.atmosphere?.light ?? (presence ? "#ffe2a0" : SUN_COLOR[t0] ?? "#ffe9c9"), strength: (grey ? 0.35 : 1) * (presence ? 1.5 : 1) },
     ground,
     water,
+    afloat,
     room,
     fog: { color: scene.atmosphere?.fog ?? (grey ? "#8f98a3" : (FOG[t0] ?? "#c6d4e6")), density: kind === "interior" ? 0 : scene.atmosphere?.fogDensity ?? (grey ? 0.03 : 0.012) },
     assets,
@@ -1100,7 +1109,7 @@ export function assetsNeeded(r: Resolved): { kind: string; id: string; res: stri
 }
 
 /** Bump when runtime/scene.tsx changes in a way that alters frames, so cached renders are redone. */
-export const RUNTIME_VERSION = "rt127";
+export const RUNTIME_VERSION = "rt131";
 
 /** Cache key: changes whenever the resolved plan or the runtime does. */
 export function sceneKey(r: Resolved): string {

@@ -17,7 +17,7 @@ import { assetsNeeded, needsDesign, resolveScene, sceneKey, type Resolved } from
 import type { Bible, Scene } from "./lib/scene";
 import type { PackageAsset } from "./lib/book";
 import type { Sentence } from "./lib/text";
-import { alreadyJudged, applyVerdict, budgetLeft, describeCue, brightFor, styleOf, aimFor, crowdFor, placeFor, madeFor, isDropped, takeRedo, takeRedoPeek, frameFor, seedFor, judgeSettings, parseVerdict, RUBRIC, widenFor } from "./lib/judge";
+import { afloatNote, alreadyJudged, applyVerdict, budgetLeft, describeCue, brightFor, styleOf, aimFor, crowdFor, placeFor, madeFor, isDropped, takeRedo, takeRedoPeek, frameFor, seedFor, judgeSettings, parseVerdict, RUBRIC, widenFor } from "./lib/judge";
 
 // `sid` is the sentence under the reading line, `frac` how far through it (0..1). The picture sits in the element matched by `host`.
 const props = defineProps<{ sentences: Sentence[]; scenes: Scene[]; bible: Bible; pkg?: PackageAsset[]; host: string; sid: number; frac: number; styleFor?: (s: Scene) => string | undefined; styleVer?: number }>();
@@ -165,7 +165,7 @@ function prepare(gi: number, full = true): Promise<Prep> {
         return { act, p0: (t0 - g.t0) / span, p1: (t1 - g.t0) / span };
       });
     });
-    const ropts = { pkg: props.pkg, size: SIZE, shots, stage, acting, style: props.styleFor?.(rep), place: placeFor(key0), seed: seedFor(key0), roomStyle: styleOf(key0), extra: madeFor(key0), seconds: span };
+    const ropts = { pkg: props.pkg, size: SIZE, shots, stage, acting, style: rep.writer?.style ?? props.styleFor?.(rep), place: placeFor(key0), seed: seedFor(key0), roomStyle: styleOf(key0), extra: madeFor(key0), seconds: span };
     p = (async () => {
       const T0 = performance.now();
       let tLlm = 0;
@@ -450,7 +450,7 @@ async function judgeTick() {
       const loc = props.bible.locations.find((l) => l.id === sc.location);
       const who = sc.subjects.map((x) => `${x.ref} (${x.pose})`).join(", ");
       what = `${sc.interior ? "an indoor" : "an outdoor"} place: ${(loc?.desc ?? sc.location).slice(0, 140)}; ${sc.time.start}, ${sc.weather}. ` +
-        `People in the world: ${who || "none"}. Props: ${sc.props.slice(0, 6).join(", ") || "none"}. Camera: ${f.shot?.framing ?? "wide"} shot on ${f.shot?.focus ?? "the scene"}`;
+        `People in the world: ${who || "none"}.${afloatNote(loc?.desc ?? sc.location)} Props: ${sc.props.slice(0, 6).join(", ") || "none"}. Camera: ${f.shot?.framing ?? "wide"} shot on ${f.shot?.focus ?? "the scene"}`;
     }
   }
   if (key !== lastKey) { lastKey = key; movedAt = performance.now(); }
@@ -517,7 +517,7 @@ async function judgeAheadTick() {
         }
         const loc = props.bible.locations.find((l) => l.id === sc.location);
         const who = sc.subjects.map((q) => `${q.ref} (${q.pose})`).join(", ");
-        const what = `${sc.interior ? "an indoor" : "an outdoor"} place: ${(loc?.desc ?? sc.location).slice(0, 140)}; ${sc.time.start}, ${sc.weather}. People in the world: ${who || "none"}. Props: ${sc.props.slice(0, 6).join(", ") || "none"}. Camera: ${x.framing ?? "wide"} shot on ${x.focus ?? "the scene"}`;
+        const what = `${sc.interior ? "an indoor" : "an outdoor"} place: ${(loc?.desc ?? sc.location).slice(0, 140)}; ${sc.time.start}, ${sc.weather}. People in the world: ${who || "none"}.${afloatNote(loc?.desc ?? sc.location)} Props: ${sc.props.slice(0, 6).join(", ") || "none"}. Camera: ${x.framing ?? "wide"} shot on ${x.focus ?? "the scene"}`;
         const sid = Math.min(props.sentences.length - 1, Math.max(0, x.from ?? sc.from));
         const text = props.sentences.slice(Math.max(0, sid - 1), sid + 2).map((q) => q.text.trim()).join(" ");
         const c = await api.llmVision("judge", RUBRIC, `Text being read: "${text}"\nThe world was directed to show: ${what}.${writerLine(sc)}\nDoes the picture suit it?`, out);

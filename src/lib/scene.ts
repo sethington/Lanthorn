@@ -54,7 +54,7 @@ export type Scene = {
   audio: { bed: string; spots: { at: number; sound: string }[] };
   confidence: number;
   /** the writer's own direction for this passage (hidden tags in their document, lib/directives.ts): the judge keeps to it */
-  writer?: { place?: "interior" | "exterior"; note: string };
+  writer?: { place?: "interior" | "exterior"; /** a picture style the writer asked for (a style id) */ style?: string; note: string };
   /** optional, for hand-made scenes: put a bundled asset exactly here (metres; height scales it) */
   /** direction: camera shots, who speaks, what characters do. All optional: missing parts are directed automatically. */
   shots?: Shot[];

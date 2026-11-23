@@ -6,6 +6,7 @@
 //      and only the numbers go to the model;
 //   4. one call, with the passage, the outline, the grep hits and the numbers, gives the suggestions.
 
+import { extractDirectives } from "./directives";
 import { api } from "./api";
 import { jsonOf } from "./author";
 import { type Book } from "./book";
@@ -13,7 +14,7 @@ import { markdownOfBook, plainOf } from "./markdown";
 
 export type Suggestion = {
   id: string;
-  type: "link" | "resource" | "reference" | "tone" | "style" | "consistency";
+  type: "link" | "resource" | "reference" | "tone" | "style" | "consistency" | "direction";
   /** the exact words in the passage this is about (may be empty) */
   anchor: string;
   title: string;
@@ -25,6 +26,8 @@ export type Suggestion = {
   query?: string;
   /** for tone, style and consistency: what to ask of a rewrite */
   fix?: string;
+  /** for a direction: one complete hidden tag (<scene …/> or <character …/>) to put before the passage, so the picture side knows what the writer means */
+  tag?: string;
 };
 
 export type Doc = { id: string; title: string; lines: string[]; here?: boolean };
@@ -160,7 +163,19 @@ const HELP_SYSTEM = `You are a writing helper beside a writer's Markdown editor.
 - reference: they said something related, or the opposite, elsewhere (cite which document and line, and how it relates).
 - tone, style: use the measurements: say how the passage differs from the rest and what to do. If the numbers show no clear difference, say nothing about tone.
 - consistency: a name, term, fact or number that disagrees with the matches.
+- direction: only when the passage moves to a new place or time, or first brings in a person or creature whose look matters, and gives enough to say it. Give "tag": ONE complete tag, in this syntax only: <scene place="exterior|interior" location="a few words" time="dawn|morning|noon|afternoon|dusk|night" weather="clear|overcast|rain|snow|fog|storm" mood="one or two words"/> or <character name="Name" look="man|woman|boy|girl, then the look, under 20 words"/>. Use only what the passage says or clearly implies. At most one direction.
 Quote anchors exactly. Do not repeat the same point twice. If nothing is worth saying, reply {"suggestions":[]}.`;
+
+/** What the writer has already told the picture side, so the helper does not repeat it. */
+function directionsNote(lines: string[], before: number): string {
+  const all = lines.join("\n");
+  const { list } = extractDirectives(all);
+  if (!list.length) return "none";
+  const upto = extractDirectives(lines.slice(0, before).join("\n")).list;
+  const chars = list.filter((d) => d.kind === "character").map((d) => d.attrs.name).filter(Boolean);
+  const lastScene = [...upto].reverse().find((d) => d.kind === "scene");
+  return `${list.filter((d) => d.kind === "scene").length} scene tags${lastScene && !lastScene.close ? ` (in force at this passage: ${Object.entries(lastScene.attrs).map(([k, v]) => `${k}="${v}"`).join(" ")})` : ""}; characters described: ${chars.join(", ") || "none"}`;
+}
 
 export type HelpInput = {
   passage: string;
@@ -199,6 +214,7 @@ export async function helpWith(inp: HelpInput, corpus: Doc[], folder = ""): Prom
   const user =
     `Document: "${inp.docTitle}"\nOutline:\n${out}\n\nPassage (lines ${inp.passageFrom + 1}-${inp.passageTo + 1}):\n${inp.passage.slice(0, 2400)}\n\n` +
     `Matches (from searching for: ${terms.join(", ")}):\n${hits.length ? hits.map((h) => `- [${h.here ? "this document" : h.docTitle}] id=${h.doc} line ${h.line}: ${h.text}`).join("\n") : "(none)"}\n\n` +
+    `Directions for the picture already in the document: ${directionsNote(inp.docLines, inp.passageFrom)}\n\n` +
     `How the passage sounds against the rest:\n${notes.length ? notes.map((n) => `- ${n}`).join("\n") : "(no clear difference)"}` +
     (tasteNote() ? `\n\nHow this writer has reacted to past suggestions (${tasteNote()}). Offer fewer of the kinds they mostly dismiss, and only when it is clearly worth it.` : "");
   const c = await api.llmComplete("rewrite", HELP_SYSTEM, user);
@@ -206,11 +222,18 @@ export async function helpWith(inp: HelpInput, corpus: Doc[], folder = ""): Prom
   const titleOf = new Map<string, string>([[inp.docId, inp.docTitle], ...corpus.map((d) => [d.id, d.title] as [string, string])]);
   const suggestions: Suggestion[] = [];
   for (const s of Array.isArray(j?.suggestions) ? j.suggestions : []) {
-    const type = ["link", "resource", "reference", "tone", "style", "consistency"].includes(s?.type) ? s.type : null;
+    const type = ["link", "resource", "reference", "tone", "style", "consistency", "direction"].includes(s?.type) ? s.type : null;
     if (!type || typeof s.title !== "string") continue;
     const fileDoc = typeof s.doc === "string" && files.has(s.doc);
     const doc = typeof s.doc === "string" && (titleOf.has(s.doc) || fileDoc) ? { id: s.doc, title: fileDoc ? (hits.find((h) => h.doc === s.doc)?.docTitle ?? s.doc) : titleOf.get(s.doc)!, line: Math.max(1, Number(s.line) || 1), ...(fileDoc ? { file: files.get(s.doc) } : {}) } : undefined;
     if ((type === "link" || type === "reference") && !doc && !s.url && !s.query) continue;
+    let tag: string | undefined;
+    if (type === "direction") { // only a single, well-formed tag is kept
+      const t = typeof s.tag === "string" ? s.tag.trim() : "";
+      const e = extractDirectives(t);
+      if (!t || e.list.length !== 1 || e.clean.trim() || e.list[0].kind === "note") continue;
+      tag = t.slice(0, 500);
+    }
     suggestions.push({
       id: `${type}:${String(s.anchor ?? "").slice(0, 30)}:${String(s.title).slice(0, 30)}`,
       type,
@@ -221,6 +244,7 @@ export async function helpWith(inp: HelpInput, corpus: Doc[], folder = ""): Prom
       url: typeof s.url === "string" && /^https?:\/\//i.test(s.url) ? s.url.slice(0, 300) : undefined,
       query: typeof s.query === "string" ? s.query.slice(0, 120) : undefined,
       fix: typeof s.fix === "string" ? s.fix.slice(0, 240) : undefined,
+      ...(tag ? { tag } : {}),
     });
   }
   return { suggestions: suggestions.slice(0, 5), hits: hits.length, terms, notes };

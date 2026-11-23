@@ -75,10 +75,12 @@ export const characterId = (name: string) => slug(name) || "character";
 
 export const TIMES = ["dawn", "morning", "noon", "afternoon", "dusk", "night"];
 const timeOf = (s: string | undefined): string | undefined => { const t = (s ?? "").toLowerCase().trim(); return TIMES.includes(t) ? t : /sunrise|daybreak/.test(t) ? "dawn" : /sunset|evening|twilight/.test(t) ? "dusk" : /midnight/.test(t) ? "night" : /midday/.test(t) ? "noon" : undefined; };
+import { STYLES } from "./style";
+const STYLE_IDS: string[] = STYLES.map((s) => s.id);
 const WEATHER = ["clear", "overcast", "rain", "snow", "fog", "storm"];
 
 /** What the writer has fixed for a passage, as one value: from a <scene> in force. */
-export type WriterScene = { place?: "interior" | "exterior"; location?: string; start?: string; end?: string; weather?: string; mood?: string; sky?: string; light?: string; fog?: string; props?: string[] };
+export type WriterScene = { style?: string; camera?: "wide" | "medium" | "close"; sound?: string; place?: "interior" | "exterior"; location?: string; start?: string; end?: string; weather?: string; mood?: string; sky?: string; light?: string; fog?: string; props?: string[] };
 export function sceneOf(a: Record<string, string>): WriterScene {
   const w: WriterScene = {};
   const p = (a.place ?? "").toLowerCase();
@@ -92,6 +94,11 @@ export function sceneOf(a: Record<string, string>): WriterScene {
   if (a.sky) w.sky = a.sky.slice(0, 80);
   if (a.light && /^#[0-9a-f]{6}$/i.test(a.light)) w.light = a.light;
   if (a.fog && /^#[0-9a-f]{6}$/i.test(a.fog)) w.fog = a.fog;
+  const st = (a.style ?? "").toLowerCase().trim();
+  if (STYLE_IDS.includes(st)) w.style = st;
+  const cam = (a.camera ?? "").toLowerCase().trim();
+  if (cam === "wide" || cam === "medium" || cam === "close") w.camera = cam;
+  if (a.sound) w.sound = a.sound.slice(0, 60);
   if (a.props) w.props = a.props.split(/\s*,\s*/).filter(Boolean).slice(0, 8);
   return w;
 }
@@ -105,5 +112,8 @@ export function describeScene(w: WriterScene): string {
   if (w.mood) bits.push(`mood: ${w.mood}`);
   if (w.sky) bits.push(`sky: ${w.sky}`);
   if (w.props?.length) bits.push(`props: ${w.props.join(", ")}`);
+  if (w.style) bits.push(`picture style: ${w.style}`);
+  if (w.camera) bits.push(`camera: ${w.camera} shots`);
+  if (w.sound) bits.push(`sound: ${w.sound}`);
   return bits.join("; ");
 }
